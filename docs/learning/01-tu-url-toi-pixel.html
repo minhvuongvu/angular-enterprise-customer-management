@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 01 — Từ URL tới pixel trong repo này</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 0 — Định hướng → Bài 01</p>
+        <h1>Từ URL tới pixel trong repo này</h1>
+        <p class="lede">
+          Một thao tác duy nhất — người dùng mở
+          <code>/customers?page=2&amp;size=25</code> — đi qua mười hai tầng và kết thúc
+          bằng một dòng trong bảng. Bài này đi hết con đường đó, có tên file thật. Đây là
+          bản đồ bạn sẽ quay lại suốt hai mươi bốn bài còn lại.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 0</li>
+          <li class="tag">~2 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chỉ ra được, với bất kỳ số nào trên màn hình, chuỗi file đã sinh ra nó — và
+              đi ngược chuỗi đó khi phải sửa bug.
+            </li>
+            <li>
+              Phân biệt được hai “router” trong một lần bấm: router của Angular (không
+              gọi mạng) và HttpClient (có gọi mạng).
+            </li>
+            <li>
+              Nói được ai biến <code>?page=2</code> thành input của component, và vì sao
+              component không giữ biến <code>page</code> của riêng nó.
+            </li>
+            <li>
+              Giải thích được tại sao khi response về, <strong>không ai gọi hàm render</strong>
+              mà màn hình vẫn đổi.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>Con đường một request đi trong Spring, và cái gần nhất với nó ở đây:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Spring</th>
+                  <th>Ở đây</th>
+                  <th>File</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>HandlerMapping</td>
+                  <td>Router khớp URL, nạp chunk, dựng component</td>
+                  <td><code>app.routes.ts</code> → <code>customers.routes.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>@RestController</code></td>
+                  <td>Page component</td>
+                  <td><code>customer-list/customer-list-page.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>@Service</code></td>
+                  <td>Store — nhưng có state và có cache</td>
+                  <td><code>state/customer-store.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>@Repository</code></td>
+                  <td>API client</td>
+                  <td><code>data/customer.api.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>Filter</code> chain</td>
+                  <td>5 interceptor</td>
+                  <td><code>core/http/http.providers.ts</code></td>
+                </tr>
+                <tr>
+                  <td>Bean validation ở DTO</td>
+                  <td>Zod parse ở biên response</td>
+                  <td><code>packages/contracts/src/customer.ts</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Hai chỗ phép so sánh sai, và đều sai quan trọng</span>
+            <p>
+              <strong>Một.</strong> Trong Spring, chuỗi đó <em>trả về</em> một giá trị:
+              controller return, framework serialize, kết thúc. Ở đây chuỗi
+              <strong>không trả gì về cho người gọi</strong>. Response đi tới đích là một
+              <code>signal</code> trong store; việc màn hình đổi là
+              <em>hệ quả</em> của việc signal đó bị gán, không phải là giá trị trả về của
+              ai. Không có dòng code nào trong repo gọi “render”.
+            </p>
+            <p>
+              <strong>Hai.</strong> Trong Spring, mỗi request dựng lại mọi thứ từ đầu. Ở
+              đây, khi người dùng bấm sang trang 2, <strong>store đã tồn tại</strong> —
+              cùng với cache của nó, cùng với dòng đang chọn, cùng với request trước đó có
+              thể còn đang bay. Nửa sau của bài này nói về chuyện đó: không phải “dữ liệu
+              về thế nào”, mà “cái gì xảy ra với thứ đang có sẵn”.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế: mười hai chặng</h2>
+
+          <p>
+            Tình huống: người dùng đã đăng nhập, đang ở <code>/customers</code>, và bấm
+            sang trang 2. Đi từ đầu.
+          </p>
+
+          <h3>Chặng 1–2: không có gì được tải về từ server</h3>
+
+          <p>
+            Bấm vào nút phân trang gọi <code>goToPage(2)</code>, và việc duy nhất hàm đó
+            làm là <strong>điều hướng</strong>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>protected applyCriteria(criteria: CustomerListCriteria, focusSelector?: string): void {
+  if (focusSelector) {
+    this.returnFocusTo(focusSelector, criteria);
+  }
+  this.router.navigate([], {
+    relativeTo: this.route,
+    queryParams: criteriaToQueryParams(criteria),
+    queryParamsHandling: 'merge',
+  });
+}</code></pre>
+          </div>
+
+          <p>
+            Chú thích trong file nói rõ vì sao <em>mọi</em> thay đổi của danh sách đều đi
+            qua đây: đó là thứ làm nút Back hoàn tác đúng hành động cuối cùng của người
+            dùng, dù đó là đổi trang, đổi bộ lọc hay đổi sắp xếp — và làm cho trạng thái
+            trên màn hình dựng lại được chỉ từ thanh địa chỉ.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">URL là state, không phải là địa chỉ</span>
+            <p>
+              Đây là quyết định kiến trúc đầu tiên bạn nên mang đi: tiêu chí lọc
+              <strong>không</strong> được giữ trong component. Chú thích của class nói
+              thẳng — “There is deliberately no <code>page</code> field on this class: a
+              second copy would be the thing that gets out of step with the URL.” Bài 17
+              đào sâu.
+            </p>
+          </div>
+
+          <h3>Chặng 3: router đổi URL, và query param thành input</h3>
+
+          <p>
+            Router không gọi mạng. Nó khớp URL mới, thấy vẫn là cùng component, nên
+            <strong>không dựng lại</strong> page — chỉ cập nhật các input. Việc query
+            param trở thành input là nhờ một tuỳ chọn duy nhất khai báo lúc bootstrap:
+          </p>
+
+          <div class="code">
+            <div class="code__file">app/app.config.ts</div>
+            <pre><code>provideRouter(
+  routes,
+  // Route parameters arrive as component inputs. Phase 2 reads `:id` and
+  // the list's query parameters this way instead of subscribing to
+  // ActivatedRoute in every component.
+  withComponentInputBinding(),
+  withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' }),
+  withPreloading(FlaggedPreloading),
+),</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>// The eight query parameters, bound by `withComponentInputBinding`. They are
+// raw strings on purpose: validation belongs in one place, and that place is
+// `readCriteria`, which every caller of the criteria goes through.
+readonly page = input&lt;string&gt;();
+readonly size = input&lt;string&gt;();
+readonly sort = input&lt;string&gt;();
+readonly search = input&lt;string&gt;();
+// … status, gender, createdFrom, createdTo</code></pre>
+          </div>
+
+          <p>
+            Tám input, tất cả là <code>string | undefined</code>, cố ý thô. Người dùng gõ
+            được bất cứ gì vào thanh địa chỉ, nên việc chuẩn hoá và kiểm tra dồn vào một
+            hàm duy nhất là <code>readCriteria</code>.
+          </p>
+
+          <h3>Chặng 4: computed chuẩn hoá, effect đẩy xuống store</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>protected readonly criteria = computed&lt;CustomerListCriteria&gt;(() =&gt;
+  readCriteria({
+    page: this.page(),
+    size: this.size(),
+    // … sáu tham số còn lại
+  }),
+);
+
+constructor() {
+  this.destroyRef.onDestroy(this.store.watchList());
+
+  // One effect, so the order is not an accident: the selection belongs to
+  // the page of results that is on screen, so it is cleared *before* the
+  // store is asked for a different one.
+  effect(() =&gt; {
+    const criteria = this.criteria();
+    this.selectedIds.set(new Set());
+    this.bulkResult.set(null);
+    this.store.setCriteria(criteria);
+  });
+}</code></pre>
+          </div>
+
+          <p>
+            Đây là một trong rất ít chỗ <code>effect</code> là lựa chọn đúng: nó đồng bộ
+            thế giới signal (input từ URL) sang một thứ <em>không</em> phải signal (lệnh
+            cho store). Bài 03 nói vì sao <code>effect</code> là lựa chọn cuối cùng và
+            phần lớn trường hợp <code>computed</code> mới đúng.
+          </p>
+
+          <p>
+            Để ý thứ tự trong effect: xoá lựa chọn <strong>trước</strong> khi hỏi store
+            trang khác. Chú thích giải thích vì sao nó không phải tình cờ — một selection
+            sống sót qua việc đổi trang là cách người ta xoá nhầm bản ghi.
+          </p>
+
+          <h3>Chặng 5: store quyết định có hỏi server hay không</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>setCriteria(criteria: CustomerListCriteria): void {
+  const unchanged =
+    this.activeCriteria !== null &amp;&amp;
+    criteriaKey(this.activeCriteria) === criteriaKey(criteria) &amp;&amp;
+    this.listState().status !== 'idle';
+
+  this.activeCriteria = criteria;
+  if (!unchanged || this.listStale) {
+    this.listStale = false;
+    this.listRequests.next(criteria);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            <code>criteriaKey</code> là tiêu chí đã chuẩn hoá thành một chuỗi. Hai lần
+            gọi với cùng tiêu chí không sinh ra hai request. Và request không được gọi
+            trực tiếp — nó được <strong>đẩy vào một <code>Subject</code></strong>.
+          </p>
+
+          <h3>Chặng 6: <code>switchMap</code>, tức là huỷ request</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts — constructor</div>
+            <pre><code>this.listRequests
+  .pipe(
+    switchMap((criteria) =&gt; this.fetchList(criteria)),
+    takeUntilDestroyed(),
+  )
+  .subscribe();</code></pre>
+          </div>
+
+          <p>
+            Một toán tử, và nó là toàn bộ cơ chế huỷ request của feature này. Giá trị mới
+            vào <code>Subject</code> thì <code>switchMap</code> unsubscribe khỏi request
+            trước, và việc unsubscribe đó <strong>abort</strong> fetch đang bay. Không có
+            cờ nào được giữ, không có timestamp nào được so sánh: response đến muộn
+            <em>không bao giờ đến</em>.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao là <code>Subject</code> chứ không phải signal</span>
+            <p>
+              Chú thích trong file trả lời: pipeline này phải chạy
+              <em>ngay lúc</em> được yêu cầu, không phải ở lần flush effect kế tiếp — để
+              “gõ tiếp thì huỷ tìm kiếm trước” là một tính chất của code, không phải của
+              bộ lịch của Angular. Đây là loại lý lẽ bạn sẽ phải tự đưa ra ở dự án thật,
+              và nó là lý do chính đáng duy nhất để không dùng signal ở đây.
+            </p>
+          </div>
+
+          <h3>Chặng 7: cache trả lời trước, rồi mới hỏi mạng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>private fetchList(criteria: CustomerListCriteria): Observable&lt;unknown&gt; {
+  const key = criteriaKey(criteria);
+  const cached = this.cache.getPage(key);
+  this.listState.set(reloadFrom(cached));
+
+  return this.api.list(criteria).pipe(
+    tap((page) =&gt; {
+      this.cache.putPage(key, page);
+      this.listState.set(success(page));
+    }),
+    catchError((error: unknown) =&gt; {
+      // The stale value is carried only when it answers this same request.
+      this.listState.set(failed(toAppError(error), cached));
+      return EMPTY;
+    }),
+  );
+}</code></pre>
+          </div>
+
+          <p>
+            Ba dòng đầu là cả một bài học. <code>reloadFrom(cached)</code> quyết định
+            trạng thái tiếp theo là <code>loading</code> (chưa có gì để hiện → hiện
+            skeleton) hay <code>refreshing</code> (đã có đúng câu trả lời cho câu hỏi này
+            → giữ bảng trên màn hình và kiểm tra lại). Đó là khác biệt giữa một danh sách
+            “cảm giác tức thì” và một danh sách nháy skeleton mỗi lần quay lại. Bài 11 và
+            12.
+          </p>
+
+          <h3>Chặng 8: API client — chỗ duy nhất biết đến HTTP</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer.api.ts</div>
+            <pre><code>list(criteria: CustomerListCriteria): Observable&lt;PageResponse&lt;Customer&gt;&gt; {
+  return this.http
+    .get&lt;unknown&gt;(this.baseUrl, { params: toHttpParams(criteria) })
+    .pipe(withReadPolicy(), map(parseWith(customerPageSchema)));
+}</code></pre>
+          </div>
+
+          <p>Ba điều trong bốn dòng:</p>
+          <ul>
+            <li>
+              <code>get&lt;unknown&gt;</code> — không phải
+              <code>get&lt;PageResponse&gt;</code>. Khai báo generic cho HttpClient chỉ là
+              một lời <em>hứa</em>; nó không kiểm tra gì lúc chạy. Ở đây sự thật đến từ
+              <code>parseWith</code>.
+            </li>
+            <li>
+              <code>withReadPolicy()</code> — timeout và retry, chọn riêng cho từng
+              endpoint trong <code>data/request-policy.ts</code>. Cố ý
+              <strong>không</strong> nằm trong interceptor: một interceptor retry mọi thứ
+              sẽ vui vẻ retry một lần thanh toán thất bại.
+            </li>
+            <li>
+              <code>parseWith(schema)</code> — Zod kiểm tra body. Một response 200 mà
+              body sai hợp đồng là <em>lỗi server</em>, được phân loại ngay tại biên, chứ
+              không nổ ba tầng sau dưới dạng <code>undefined is not an object</code>
+              trong một template.
+            </li>
+          </ul>
+
+          <h3>Chặng 9: năm interceptor, và thứ tự là một thiết kế</h3>
+
+          <div class="code">
+            <div class="code__file">core/http/http.providers.ts</div>
+            <pre><code>withInterceptors([
+  correlationIdInterceptor,   // 1. đóng dấu id, để mọi tầng dưới đọc được
+  requestLoggingInterceptor,  // 2. đo thời gian và ghi kết cục
+  authRefreshInterceptor,     // 3. phiên hết hạn: refresh một lần, retry một lần
+  csrfInterceptor,            // 4. echo cookie CSRF cho request không an toàn
+  errorMappingInterceptor,    // 5. HttpErrorResponse → AppError
+]),</code></pre>
+          </div>
+
+          <p>
+            Request đi <em>xuống</em> danh sách, response đi <em>lên</em>. Mỗi vị trí là
+            một lập luận, và chú thích trong file viết ra cả năm. Ba cái đáng nhớ:
+          </p>
+
+          <ul>
+            <li>
+              <code>correlationId</code> đứng đầu <strong>để mọi interceptor khác đọc
+              được id</strong>.
+            </li>
+            <li>
+              <code>requestLogging</code> ở <em>trên</em> <code>authRefresh</code>, nên
+              một request được làm mới phiên rồi thử lại là <strong>một</strong> dòng log
+              với thời lượng thật — không phải hai request trong log.
+            </li>
+            <li>
+              <code>errorMapping</code> đứng <strong>cuối</strong>, nên mọi tầng phía
+              trên nó — kể cả refresh — chỉ suy luận theo <em>loại lỗi</em>, không bao giờ
+              theo status code.
+            </li>
+          </ul>
+
+          <div class="box box--note">
+            <span class="box__label">Thứ không có trong chuỗi</span>
+            <p>
+              Không có interceptor nào gắn header <code>Authorization</code>. Đó không
+              phải thiếu sót: credential là một cookie <code>HttpOnly</code> do trình
+              duyệt tự đính kèm, và JavaScript không đọc được nó (ADR-0016). Nếu bạn đến
+              từ một backend quen với bearer token thì đây là chỗ cần dừng lại — bài 19.
+            </p>
+          </div>
+
+          <h3>Chặng 10: qua dây, sang mock API</h3>
+
+          <p>
+            Dev server proxy <code>/api</code> sang cổng 4300. Bên đó là một server
+            Express thật, với middleware riêng của nó — CORS, correlation id, độ trễ giả,
+            rate limit, xác thực, rồi mới tới route handler
+            (<code>apps/mock-api/src/middleware/</code>). Nó
+            <strong>tự kiểm tra quyền</strong> trên từng request, không tin gì vào
+            frontend. Đó là điều khiến repo này dạy được chuyện bảo mật thật.
+          </p>
+
+          <h3>Chặng 11: response đi lên, rồi được gán vào signal</h3>
+
+          <p>
+            Ngược chuỗi interceptor, qua <code>parseWith</code>, vào
+            <code>tap</code>: cache lưu trang, <code>listState.set(success(page))</code>.
+            Đó là dòng cuối cùng của phần “lấy dữ liệu”. Không ai gọi render.
+          </p>
+
+          <h3>Chặng 12: signal đổi → computed tính lại → template vẽ lại</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>private readonly state = this.store.list;
+
+protected readonly rows = computed(() =&gt; valueOf(this.state())?.items ?? []);
+protected readonly totalItems = computed(() =&gt; valueOf(this.state())?.totalItems ?? 0);
+protected readonly pending = computed(
+  () =&gt; this.state().status === 'loading' || this.state().status === 'refreshing',
+);
+
+protected readonly view = computed&lt;'loading' | 'error' | 'empty' | 'rows'&gt;(() =&gt; {
+  const state = this.state();
+  if (state.status === 'idle' || state.status === 'loading') {
+    return 'loading';
+  }
+  if (state.status === 'error' &amp;&amp; state.value === null) {
+    return 'error';
+  }
+  return this.rows().length === 0 ? 'empty' : 'rows';
+});</code></pre>
+          </div>
+
+          <p>
+            <code>store.list</code> là một signal chỉ-đọc. Page không
+            <em>theo dõi</em> nó bằng subscribe; nó chỉ khai báo các giá trị dẫn xuất. Khi
+            store gán state mới, Angular biết <code>rows</code>,
+            <code>totalItems</code>, <code>view</code> đã cũ, tính lại chúng, và vẽ lại
+            đúng nhánh <code>@switch</code> trong template. Vòng tròn đóng lại.
+          </p>
+
+          <p>
+            <code>view</code> đáng đọc kỹ: bốn cách hiển thị được dẫn xuất ở
+            <strong>một</strong> chỗ thay vì một chuỗi <code>@if</code> trong template, nên
+            các nhánh là loại trừ nhau một cách thấy được. Và “empty” xuất hiện ở đây —
+            nó là một <em>cách hiển thị</em> của một response thành công không có dòng
+            nào, không phải một trạng thái mà store phải theo dõi.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: bảng tra cứu</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chặng</th>
+                  <th>File</th>
+                  <th>Ký hiệu cần tìm</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1–2</td>
+                  <td><code>customers/customer-list/customer-list-page.ts</code></td>
+                  <td><code>goToPage</code>, <code>applyCriteria</code></td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>app/app.config.ts</code></td>
+                  <td><code>withComponentInputBinding()</code></td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>app/app.routes.ts</code>, <code>customers/customers.routes.ts</code></td>
+                  <td><code>loadChildren</code>, route cha không có path cấp providers</td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><code>customers/data/customer-list-criteria.ts</code></td>
+                  <td><code>readCriteria</code>, <code>criteriaKey</code></td>
+                </tr>
+                <tr>
+                  <td>5–7</td>
+                  <td><code>customers/state/customer-store.ts</code></td>
+                  <td><code>setCriteria</code>, <code>fetchList</code>, <code>listRequests</code></td>
+                </tr>
+                <tr>
+                  <td>7</td>
+                  <td><code>customers/state/customer-cache.ts</code>, <code>state/remote-data.ts</code></td>
+                  <td><code>getPage</code>, <code>reloadFrom</code></td>
+                </tr>
+                <tr>
+                  <td>8</td>
+                  <td><code>customers/data/customer.api.ts</code>, <code>data/request-policy.ts</code></td>
+                  <td><code>list</code>, <code>parseWith</code>, <code>withReadPolicy</code></td>
+                </tr>
+                <tr>
+                  <td>9</td>
+                  <td><code>core/http/</code></td>
+                  <td>5 file interceptor + <code>http.providers.ts</code></td>
+                </tr>
+                <tr>
+                  <td>10</td>
+                  <td><code>apps/mock-api/src/routes/customers.routes.ts</code></td>
+                  <td>handler của <code>GET /customers</code></td>
+                </tr>
+                <tr>
+                  <td>12</td>
+                  <td><code>customers/customer-list/customer-table.ts</code></td>
+                  <td><code>rows</code> đi vào đây như một input</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Sequence — con đường đầy đủ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant R as Router
+    participant P as CustomerListPage
+    participant S as CustomerStore
+    participant C as CustomerCache
+    participant A as CustomerApi
+    participant I as 5 interceptor
+    participant M as Mock API :4300
+
+    U->>P: bấm "trang 2"
+    P->>R: navigate(queryParams)
+    Note over R: không có mạng ở chặng này
+    R->>P: cập nhật input page="2"
+    P->>P: criteria() tính lại
+    P->>S: setCriteria(criteria)
+    Note over S: criteriaKey khác → mới hỏi
+    S->>S: listRequests.next(criteria)
+    S->>C: getPage(key)
+    C-->>S: null (chưa cache)
+    S->>S: listState = loading
+    P->>U: skeleton
+    S->>A: list(criteria)
+    A->>I: GET /api/customers?page=2&size=25
+    I->>M: + x-correlation-id, + cookie
+    M-->>I: 200 JSON
+    I-->>A: response (lỗi đã map thành AppError nếu có)
+    A->>A: Zod parse body
+    A-->>S: PageResponse&lt;Customer&gt;
+    S->>C: putPage(key, page)
+    S->>S: listState = success(page)
+    Note over P: signal đổi → computed tính lại
+    P->>U: bảng 25 dòng
+            </pre>
+            <figcaption>
+              Chú ý hai chỗ. <strong>Bước 2–4</strong>: điều hướng không gọi mạng, và
+              input quay lại qua cùng một cửa. <strong>Bước cuối</strong>: không có mũi
+              tên “render” nào từ store sang page — page chỉ khai báo giá trị dẫn xuất,
+              Angular tự làm phần còn lại.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Component diagram — các tầng và chiều phụ thuộc</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    URL["URL / query params<br/><i>state sống lâu nhất</i>"] --> PAGE
+    PAGE["CustomerListPage<br/>+ CustomerTable, CustomerFilters…"] --> STORE
+    PAGE -. "selection, bulk report<br/>(signal cục bộ)" .- PAGE
+    STORE["CustomerStore<br/>RemoteData + luật invalidate"] --> API
+    STORE <--> CACHE["CustomerCache<br/>LRU, 20 trang"]
+    API["CustomerApi<br/>+ request-policy"] --> HTTP["HttpClient"]
+    HTTP --> INT["correlationId → logging → authRefresh → csrf → errorMapping"]
+    INT --> BE["Mock API (Express)"]
+    CONTRACTS["@ecm/contracts<br/>Zod schema"] -.-> API
+    CONTRACTS -.-> BE
+            </pre>
+            <figcaption>
+              Mũi tên chỉ đi một chiều xuống. Quy tắc 3 trong <code>CLAUDE.md</code> cấm
+              nhảy tầng: component không được giữ <code>HttpClient</code>. Hai mũi tên
+              nét đứt từ contracts là lý do app và server không thể lệch hợp đồng mà
+              không ai biết.
+            </figcaption>
+          </figure>
+
+          <h3>5.3 Function call graph — chặng 5 tới 7</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    A["effect() trong page"] --> B["store.setCriteria(criteria)"]
+    B --> C{"criteriaKey đổi<br/>hoặc listStale?"}
+    C -- "không" --> D["không làm gì"]
+    C -- "có" --> E["listRequests.next(criteria)"]
+    E --> F["switchMap<br/><i>huỷ request trước</i>"]
+    F --> G["fetchList(criteria)"]
+    G --> H["cache.getPage(key)"]
+    H --> I["listState.set(reloadFrom(cached))"]
+    I --> J["api.list(criteria)"]
+    J --> K["tap: cache.putPage + listState.set(success)"]
+    J --> L["catchError: listState.set(failed(err, cached))"]
+            </pre>
+            <figcaption>
+              Hai nhánh kết thúc, và cả hai đều <em>gán state</em> chứ không throw lên
+              trên. Một lỗi ở đây không đi đâu cả — nó trở thành một trạng thái trên màn
+              hình. Đó là điều làm frontend khác backend nhiều nhất về xử lý lỗi.
+            </figcaption>
+          </figure>
+
+          <p>
+            Bài này không có State Machine Diagram: <code>RemoteData</code> có một máy
+            trạng thái thật, nhưng nó là chủ đề của bài 11 và vẽ ở đó mới đúng chỗ.
+          </p>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Store viết tay, không dùng NgRx — ADR-0013, §5.5</h4>
+          <p>
+            Phương án bị loại: NgRx hoặc một thư viện signal-store. Lý do loại: cả feature
+            có ba câu hỏi cần trả lời (danh sách, một khách hàng, audit trail) và một luật
+            cache; chi phí học action/reducer/effect không mua lại được gì ở quy mô đó.
+            Giá phải trả: bạn tự viết cache, tự viết invalidation, và tự chịu trách nhiệm
+            khi nó sai. <code>docs/state-management.md</code> có phần tự kiểm điểm về việc
+            lựa chọn này có trụ được hay không.
+          </p>
+
+          <h4>Tuổi thọ store do route quyết định, không <code>providedIn: 'root'</code></h4>
+          <p>
+            Hai phương án bị loại, và chú thích đầu
+            <code>customers.routes.ts</code> nêu cả hai.
+            <code>providedIn: 'root'</code> sẽ giữ lịch sử xem — kèm bản ghi đã cache —
+            sống bằng tuổi của tab, <strong>kể cả qua một lần đăng xuất</strong>. Cấp store
+            ở từng page thì mỗi lần từ trang chi tiết quay về danh sách lại là một cache
+            rỗng mới, tức là xoá đúng cái việc mà cache tồn tại để làm. Cách đang dùng:
+            một route cha không có path, không component, chỉ để mang
+            <code>providers</code>.
+          </p>
+
+          <h4>Thứ tự interceptor là hợp đồng, không phải chi tiết</h4>
+          <p>
+            Phương án bị loại: để thứ tự “tuỳ ý, cái nào cũng được”. Nó bị loại vì
+            <code>errorMapping</code> đặt đầu chuỗi sẽ buộc
+            <code>authRefresh</code> suy luận theo status code thay vì theo loại lỗi, và
+            <code>requestLogging</code> đặt dưới <code>authRefresh</code> sẽ biến một
+            request được retry thành hai dòng log. ADR-0017.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>mergeMap</code> thay cho <code>switchMap</code></span>
+            <p>
+              Người dùng gõ “ngu” rồi “nguyen”. Hai request bay song song. Request đầu về
+              muộn hơn, và <strong>đè lên</strong> kết quả của request sau. Người dùng
+              thấy kết quả của chữ họ đã gõ xong từ lâu. Không có log nào báo gì cả — đây
+              là loại bug được báo là “tìm kiếm thỉnh thoảng sai”. Bài tập 2 bắt bạn xem
+              <code>switchMap</code> làm việc trong Network tab.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Giữ một bản sao <code>page</code> trong component</span>
+            <p>
+              Có hai nguồn sự thật: biến trong class và query param. Chúng sẽ lệch — lúc
+              bấm Back, lúc người dùng dán URL, lúc một luồng nào đó navigate mà quên cập
+              nhật biến. Repo chọn: component <strong>đọc</strong> tiêu chí, không bao giờ
+              giữ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Tin <code>http.get&lt;PageResponse&gt;()</code></span>
+            <p>
+              Generic của TypeScript biến mất lúc chạy. Server trả thiếu một field thì
+              không có gì nổ tại biên; nó nổ ba tầng sau trong một template, với thông báo
+              không liên quan tới nguyên nhân. Zod parse ở API client là nơi duy nhất
+              chặn được việc này.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Đặt retry/timeout vào interceptor</span>
+            <p>
+              Nghe rất gọn: một chỗ, áp cho mọi request. Rồi một ngày nó retry một lệnh
+              <code>POST</code> thanh toán vừa thất bại. Repo đặt policy ở
+              <code>data/request-policy.ts</code>, theo từng endpoint, và viết lý do ngay
+              trong <code>http.providers.ts</code>.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Tưởng store phải tự debounce</span>
+            <p>
+              Không có <code>debounceTime</code> nào trong <code>customer-store.ts</code>,
+              và đó là chủ ý. Debounce thuộc về chỗ có bàn phím — ô tìm kiếm chờ người
+              dùng gõ xong rồi mới ghi vào URL. Tới lúc một request đến được store thì nó
+              đã đại diện cho một <em>quyết định</em> của người dùng; hoãn thêm lần nữa là
+              tạo ra độ trễ không ai yêu cầu.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>
+                    Tiêu chí trùng không sinh request mới; request trước bị huỷ; lỗi giữ
+                    lại giá trị cũ khi và chỉ khi nó trả lời cùng câu hỏi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/customer.api.spec.ts</code></td>
+                  <td>
+                    Query param dựng đúng, và body sai hợp đồng trở thành
+                    <code>AppError</code> loại <code>server</code> — dùng
+                    <code>HttpTestingController</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/http-interceptors.spec.ts</code></td>
+                  <td>Chuỗi interceptor chạy đúng thứ tự đã khai báo</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.spec.ts</code></td>
+                  <td>
+                    Đổi tiêu chí là một lần navigate; lựa chọn bị xoá trước khi hỏi trang
+                    mới
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/api-wiring.spec.ts</code></td>
+                  <td>
+                    Toàn bộ con đường chạy thật trong trình duyệt thật, qua proxy, tới
+                    mock API
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="bai-tap"><span class="num">Mục 9</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Lần theo một correlation id xuyên hai tiến trình</h3>
+            <p class="task__meta">~20 phút · không sửa code</p>
+            <ol>
+              <li>Chạy <code>npm run start:api</code> và <code>npm start</code>.</li>
+              <li>Đăng nhập, vào <code>/customers</code>, mở DevTools → Network.</li>
+              <li>
+                Bấm sang trang 2. Chọn request <code>customers?page=…</code>, xem phần
+                Request Headers, tìm <code>x-correlation-id</code>. Copy giá trị đó.
+              </li>
+              <li>Sang terminal đang chạy mock API. Tìm cùng chuỗi đó trong log.</li>
+            </ol>
+            <details>
+              <summary>Điều bạn vừa chứng minh</summary>
+              <p>
+                Một id duy nhất đi từ trình duyệt sang server và xuất hiện trong log của
+                cả hai phía. Ở production, đó là thứ duy nhất cho phép bạn trả lời “lúc
+                14:03 khách hàng này báo lỗi, chuyện gì đã xảy ra” mà không phải đoán.
+                Interceptor đứng đầu chuỗi chính là để làm việc này (bài 32 nói đủ).
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Thấy <code>switchMap</code> huỷ request</h3>
+            <p class="task__meta">~10 phút · không sửa code</p>
+            <ol>
+              <li>Vẫn ở <code>/customers</code>, Network tab, lọc Fetch/XHR.</li>
+              <li>
+                Gõ nhanh vào ô Search một từ dài, ví dụ <code>nguyen</code>, rồi dừng.
+              </li>
+              <li>Đọc cột Status của các request vừa sinh ra.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì — và một cái bẫy quan sát</summary>
+              <p>
+                Phần lớn request sẽ ở trạng thái <code>(canceled)</code>, chỉ request cuối
+                cùng hoàn tất. Nhưng chú ý: bạn sẽ thấy <em>ít</em> request hơn số chữ đã
+                gõ, vì ô tìm kiếm còn debounce trước khi ghi vào URL
+                (<code>customer-filters.ts</code>). Hai cơ chế khác nhau đang làm hai việc
+                khác nhau: debounce giảm số request <em>được tạo ra</em>,
+                <code>switchMap</code> huỷ cái <em>đã tạo</em>. Nói được khác biệt đó là
+                mục tiêu của bài tập này.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Đọc ngược từ pixel về nguồn</h3>
+            <p class="task__meta">~30 phút · đây là bài quan trọng nhất</p>
+            <p>
+              Trên trang danh sách có dòng tóm tắt kiểu “Showing 25 of 50,000”. Truy ngược
+              con số <strong>50.000</strong> đó về tận nơi nó được tạo ra. Viết ra chuỗi
+              file bạn đi qua, mỗi file một dòng, kèm tên hàm.
+            </p>
+            <p>
+              Luật: chỉ dùng tìm kiếm trong repo và đọc code. Không mở đáp án cho tới khi
+              viết xong danh sách của mình.
+            </p>
+            <details>
+              <summary>Một chuỗi hợp lệ</summary>
+              <ol>
+                <li>
+                  <code>customer-list-page.ts</code> — template dùng
+                  <code>data-testid="list-summary"</code> và
+                  <code>totalItems()</code>
+                </li>
+                <li>
+                  cùng file — <code>totalItems = computed(() =&gt; valueOf(this.state())?.totalItems ?? 0)</code>
+                </li>
+                <li><code>customer-store.ts</code> — <code>list</code>, gán trong <code>fetchList</code></li>
+                <li><code>customer.api.ts</code> — <code>list()</code>, <code>parseWith(customerPageSchema)</code></li>
+                <li>
+                  <code>packages/contracts/src/pagination.ts</code> — field
+                  <code>totalItems</code> trong schema
+                </li>
+                <li>
+                  <code>apps/mock-api/src/routes/customers.routes.ts</code> — handler đếm
+                  bản ghi
+                </li>
+                <li>
+                  <code>apps/mock-api/src/domain/seed.ts</code> —
+                  <code>generateCustomers(seed, count)</code> sinh ra bản ghi
+                </li>
+                <li>
+                  <code>apps/mock-api/src/config.ts</code> — <code>customerCount</code>,
+                  mặc định <code>50_000</code>, đổi được bằng biến môi trường
+                  <code>MOCK_API_CUSTOMERS</code>
+                </li>
+              </ol>
+              <p>
+                Nếu chuỗi của bạn khác nhưng đi tới cùng chỗ, nó vẫn đúng. Kỹ năng đang
+                luyện ở đây — đi từ một pixel về tới dòng code — là kỹ năng bạn sẽ dùng
+                mỗi ngày ở dự án thật, và nó không có trong tutorial nào.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Phân biệt <code>loading</code> và <code>refreshing</code></h3>
+            <p class="task__meta">~15 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>fetchList</code>, thêm tạm một dòng:
+                <code>console.log('state →', this.listState().status, 'cached?', cached !== null);</code>
+                ngay sau <code>this.listState.set(reloadFrom(cached));</code>
+              </li>
+              <li>
+                Mở console. Đi trang 1 → trang 2 → trang 1. Rồi bấm nút Refresh hai lần.
+              </li>
+              <li><code>git checkout</code> file đó để hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Lần đầu vào một trang: <code>loading</code>, <code>cached? false</code> —
+                và trên màn hình là skeleton. Quay lại trang đã xem:
+                <code>refreshing</code>, <code>cached? true</code> — bảng
+                <strong>không</strong> biến mất, chỉ mờ đi
+                (<code>aria-busy</code> trong template). Đó chính là trạng thái thứ năm mà
+                hầu hết người viết frontend bỏ sót, và là lý do bài 11 tồn tại.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 10</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Trong một lần bấm sang trang 2, có mấy lần gọi mạng, và “router” nào gây ra chúng?</summary>
+            <p>
+              Một lần gọi mạng, và router của Angular <strong>không</strong> gây ra nó.
+              Router chỉ đổi URL và cập nhật input. Lời gọi mạng đến từ chuỗi
+              effect → <code>setCriteria</code> → <code>Subject</code> →
+              <code>switchMap</code> → <code>api.list</code> → HttpClient. Nếu trang đó đã
+              có trong cache, bạn vẫn thấy một request — nhưng bảng không biến mất, vì đó
+              là <code>refreshing</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Ai biến <code>?page=2</code> thành một input của component?</summary>
+            <p>
+              <code>withComponentInputBinding()</code>, khai báo một lần trong
+              <code>app.config.ts</code>. Không có component nào subscribe
+              <code>ActivatedRoute</code> để lấy query param. Tám input đều là string thô,
+              vì việc chuẩn hoá dồn vào <code>readCriteria</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao <code>errorMappingInterceptor</code> ở cuối chuỗi?</summary>
+            <p>
+              Để mọi thứ phía trên nó chỉ phải suy luận theo <em>loại</em> lỗi
+              (<code>AppError</code>), không bao giờ theo status code. Cụ thể:
+              <code>authRefresh</code> cần biết “phiên hết hạn”, không cần biết “401”. Đặt
+              nó đầu chuỗi là buộc mọi tầng trên phải đọc HTTP.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. <code>CustomerStore</code> sống bao lâu, và cái gì quyết định?</summary>
+            <p>
+              Một instance cho toàn bộ khu vực <code>/customers</code>, chết khi người
+              dùng rời khỏi khu vực đó. Quyết định bởi
+              <strong>chỗ đặt provider</strong>: một route cha không có path, không
+              component, tồn tại chỉ để mang <code>providers: [CustomerCache, CustomerStore, …]</code>.
+              Đó là một kỹ thuật bạn mang đi được nguyên vẹn.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Khi response về, cái gì làm màn hình đổi?</summary>
+            <p>
+              <code>listState.set(success(page))</code>. Đó là tất cả. Signal đó bị đọc
+              bởi các <code>computed</code> trong page, các computed đó bị đọc bởi
+              template, nên Angular biết chính xác phải tính lại và vẽ lại cái gì. Không
+              có dòng code nào gọi render, và không có subscribe nào trong page cho dữ
+              liệu này.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Mốc 1 bắt đầu từ đây</span>
+            <p>
+              Bạn vừa có bản đồ. Chặng 1 (bài 02–06) đi vào từng ô trên bản đồ đó, và cuối
+              chặng là <strong>Mốc 1</strong>: thêm một trang read-only hiện dữ liệu thật.
+              Trước khi sang bài 02, viết ba dòng vào
+              <code>journal.md</code> — nhất là dòng “chưa hiểu”.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="00-angular-cho-backend-engineer.html">← Bài 00</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế: 12 chặng</a></li>
+            <li><a href="#trong-repo">Bảng tra cứu</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

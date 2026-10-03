@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Học Angular — Lộ trình</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">Enterprise Customer Management → docs/learning</p>
+        <h1>Học Angular từ repo này</h1>
+        <p class="lede">
+          Từ Backend Engineer sang Fullstack. 25 bài học, 11 brief tra cứu, 4 mốc năng lực. Thước đo
+          là bốn mốc, không phải số bài đã đọc.
+        </p>
+        <ul class="tags">
+          <li class="tag">Angular 22 · TypeScript 6 · zoneless</li>
+          <li class="tag">
+            <a href="README.md">README.md — phương pháp học đầy đủ</a>
+          </li>
+        </ul>
+      </header>
+
+      <main>
+        <h2 id="moc"><span class="num">Thước đo</span>Bốn mốc năng lực</h2>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Mốc</th>
+                <th>Làm được gì</th>
+                <th>Sau chặng</th>
+                <th>Xong ngày</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1</strong></td>
+                <td>Thêm một trang read-only mới, hiện dữ liệu có thật từ API</td>
+                <td>1</td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td><strong>2</strong></td>
+                <td>Thêm một lời gọi API mới end-to-end, có test</td>
+                <td>2</td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td><strong>3</strong></td>
+                <td>
+                  Thêm một field xuyên suốt: contract → API → form → danh sách → test.
+                  <strong>Qua mốc này là đủ tự tin nhận việc Angular thật.</strong>
+                </td>
+                <td>3</td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td><strong>4</strong></td>
+                <td>Ship một feature nhỏ trên branch, qua toàn bộ <code>npm run verify</code></td>
+                <td>4</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="box box--note">
+          <span class="box__label">Năm quy tắc, bản ngắn</span>
+          <ol>
+            <li>Không đọc hai bài liền nhau mà không gõ code.</li>
+            <li>Che đáp án: làm bài tập trước, đọc mục “Trong repo này” sau.</li>
+            <li><code>npm run verify</code> là người chấm.</li>
+            <li>Bài tập commit trên branch <code>learning/*</code>.</li>
+            <li>Ba dòng mỗi ngày vào <a href="journal.md">journal.md</a>.</li>
+          </ol>
+          <p>Bản đầy đủ, kèm lý do từng quy tắc: <a href="README.md">README.md</a> §3.</p>
+        </div>
+
+        <section class="stage">
+          <h2 id="chang-0"><span class="num">Chặng 0</span>Định hướng — nửa ngày</h2>
+          <ul class="cards">
+            <li class="card">
+              <h3>
+                <a href="00-angular-cho-backend-engineer.html"
+                  >00 · Angular dưới mắt backend engineer</a
+                >
+              </h3>
+              <p>
+                Vì sao không còn request → response → view. Cây component là runtime. Bốn cách chạy
+                cùng một code. Những gì internet trả về sai.
+              </p>
+            </li>
+            <li class="card">
+              <h3><a href="01-tu-url-toi-pixel.html">01 · Từ URL tới pixel trong repo này</a></h3>
+              <p>
+                Mười hai chặng từ một cú bấm tới một dòng trong bảng, có tên file thật. Bản đồ dùng
+                cho cả khoá.
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stage">
+          <h2 id="chang-1"><span class="num">Chặng 1</span>Viết được UI — tuần 1 → Mốc 1</h2>
+          <ul class="cards">
+            <li class="card card--todo">
+              <h3>02 · Component &amp; template</h3>
+              <p>
+                standalone, binding, <code>@if/@for/@switch/@defer</code>, khi nào
+                tách component.
+              </p>
+            </li>
+            <li class="card card--todo">
+              <h3>03 · Signals &amp; zoneless</h3>
+              <p>
+                <code>signal/computed/effect</code>, vì sao <code>effect</code> là lựa chọn cuối,
+                Angular biết vẽ lại nhờ đâu.
+              </p>
+            </li>
+            <li class="card card--todo">
+              <h3>04 · Component nói chuyện với nhau</h3>
+              <p>
+                <code>input()</code>, <code>output()</code>, content projection, page thông minh vs
+                component ngờ nghệch.
+              </p>
+            </li>
+            <li class="card card--todo">
+              <h3>05 · DI, config &amp; feature flag</h3>
+              <p>
+                <code>inject()</code>, provider, <code>InjectionToken</code>, scope; config
+                build-time vs runtime.
+              </p>
+            </li>
+            <li class="card card--todo">
+              <h3>06 · CSS trong Angular</h3>
+              <p>
+                view encapsulation, semantic token, theming, vì sao <code>margin-left</code> bị
+                chặn.
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stage">
+          <h2 id="chang-2">
+            <span class="num">Chặng 2</span>Nói chuyện với server — tuần 2 → Mốc 2
+          </h2>
+          <ul class="cards">
+            <li class="card card--todo">
+              <h3>07 · RxJS tối thiểu</h3>
+              <p>Observable vs Promise vs signal; đúng 6 operator cần dùng.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>08 · HttpClient + contract Zod</h3>
+              <p>DTO có type thật, branded type, validate ở biên.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>09 · Interceptor</h3>
+              <p>Chuỗi 5 cái, vì sao thứ tự quan trọng, chỗ khác servlet filter.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>10 · Lỗi</h3>
+              <p>Taxonomy, mapper, global handler, không bao giờ hiện lỗi thô.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>11 · Server state ◆</h3>
+              <p><code>RemoteData</code> 5 nhánh, vì sao “rỗng” không phải một state.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>12 · Cache, huỷ request, race ◆</h3>
+              <p><code>switchMap</code>, criteriaKey, LRU, xoá cache sau khi ghi.</p>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stage">
+          <h2 id="chang-3"><span class="num">Chặng 3</span>Form &amp; routing — tuần 3 → Mốc 3</h2>
+          <ul class="cards">
+            <li class="card card--todo">
+              <h3>13 · Reactive form có type ◆</h3>
+              <p>Form model, giá trị vs trạng thái.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>14 · Validation</h3>
+              <p>Sync, cross-field, async, message từ lý do máy đọc được.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>15 · Router</h3>
+              <p>Route tree, lazy theo feature, title là key dịch, breadcrumb.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>16 · Guard</h3>
+              <p>4 loại trong repo, <code>CanDeactivate</code> khi người dùng bỏ đi.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>17 · URL là state</h3>
+              <p>Query param, debounce đặt cạnh bàn phím.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>18 · Ghi dữ liệu an toàn ◆</h3>
+              <p>PATCH diff, version, 409, bulk theo từng item.</p>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stage">
+          <h2 id="chang-4">
+            <span class="num">Chặng 4</span>Như trong team enterprise — tuần 4–5 → Mốc 4
+          </h2>
+          <ul class="cards">
+            <li class="card card--todo">
+              <h3>19 · Auth ◆</h3>
+              <p>Cookie HttpOnly, refresh single-flight, hết hạn giữa lúc làm.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>20 · Phân quyền nhiều lớp</h3>
+              <p>Guard + directive + API; frontend không phải biên bảo mật.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>21 · i18n như một quy tắc build</h3>
+              <p>Không string cứng, <code>Intl</code>, plural.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>22 · Accessibility</h3>
+              <p>Focus, bàn phím, axe.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>23 · Test</h3>
+              <p>Cái gì test ở đâu: Vitest, RouterTestingHarness, Playwright.</p>
+            </li>
+            <li class="card card--todo">
+              <h3>24 · Biên kiến trúc &amp; CI</h3>
+              <p>Lint architecture, bundle budget, <code>npm run verify</code>.</p>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stage">
+          <h2 id="chang-5"><span class="num">Chặng 5</span>Brief tra cứu — đọc khi gặp việc</h2>
+          <p>
+            SSE realtime ◆ · đa tab &amp; leader election ◆ · upload và kiểm tra file ◆ · import CSV
+            hai pha ◆ · offline &amp; service worker ◆ · render mode &amp; hydration · performance
+            và bundle budget · browser API &amp; Web Worker · observability · mock backend &amp;
+            fault injection · notification &amp; confirmation dialog
+          </p>
+          <p>◆ = có máy trạng thái thật, nên bài đó có State Machine Diagram. Chín bài.</p>
+        </section>
+
+        <div class="box box--warn">
+          <span class="box__label">Tài liệu này không phải thẩm quyền</span>
+          <p>
+            Khi bài học nói khác code hoặc khác <code>docs/</code>, thì code và
+            <code>docs/</code> đúng, còn bài học sai và cần sửa. Thứ tự thẩm quyền của repo:
+            <code>ANGULAR_PROJECT_CONTEXT.md</code> → §5 → <code>docs/PROGRESS.md</code> →
+            <code>docs/decisions/</code> → <code>CLAUDE.md</code>.
+          </p>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,543 @@
+/*
+ * Giao diện dùng chung cho mọi bài học trong docs/learning/.
+ *
+ * Tách ra một file thay vì nhúng vào từng bài: 25 bài nhân một bản CSS là 25
+ * chỗ phải sửa khi đổi cách trình bày. Mở bằng file:// nên đường dẫn tương đối,
+ * không có bước build nào.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfaf8;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f1efea;
+  --text: #22201d;
+  --text-muted: #6b665e;
+  --border: #e0dcd3;
+  --accent: #8a4b2a;
+  --accent-soft: #f6ece4;
+  --note: #2f5d7c;
+  --note-soft: #e9f1f7;
+  --warn: #8a5a00;
+  --warn-soft: #fdf2dd;
+  --pitfall: #9a2f2f;
+  --pitfall-soft: #fbeaea;
+  --code-bg: #f4f2ed;
+
+  --mono: ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  /*
+   * Cambria và Times New Roman đứng trước Georgia: Georgia KHÔNG có glyph tiếng
+   * Việt (ồ là U+1ED3), nên trình duyệt phải fallback từng ký tự và dấu bị tách
+   * khỏi nguyên âm — "Sơ đồ" hiện thành "Sơ đô" kèm một dấu huyền trôi bên
+   * cạnh. Lỗi chỉ thấy khi nhìn màn hình, không khi đọc code.
+   */
+  --serif: Cambria, 'Times New Roman', ui-serif, Georgia, serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17161a;
+    --bg-raised: #201e23;
+    --bg-sunken: #121114;
+    --text: #e8e5e0;
+    --text-muted: #a39d94;
+    --border: #35323a;
+    --accent: #e0a07a;
+    --accent-soft: #2c2420;
+    --note: #8fc0e0;
+    --note-soft: #1b242b;
+    --warn: #e0b765;
+    --warn-soft: #2a2317;
+    --pitfall: #e89292;
+    --pitfall-soft: #2b1c1c;
+    --code-bg: #1b1a1f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.page {
+  max-width: 1180px;
+  margin-inline: auto;
+  padding: 0 16px 6rem;
+}
+
+.masthead {
+  padding: 2.5rem 0 1.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2rem;
+}
+
+.crumb {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.crumb a {
+  color: inherit;
+}
+
+h1 {
+  font-family: var(--serif);
+  font-size: clamp(1.8rem, 1.3rem + 2vw, 2.6rem);
+  line-height: 1.15;
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+
+.lede {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin: 0 0 1.25rem;
+  max-width: 70ch;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+
+.tag--transfers {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+.tag--local {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--warn);
+}
+
+.layout {
+  display: grid;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+@media (min-width: 1040px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+  }
+}
+
+/*
+ * Cột nội dung KHÔNG bị giới hạn bề rộng, còn văn xuôi thì có (xem `p, ul, ol`
+ * bên dưới). Lý do: một sequence diagram tám participant hoặc một bảng bốn cột
+ * bị ép vào 76ch thì chữ nhỏ tới mức không đọc nổi, trong khi đoạn văn dài 76ch
+ * mới dễ đọc. Hai thứ cần hai bề rộng khác nhau, nên giới hạn đặt ở phần tử
+ * chứ không đặt ở cột.
+ */
+main {
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- the TOC */
+
+.toc {
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 1rem 1.1rem;
+}
+
+@media (min-width: 1040px) {
+  .toc {
+    position: sticky;
+    top: 1.5rem;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+  }
+}
+
+.toc h2 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+}
+
+.toc ol {
+  margin: 0;
+  padding-inline-start: 1.3rem;
+}
+
+.toc li {
+  margin-bottom: 0.3rem;
+}
+
+.toc a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.toc a:hover,
+.toc a:focus-visible {
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------------- typography */
+
+h2 {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin: 3rem 0 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+h2 .num {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin: 2rem 0 0.6rem;
+}
+
+h4 {
+  font-size: 0.98rem;
+  margin: 1.5rem 0 0.4rem;
+}
+
+p,
+ul,
+ol,
+dl {
+  max-width: 72ch;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+strong {
+  font-weight: 650;
+}
+
+/* ------------------------------------------------------------- code blocks */
+
+figure {
+  margin: 1.5rem 0;
+}
+
+.code {
+  margin: 1.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+
+.code__file {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 0.5rem 0.9rem;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.code pre {
+  margin: 0;
+  padding: 0.9rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.code pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* ---------------------------------------------------------------- callouts */
+
+.box {
+  margin: 1.5rem 0;
+  max-width: 76ch;
+  padding: 0.9rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.box > :first-child {
+  margin-top: 0;
+}
+
+.box > :last-child {
+  margin-bottom: 0;
+}
+
+.box__label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+.box--backend {
+  border-inline-start: 3px solid var(--note);
+  background: var(--note-soft);
+}
+
+.box--backend .box__label {
+  color: var(--note);
+}
+
+.box--note {
+  border-inline-start: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.box--note .box__label {
+  color: var(--accent);
+}
+
+.box--warn {
+  border-inline-start: 3px solid var(--warn);
+  background: var(--warn-soft);
+}
+
+.box--warn .box__label {
+  color: var(--warn);
+}
+
+.box--pitfall {
+  border-inline-start: 3px solid var(--pitfall);
+  background: var(--pitfall-soft);
+}
+
+.box--pitfall .box__label {
+  color: var(--pitfall);
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.table-scroll {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  text-align: start;
+  vertical-align: top;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+}
+
+tbody tr:hover {
+  background: var(--bg-raised);
+}
+
+/* ---------------------------------------------------------------- diagrams */
+
+.diagram {
+  margin: 1.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.diagram figcaption {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+pre.mermaid {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* Trước khi Mermaid chạy (không có mạng, hoặc CDN chặn) khối vẫn là text đọc
+   được - đó là lý do sơ đồ viết bằng text chứ không phải ảnh. */
+pre.mermaid:not([data-processed]) {
+  text-align: start;
+  white-space: pre-wrap;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------- exercises, quiz */
+
+.task {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 1rem 1.2rem;
+  margin: 1.25rem 0;
+  max-width: 76ch;
+}
+
+.task h3 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.task__meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+}
+
+details {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 0.6rem 1rem;
+  margin: 0.75rem 0;
+  max-width: 76ch;
+}
+
+details[open] {
+  background: var(--bg-sunken);
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+summary::marker {
+  color: var(--accent);
+}
+
+details > :last-child {
+  margin-bottom: 0.5rem;
+}
+
+/* ------------------------------------------------------------------- misc */
+
+.next {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  font-size: 0.95rem;
+}
+
+.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+  max-width: none;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 1rem 1.1rem;
+}
+
+.card h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+}
+
+.card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.card--todo {
+  opacity: 0.6;
+}
+
+.stage {
+  margin: 2.5rem 0 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

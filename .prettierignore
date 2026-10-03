@@ -12,3 +12,11 @@ package-lock.json
 prompts/
 ANGULAR_PROJECT_CONTEXT.md
 CLAUDE.md
+
+# Bài học trong docs/learning: HTML viết tay, và chúng *trích dẫn* template
+# Angular. Prettier đọc .html bằng parser hiểu cú pháp Angular, nên `{` trong
+# một đoạn code mẫu bị đọc như ICU expansion và `@if` như một control-flow
+# block - file không parse được. Thoát từng ký tự thành `&#123;` thì render vẫn
+# đúng nhưng code mẫu không còn copy được từ source, mà copy được là mục đích
+# của nó. CSS, JS và Markdown trong cùng thư mục vẫn do Prettier quản.
+docs/learning/*.html

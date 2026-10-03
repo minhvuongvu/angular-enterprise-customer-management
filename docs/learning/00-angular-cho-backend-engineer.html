@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 00 — Angular dưới mắt backend engineer</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 0 — Định hướng → Bài 00</p>
+        <h1>Angular dưới mắt backend engineer</h1>
+        <p class="lede">
+          Thứ phải đổi trước khi học cú pháp: ở backend bạn viết một hàm trả lời một request rồi
+          chết. Ở đây bạn viết một chương trình chạy liên tục trong trình duyệt, giữ trạng thái, và
+          tự vẽ lại màn hình. Cú pháp học trong một tuần; chỗ này nhầm thì nhầm suốt sáu tháng.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 0</li>
+          <li class="tag">~90 phút đọc + 60 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Giải thích được vì sao frontend không có vòng
+              <em>request → response → view</em>, và cái gì thay thế nó.
+            </li>
+            <li>
+              Nói được một component sống bao lâu, một store sống bao lâu, và ai quyết định điều đó.
+            </li>
+            <li>
+              Biết <code>npm start</code> thật ra chạy gì, và vì sao cần chạy
+              <strong>hai</strong> tiến trình chứ không phải một.
+            </li>
+            <li>Mở repo này ra và biết file nào ở đâu, không phải đoán.</li>
+            <li>
+              Nhìn một câu trả lời trên Stack Overflow và nhận ra trong năm giây rằng nó viết cho
+              Angular của bốn năm trước.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh sai
+          </h2>
+
+          <p>
+            Phép so sánh giúp bạn vào nhanh, rồi làm bạn sai ở chỗ sâu. Nên cột thứ ba là cột quan
+            trọng nhất của bảng này.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Gần nhất ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Controller</td>
+                  <td>Component “thông minh” (một page)</td>
+                  <td>
+                    Controller chạy một lần rồi chết. Component là một object
+                    <strong>sống</strong>: nó còn đó khi người dùng gõ, lọc, bấm — và giữ state giữa
+                    những lần đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@Service</code> singleton</td>
+                  <td><code>@Injectable</code> service / store</td>
+                  <td>
+                    Service backend thường stateless vì mỗi request có scope riêng. Ở đây
+                    <strong>không có request scope nào cả</strong>, nên state phải có người chủ và
+                    có tuổi thọ do bạn chọn. Xem mục 3.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Repository / DAO</td>
+                  <td><code>CustomerApi</code></td>
+                  <td>
+                    Không có ORM, không có entity, không có lazy loading. Chỉ có JSON đi qua dây và
+                    một schema kiểm tra nó ở biên.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Servlet filter / middleware</td>
+                  <td>HTTP interceptor</td>
+                  <td>
+                    Filter của bạn là một <strong>biên bảo mật</strong>. Interceptor chạy trong
+                    trình duyệt của người dùng, nơi họ sửa được mọi thứ — nó là tiện lợi, không phải
+                    phòng tuyến (quy tắc 10 trong <code>CLAUDE.md</code>).
+                  </td>
+                </tr>
+                <tr>
+                  <td>DispatcherServlet + HandlerMapping</td>
+                  <td>Angular Router</td>
+                  <td>
+                    Router ở đây <strong>không gọi mạng</strong>. Nó đổi URL và đổi component. Hai
+                    thứ hay bị nhập làm một: router (không mạng) và HttpClient (có mạng).
+                  </td>
+                </tr>
+                <tr>
+                  <td>Thymeleaf / JSP / Razor</td>
+                  <td>Template của component</td>
+                  <td>
+                    Template backend render một lần ra string. Template Angular là
+                    <strong>mô tả một quan hệ</strong>: “chỗ này luôn bằng giá trị kia”. Angular giữ
+                    quan hệ đó đúng mãi về sau.
+                  </td>
+                </tr>
+                <tr>
+                  <td>HttpSession</td>
+                  <td>Cookie <code>HttpOnly</code> + state trong bộ nhớ tab</td>
+                  <td>
+                    JavaScript ở đây <strong>không đọc được</strong> token (ADR-0016). Cái mà
+                    frontend giữ là bản sao thông tin người dùng để vẽ UI, không phải thẩm quyền.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>throw new BusinessException</code></td>
+                  <td><code>AppError</code> + error taxonomy</td>
+                  <td>
+                    Không có ai bắt exception ở tầng trên cùng rồi trả 500. Lỗi phải đi về đến một
+                    chỗ trên màn hình và nói được bằng tiếng người — nếu không nó biến thành một
+                    trang trắng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Điều khó chịu nhất khi mới chuyển</span>
+            <p>
+              Ở backend, mỗi request là một tờ giấy trắng: biến cục bộ sinh ra rồi mất, rò rỉ state
+              là lỗi hiếm. Ở đây tờ giấy <strong>không bao giờ</strong> được thay. Người dùng mở app
+              lúc 9 giờ và vẫn còn tab đó lúc 5 giờ chiều. Mọi thứ bạn nhớ sẽ còn đó: bộ lọc cũ,
+              dòng đang chọn, dữ liệu đã cache, token đã hết hạn. Câu hỏi “cái này sống bao lâu và
+              ai xoá nó” là câu hỏi <em>kiến trúc</em> của frontend, và nó không có bản tương đương
+              ở backend.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế: Angular hoạt động ra sao</h2>
+
+          <h3>3.1 Một lần tải trang, rồi không bao giờ nữa</h3>
+
+          <p>
+            Trình duyệt tải <code>index.html</code> đúng một lần. Từ đó trở đi không có lần tải
+            trang nào nữa — mọi thao tác của người dùng chỉ là JavaScript đang chạy đổi DOM, và đôi
+            khi gọi API. Đó là toàn bộ sự khác biệt, và nó sinh ra mọi thứ còn lại.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant B as Trình duyệt
+    participant S as Server
+    Note over B,S: Backend MVC - mỗi lần bấm là một lần tải trang
+    B->>S: GET /customers
+    S-->>B: HTML đầy đủ (vẽ lại từ đầu)
+    B->>S: GET /customers?page=2
+    S-->>B: HTML đầy đủ (vẽ lại từ đầu)
+    Note over B: State cũ mất sạch. Đó là tính năng.
+            </pre>
+            <figcaption>
+              Mô hình bạn đang quen: server dựng HTML, trình duyệt bỏ hết trạng thái cũ.
+            </figcaption>
+          </figure>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant B as Trình duyệt (app đang chạy)
+    participant S as API
+    Note over B,S: Angular - một document, sau đó chỉ còn dữ liệu
+    B->>S: GET /index.html + bundle JS
+    S-->>B: tài liệu + mã nguồn ứng dụng
+    Note over B: bootstrapApplication() - app bắt đầu sống
+    B->>S: GET /api/customers?page=1
+    S-->>B: JSON
+    Note over B: người dùng bấm trang 2 - KHÔNG tải lại trang
+    B->>S: GET /api/customers?page=2
+    S-->>B: JSON
+    Note over B: state cũ còn nguyên: cache, dòng đang chọn, form đang gõ
+            </pre>
+            <figcaption>
+              Mô hình ở đây. Chú ý điều không xảy ra: không có request nào tải lại tài liệu. Bài tập
+              1 ở mục 9 bắt bạn tự xác nhận điều này trong DevTools.
+            </figcaption>
+          </figure>
+
+          <h3>3.2 Cây component <em>là</em> chương trình đang chạy</h3>
+
+          <p>
+            Sau khi bootstrap, trong bộ nhớ có một cây object. Mỗi node là một instance component:
+            có field, có method, có template. Angular giữ DOM đồng bộ với cây đó. Khi router đổi
+            URL, nó <strong>huỷ</strong> nhánh component cũ và <strong>dựng</strong> nhánh mới — và
+            đây là chỗ tuổi thọ của state được quyết định:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>State</th>
+                  <th>Sống ở đâu trong repo này</th>
+                  <th>Chết khi nào</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tiêu chí lọc của danh sách</td>
+                  <td>URL (query params)</td>
+                  <td>Không bao giờ — còn sống qua cả F5</td>
+                </tr>
+                <tr>
+                  <td>Trang khách hàng đang xem + cache</td>
+                  <td><code>CustomerStore</code>, cấp bởi route của feature</td>
+                  <td>Khi người dùng rời khỏi <code>/customers</code></td>
+                </tr>
+                <tr>
+                  <td>Những dòng đang được tick</td>
+                  <td>Một <code>signal</code> trong <code>CustomerListPage</code></td>
+                  <td>Khi rời trang danh sách, hoặc khi tiêu chí đổi</td>
+                </tr>
+                <tr>
+                  <td>Người đang đăng nhập</td>
+                  <td><code>SessionService</code>, cấp ở gốc</td>
+                  <td>Khi tab đóng</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Bốn dòng này là bốn tuổi thọ khác nhau, và chúng được chọn bằng
+            <strong>chỗ đặt provider</strong>, không phải bằng quy ước đặt tên. Bài 05 nói về cơ
+            chế; bài 11 nói vì sao store chọn tuổi thọ đó.
+          </p>
+
+          <h3>3.3 Ai ra lệnh vẽ lại màn hình</h3>
+
+          <p>
+            Câu trả lời ở Angular 22 là: <strong>signal</strong>. Một signal là một ô chứa giá trị,
+            biết ai đã đọc nó. Template đọc signal; khi giá trị đổi, Angular biết chính xác
+            component nào phải vẽ lại.
+          </p>
+
+          <p>
+            Trước đây Angular dùng <code>zone.js</code>: một thư viện vá lại
+            <code>setTimeout</code>, <code>addEventListener</code>, <code>fetch</code>… để biết “có
+            gì vừa xảy ra, kiểm tra lại toàn bộ cây đi”. Repo này
+            <strong>không có zone.js</strong> — Angular 22 không còn cài nó cho ứng dụng mới
+            (ADR-0002), và <code>apps/web/angular.json</code> không có mục
+            <code>polyfills</code> nào nạp nó.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Hệ quả thực tế</span>
+            <p>
+              Gán vào một field thường (<code>this.total = 5</code>) rồi chờ màn hình đổi:
+              <strong>sẽ không đổi</strong>, trừ khi có thứ khác tình cờ kích hoạt một lần đồng bộ.
+              Trong app zoneless, state mà template đọc phải là signal. Đây là lỗi số một của người
+              học Angular theo tutorial cũ, và nó không báo lỗi — chỉ im lặng không cập nhật. Bài 03
+              mổ kỹ.
+            </p>
+          </div>
+
+          <h3>3.4 Cùng một code, bốn cách chạy</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lệnh</th>
+                  <th>Chạy gì</th>
+                  <th>Dùng khi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>npm start</code></td>
+                  <td>
+                    <code>ng serve</code> — dev server, biên dịch trong RAM, hot reload, proxy
+                    <code>/api</code> sang cổng 4300
+                  </td>
+                  <td>Lúc viết code. 99% thời gian.</td>
+                </tr>
+                <tr>
+                  <td><code>npm run start:api</code></td>
+                  <td>Mock API bằng Express, cổng 4300 — một server thật</td>
+                  <td>Luôn luôn, song song với lệnh trên</td>
+                </tr>
+                <tr>
+                  <td><code>npm run build</code></td>
+                  <td>
+                    Hai bundle: <code>dist/web/browser</code> và <code>dist/web/server</code>, cộng
+                    với <code>/login</code> được prerender ra HTML tĩnh
+                  </td>
+                  <td>Kiểm tra thứ sẽ lên production</td>
+                </tr>
+                <tr>
+                  <td><code>npm run serve:ssr</code> (trong <code>apps/web</code>)</td>
+                  <td>Node chạy <code>server.mjs</code>: Angular render trên server</td>
+                  <td>Khi nghi một lỗi chỉ xuất hiện khi render phía server</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Vì sao phải có hai tiến trình khi dev: dev server phục vụ app ở cổng 4200 và
+            <strong>proxy</strong> <code>/api</code> sang mock API ở 4300
+            (<code>apps/web/proxy.conf.json</code>). Nhờ vậy trình duyệt chỉ thấy một origin, và
+            cookie phiên là first-party — đúng cảnh mà reverse proxy tạo ra ở production. Nếu gọi
+            thẳng <code>localhost:4300</code> thì đó là cross-origin và cookie sẽ không đi theo.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">SSR có mặt ở đây để làm gì</span>
+            <p>
+              Một back office không có con bot nào cần SEO, nên SSR ở repo này
+              <em>không</em> để tăng thứ hạng tìm kiếm. Nó được bật từ phase 0 vì nó là một
+              <strong>người thi hành kỷ luật</strong>: chạm vào <code>window</code> hay
+              <code>document</code> là bản build phía server đổ ngay, nên quy tắc 2 trong
+              <code>CLAUDE.md</code> không thể trôi dần. Lý do viết trong
+              <code>app.routes.server.ts</code>.
+            </p>
+          </div>
+
+          <h3>3.5 TypeScript ở đây được dịch bởi <code>ngc</code>, không chỉ <code>tsc</code></h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/package.json — script typecheck</div>
+            <pre><code>"typecheck": "ngc -p tsconfig.app.json --noEmit &amp;&amp; ngc -p tsconfig.spec.json --noEmit &amp;&amp; tsc -p tsconfig.worker.json --noEmit"</code></pre>
+          </div>
+
+          <p>
+            <code>tsc</code> đọc được file <code>.ts</code> nhưng không hiểu cái gì nằm trong
+            template. <code>ngc</code> (trình biên dịch của Angular) dịch template thành TypeScript
+            rồi kiểm tra nó — nên <code>[heading]="t(123)"</code> là lỗi biên dịch, không phải lỗi
+            lúc chạy. Chế độ này bật bằng <code>strictTemplates</code>. Giá trị của nó:
+            <strong>template cũng được type-check như code</strong>, điều mà phần lớn framework
+            frontend không có.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: bản đồ</h2>
+
+          <p>Ba workspace npm, và chiều phụ thuộc giữa chúng là một luật được lint:</p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    W["apps/web<br/>Angular 22"] --> C["packages/contracts<br/>Zod schema + type"]
+    A["apps/mock-api<br/>Express"] --> C
+            </pre>
+            <figcaption>
+              Hai mũi tên, và không có mũi tên nào đi ngược:
+              <code>packages/contracts</code> không bao giờ import từ <code>apps/*</code>.
+              <code>lint/architecture.ts</code> làm bản build đổ nếu luật này bị phá, hoặc
+              nếu có vòng phụ thuộc. Bài 24.
+            </figcaption>
+          </figure>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Đường dẫn</th>
+                  <th>Là gì</th>
+                  <th>Học ở bài</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>apps/web/src/main.ts</code></td>
+                  <td>Điểm vào. 15 dòng, đọc hết được ngay bây giờ</td>
+                  <td>01</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/app.config.ts</code></td>
+                  <td>Khai báo app <em>là gì</em>: router, hydration, service worker</td>
+                  <td>01, 05</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/core/</code></td>
+                  <td>Hạ tầng dùng một lần: http, auth, i18n, errors, logging, config</td>
+                  <td>05, 09, 10, 19, 21</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/customers/</code></td>
+                  <td>Feature thật duy nhất. 90% thời gian học ở đây</td>
+                  <td>11–18</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/shared/ui/</code></td>
+                  <td>Component không biết gì về nghiệp vụ: button, table, dialog…</td>
+                  <td>02, 04, 06</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/layout/</code></td>
+                  <td>Khung ứng dụng: header, sidebar, breadcrumb, toast</td>
+                  <td>chặng 5</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/technical-labs/</code></td>
+                  <td>
+                    Phòng thí nghiệm: web worker, IndexedDB, đa tab… Cố ý tách khỏi feature thật
+                  </td>
+                  <td>chặng 5</td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/</code></td>
+                  <td>Schema Zod — một sự thật dùng cho cả app lẫn server</td>
+                  <td>08</td>
+                </tr>
+                <tr>
+                  <td><code>apps/mock-api/src/</code></td>
+                  <td>Backend thật thu nhỏ: CORS, CSRF, rate limit, SSE, 50.000 record</td>
+                  <td>chặng 5</td>
+                </tr>
+                <tr>
+                  <td><code>lint/</code>, <code>perf/</code>, <code>e2e/</code></td>
+                  <td>Những cái cổng chặn người viết code cẩu thả — kể cả bạn</td>
+                  <td>23, 24</td>
+                </tr>
+                <tr>
+                  <td><code>docs/</code></td>
+                  <td>23 tài liệu + 44 ADR giải thích <em>vì sao</em></td>
+                  <td>mọi bài</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Cách đọc một file trong repo này</span>
+            <p>
+              Mỗi file mở đầu bằng một khối chú thích nói vì sao nó tồn tại và phương án nào đã bị
+              loại. Đọc khối đó trước khi đọc code — nó thường là phần đáng giá hơn. Ví dụ mở
+              <code>customers/state/remote-data.ts</code>: 36 dòng chú thích cho 50 dòng code, và 36
+              dòng đó là bài 11.
+            </p>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <p>
+            Hai sơ đồ chuỗi ở mục 3.1 là sơ đồ chính của bài này. Thêm một sơ đồ cấu trúc: thứ gì
+            được dựng ra lúc app khởi động, và theo thứ tự nào.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    M["main.ts<br/>bootstrapApplication(App, appConfig)"] --> I["Injector gốc"]
+    I --> P1["provideRouter(routes, …)"]
+    I --> P2["provideClientHydration(…)"]
+    I --> P3["provideCore()"]
+    I --> P4["provideServiceWorker(…)"]
+    P3 --> O1["observability (log trước mọi thứ)"]
+    P3 --> O2["ErrorHandler"]
+    P3 --> O3["http + 5 interceptor"]
+    P3 --> O4["i18n"]
+    P3 --> O5["runtime config"]
+    P3 --> O6["session expiry + đồng bộ đa tab"]
+    M --> R["Component gốc App<br/>chỉ có một router-outlet"]
+    R --> RT["Router khớp URL → nạp nhánh component"]
+            </pre>
+            <figcaption>
+              Thứ tự trong <code>provideCore()</code> không phải tuỳ ý: observability đứng đầu vì
+              error handler và tầng HTTP đều ghi log, và sink của log được đăng ký ở đó. Đọc chú
+              thích trong <code>core/core.providers.ts</code>.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Zoneless thay vì zone.js — ADR-0002</h4>
+          <p>
+            Phương án bị loại là <code>zone.js</code>, thứ <em>mọi</em> tutorial đang giả định. Giá
+            phải trả cho việc bỏ nó: mọi thư viện thêm vào sau này phải chạy được không cần zone.js,
+            và state mà template đọc buộc phải là signal. Cái nhận được: không còn vá các global của
+            trình duyệt — điều vốn xung đột với kiến trúc SSR — và không còn kiểm tra lại cả cây mỗi
+            khi có bất kỳ <code>setTimeout</code> nào nổ.
+          </p>
+
+          <h4>SSR có từ phase 0 dù back office không cần SEO — §5.6 của project context</h4>
+          <p>
+            Phương án bị loại là “thêm SSR sau khi cần”. Nó bị loại vì gắn SSR vào một app đã viết
+            hai năm bằng <code>window</code> là một đợt refactor toàn hệ thống. Giữ nó từ đầu khiến
+            lỗi xuất hiện <em>ngay lúc</em> gây ra, rẻ hơn vài bậc.
+          </p>
+
+          <h4>Contracts là một library được biên dịch — ADR-0008</h4>
+          <p>
+            Phương án bị loại: để app và mock API mỗi bên tự định nghĩa type của mình. Nó bị loại vì
+            hai bản định nghĩa sẽ lệch nhau, và lệch âm thầm. Giá phải trả: thêm một bước build
+            (<code>npm run build:contracts</code>) mà một clone mới luôn quên — xem mục 7.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label"
+              >1. Dùng <code>document</code> / <code>window</code> trực tiếp</span
+            >
+            <p>
+              Cách ngây thơ: <code>document.querySelector('#x')</code>. Vỡ ở: bản build phía server,
+              nơi <code>document</code> không tồn tại — và đôi khi chỉ vỡ trên production. Repo chặn
+              ở tầng lint (quy tắc 2) và buộc bạn inject token trong
+              <code>core/platform/platform.tokens.ts</code>. Bài tập 2 ở mục 9 bắt bạn tự xem lint
+              chặn nó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Gọi <code>HttpClient</code> ngay trong component</span>
+            <p>
+              Cách ngây thơ nhìn ngắn hơn và chạy được. Vỡ ở: hai component cùng cần dữ liệu đó là
+              hai request; không có chỗ nào để cache; không huỷ được request cũ khi người dùng gõ
+              tiếp; và test component biến thành test HTTP. Quy tắc 3: Presentation → feature state
+              → API client → HTTP.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Viết chuỗi tiếng Anh thẳng vào template</span>
+            <p>
+              Vỡ ở: <code>npm run lint</code> đổ. Và nó cố ý đổ ngay từ dòng code đầu tiên, kể cả
+              khi chỉ có một ngôn ngữ — vì đi gom chuỗi về sau là việc không bao giờ ai làm. Tính cả
+              <code>aria-label</code>, <code>placeholder</code>, <code>title</code>: đó mới là những
+              chuỗi hay bị bỏ sót.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">4. Đổi branch rồi chạy ngay</span>
+            <p>
+              Lỗi bạn sẽ thấy: <code>does not provide an export named '…'</code>.
+              <code>packages/contracts/dist</code> không được track trong git, nên nó còn là bản
+              build của branch trước. <code>npm start</code> và <code>npm run start:api</code>
+              <strong>không</strong> build nó. Chạy <code>npm run build:contracts</code>. Đây là lỗi
+              đầu tiên gần như ai cũng gặp.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Tưởng lỗi template sẽ bị <code>tsc</code> bắt</span>
+            <p>
+              Không. Chỉ <code>ngc</code> bắt. Nếu một lỗi template chỉ xuất hiện lúc
+              <code>npm run build</code> chứ không lúc <code>npm run typecheck</code>
+              thì danh sách project trong tsconfig đã bị trôi — và đó là một lỗi cần sửa, không phải
+              chuyện bình thường.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>apps/web/src/app/app.spec.ts</code></td>
+                  <td>Component gốc dựng được, và chỉ là một outlet</td>
+                </tr>
+                <tr>
+                  <td><code>apps/web/src/app/app.routes.spec.ts</code></td>
+                  <td>
+                    Hình dạng cây route đúng — <code>login</code> nằm ngoài shell, thứ tự route
+                    không bị đổi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lint/architecture.test.ts</code></td>
+                  <td>
+                    Chính cái script lint cũng có test: nó thật sự phát hiện được vòng phụ thuộc và
+                    import sai chiều
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/smoke.spec.ts</code></td>
+                  <td>App khởi động thật trong trình duyệt thật và vẽ ra được màn hình</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý điều này, vì nó là một bài học về văn hoá enterprise: ở repo này
+            <strong>công cụ lint cũng có test của riêng nó</strong>. Một cái cổng không được chứng
+            minh là biết chặn thì không phải cổng.
+          </p>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="bai-tap"><span class="num">Mục 9</span>Bài tập</h2>
+
+          <p>
+            Làm theo thứ tự. Quy tắc 2 trong lộ trình: thử trước, mở đáp án sau. Cả ba bài này không
+            sửa code thật — bài 2 sửa rồi xoá.
+          </p>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh “một lần tải trang rồi thôi”</h3>
+            <p class="task__meta">~15 phút · không sửa code</p>
+            <ol>
+              <li>Hai terminal: <code>npm run start:api</code> và <code>npm start</code>.</li>
+              <li>
+                Mở <code>http://localhost:4200</code>, đăng nhập <code>admin</code> với mật khẩu bất
+                kỳ (mock backend không kiểm mật khẩu — xem <code>docs/security.md</code>).
+              </li>
+              <li>Mở DevTools → Network, chọn lọc <strong>Doc</strong>. Ghi lại số request.</li>
+              <li>
+                Bấm sang trang 2, đổi bộ lọc, mở một khách hàng, bấm Back. Xem lại lọc
+                <strong>Doc</strong>.
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Số request loại Doc <strong>không tăng</strong>: vẫn là một tài liệu ban đầu. Chuyển
+                sang lọc <strong>Fetch/XHR</strong> thì thấy các lời gọi
+                <code>/api/customers?…</code> — mỗi thao tác là một lời gọi dữ liệu, không phải một
+                lần vẽ lại trang. Thêm nữa: URL trên thanh địa chỉ vẫn đổi theo từng thao tác, và
+                Back hoạt động. Đó là router làm việc mà không cần mạng.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tự tay xem lint chặn mình</h3>
+            <p class="task__meta">~15 phút · sửa rồi hoàn nguyên</p>
+            <p>
+              Đây là chính cách repo tự chứng minh quy tắc của nó ở phase 0: viết một vi phạm rồi
+              xem build đổ.
+            </p>
+            <ol>
+              <li>
+                Mở <code>apps/web/src/app/not-found/not-found-page.ts</code>. Thêm vào trong class
+                một dòng:
+                <code>private readonly w = window.innerWidth;</code>
+              </li>
+              <li>Chạy <code>npm run lint</code>. Đọc kỹ thông báo.</li>
+              <li>
+                Xoá dòng đó. Thêm vào template một chuỗi tiếng Anh cứng, ví dụ
+                <code>&lt;p&gt;Nothing here&lt;/p&gt;</code>. Chạy lại <code>npm run lint</code>.
+              </li>
+              <li>
+                <code>git checkout apps/web/src/app/not-found/not-found-page.ts</code> để hoàn
+                nguyên. Kiểm tra <code>git status</code> sạch.
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bài tập này đáng 15 phút</summary>
+              <p>
+                Vì từ giờ hai lỗi này bạn sẽ không mắc nữa — không phải vì nhớ quy tắc, mà vì đã
+                thấy nó đổ. Và vì bạn vừa học được cách dùng lint như một
+                <em>người dạy</em>: có nghi ngờ gì về luật của repo, viết một vi phạm nhỏ và hỏi nó.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Xem bằng mắt ba chế độ render</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li><code>npm run build</code> (lần đầu khá lâu).</li>
+              <li>
+                Liệt kê <code>apps/web/dist/web/browser</code> và
+                <code>apps/web/dist/web/server</code>. Hai bundle, cùng một code.
+              </li>
+              <li>
+                Mở <code>apps/web/dist/web/browser/index.csr.html</code> trong editor. Đếm xem có
+                bao nhiêu nội dung thật trong đó.
+              </li>
+              <li>
+                Mở <code>apps/web/dist/web/browser/login/index.html</code>. Tìm thẻ
+                <code>&lt;form&gt;</code>.
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và vì sao nó quan trọng</summary>
+              <p>
+                <code>index.csr.html</code> không có nội dung nào của ứng dụng: chỉ
+                <code>&lt;app-root&gt;&lt;/app-root&gt;</code>, vài thẻ script, và một khối
+                <code>&lt;style&gt;</code> được nhúng sẵn. Khối style đó là critical CSS: nhúng vào
+                để lần vẽ đầu tiên không phải là một trang không có định dạng. Mọi thứ
+                <em>người dùng đọc</em> vẫn do JavaScript dựng.
+              </p>
+              <p>
+                Còn <code>login/index.html</code> <strong>có sẵn</strong> cả form trong đó — nó được
+                render lúc build (<code>RenderMode.Prerender</code> trong
+                <code>app.routes.server.ts</code>). Đó là vì sao trang đăng nhập hiện ra trước khi
+                JavaScript chạy xong, và cũng là vì sao nút Sign in bị <em>disable</em> cho tới lúc
+                đó: gõ vào một form chưa hydrate thì chữ sẽ mất.
+              </p>
+              <p>
+                Vì sao chỉ <code>/login</code>: nó giống nhau với mọi người. Một trang phụ thuộc vào
+                <em>ai</em> đang hỏi thì không prerender được — và đó là mọi trang nằm trong shell.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 10</span>Tự kiểm tra</h2>
+
+          <p>
+            Trả lời trong đầu <em>trước khi</em> mở. Câu nào trả lời không trôi chảy thì quay lại
+            mục tương ứng — đó là tín hiệu chính xác hơn cảm giác “mình hiểu rồi”.
+          </p>
+
+          <details>
+            <summary>
+              1. Vì sao <code>/login</code> được prerender mà <code>/customers</code> thì không?
+            </summary>
+            <p>
+              Vì <code>/login</code> giống nhau với mọi người, nên có thể render một lần lúc build.
+              <code>/customers</code> phụ thuộc vào ai đang hỏi và họ được phép thấy gì; prerender
+              nó là prerender dữ liệu của một người cho tất cả. Server-render nó cũng không mua được
+              gì ở đây: back office không có crawler nào cần phục vụ.
+              <code>app.routes.server.ts</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Một component sống bao lâu? Còn <code>CustomerStore</code>?</summary>
+            <p>
+              Component sống từ lúc router dựng nó tới lúc router huỷ nhánh đó — tức là tới khi
+              người dùng đi sang chỗ khác. <code>CustomerStore</code> được cấp bởi route cha không
+              có path của feature customers, nên một instance phục vụ <em>mọi</em> trang dưới
+              <code>/customers</code> và chết khi người dùng rời khỏi khu vực đó. Đó là lý do đi từ
+              trang chi tiết về danh sách thấy tức thì.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Không có zone.js thì Angular biết phải vẽ lại nhờ đâu?</summary>
+            <p>
+              Nhờ signal. Signal biết ai đã đọc nó; khi giá trị đổi, các component có template đọc
+              nó bị đánh dấu và được đồng bộ lại. Hệ quả: gán vào field thường thì màn hình không
+              đổi, và không có lỗi nào được báo.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              4. Vì sao <code>npm run typecheck</code> dùng <code>ngc</code> chứ không chỉ
+              <code>tsc</code>?
+            </summary>
+            <p>
+              Vì <code>tsc</code> không đọc được template. <code>ngc</code> dịch template thành
+              TypeScript rồi kiểm tra, nên sai kiểu trong một binding là lỗi biên dịch chứ không
+              phải lỗi lúc chạy. Đây là ý nghĩa thực tế của <code>strictTemplates</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Interceptor có phải một lớp bảo mật không?</summary>
+            <p>
+              Không. Nó chạy trong trình duyệt của người dùng — họ sửa được code, tắt được
+              JavaScript, gọi API bằng curl. Mọi thứ frontend làm về quyền là
+              <strong>UX</strong>: không hiện nút mà bấm vào sẽ bị từ chối. Mock API kiểm tra quyền
+              độc lập trên từng request. Quy tắc 10, và ADR-0018.
+            </p>
+          </details>
+
+          <nav class="next">
+            <span><a href="index.html">← Lộ trình</a></span>
+            <span
+              ><a href="01-tu-url-toi-pixel.html"
+                >Bài 01 — Từ URL tới pixel trong repo này →</a
+              ></span
+            >
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Bản đồ repo</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
