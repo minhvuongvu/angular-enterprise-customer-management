@@ -1,0 +1,1065 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 10 — Lỗi</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 10
+        </p>
+        <h1>Lỗi</h1>
+        <p class="lede">
+          Ở backend, lỗi đi lên và biến thành một status code. Ở đây nó không đi đâu cả —
+          nó phải <strong>hạ cánh xuống một chỗ trên màn hình</strong> và nói được bằng
+          tiếng người. Bài này về cách repo biến mọi thứ có thể hỏng thành mười một loại,
+          và ai chịu trách nhiệm hiển thị loại nào.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · hướng tới Mốc 2</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Taxonomy</strong></td>
+                  <td>
+                    Bảng phân loại đóng: mọi thứ hỏng được thu về đúng một trong mười một
+                    <code>kind</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Discriminated union</strong></td>
+                  <td>
+                    Union các kiểu, phân biệt bằng một field chung
+                    (<code>kind</code>). Trình biên dịch biết nhánh nào có field nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Exhaustiveness</strong></td>
+                  <td>
+                    Tính chất "đã xét hết mọi nhánh" — trình biên dịch kiểm được, nếu dùng
+                    union thay vì kế thừa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>messageKey</code></td>
+                  <td>
+                    <strong>Khoá dịch</strong>, không bao giờ là một câu. Đây là chỗ hai
+                    quy tắc của repo gặp nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Error envelope</strong></td>
+                  <td>
+                    Hình dạng chuẩn của body lỗi mà API hứa trả về, mô tả trong
+                    <code>packages/contracts</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>fieldErrors</code> / <code>fieldIssues</code></td>
+                  <td>
+                    Lỗi theo từng field. Cái đầu là câu tiếng Anh cho lập trình viên — chỉ
+                    dùng để biết <em>field nào</em>; cái sau là
+                    <strong>mã lý do</strong> mà form dịch được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>ErrorHandler</code></td>
+                  <td>
+                    Chốt chặn cuối cùng của Angular cho mọi thứ không ai bắt.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Correlation id</strong></td>
+                  <td>
+                    Mã nối một request với log của cả hai phía — và nó được gắn vào lỗi, nên
+                    hiện được trên màn hình.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Phân loại một thứ hỏng mới vào đúng <code>kind</code>, hoặc biết khi nào cần thêm kind.</li>
+            <li>
+              Quyết định đúng chỗ hiển thị: trang, field, hay toast — và nói được tiêu chí.
+            </li>
+            <li>
+              Giải thích được vì sao <code>GlobalErrorHandler</code> cố ý
+              <strong>không</strong> hiện gì cho người dùng.
+            </li>
+            <li>
+              Biết vì sao một 409 cần <code>currentVersion</code> để có nghĩa.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cây exception (<code>BusinessException</code> …)</td>
+                  <td>Discriminated union</td>
+                  <td>
+                    Kế thừa không cho trình biên dịch kiểm "đã xét hết nhánh chưa". Union
+                    thì có. Và union là <em>dữ liệu thuần</em>, nên nó đi qua biên SSR và
+                    nằm trong log mà không mất gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@ControllerAdvice</code> / exception mapper</td>
+                  <td><code>mapHttpError</code></td>
+                  <td>
+                    Cùng ý tưởng "một chỗ dịch mọi thứ". Khác chiều: của bạn dịch
+                    exception <em>thành</em> response; cái này dịch response
+                    <em>thành</em> thứ UI hiểu được.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ném lên cho tầng trên bắt</td>
+                  <td>Gán thành một trạng thái</td>
+                  <td>
+                    <strong>Khác biệt lớn nhất.</strong> Không có "tầng trên" nào bắt hộ.
+                    Lỗi phải trở thành thứ vẽ ra được, nếu không nó là một trang trắng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Trả message trong response body</td>
+                  <td>Trả một <em>khoá dịch</em></td>
+                  <td>
+                    Câu chữ người dùng đọc thuộc về frontend, không thuộc về API — vì nó
+                    phải đổi theo ngôn ngữ, và vì message của backend thường nói về
+                    database.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Mười một loại, và vì sao là union chứ không phải class</h3>
+
+          <div class="code">
+            <div class="code__file">core/errors/app-error.ts</div>
+            <pre><code>export type AppErrorKind =
+  | 'validation'
+  | 'authentication'
+  | 'authorization'
+  | 'not-found'
+  | 'conflict'
+  | 'rate-limited'
+  | 'server'
+  | 'network'
+  | 'timeout'
+  | 'cancelled'
+  | 'unknown';</code></pre>
+          </div>
+
+          <p>Chú thích đầu file đưa ra ba lý do chọn union thay vì cây kế thừa:</p>
+
+          <ul>
+            <li>
+              <strong>Trình biên dịch kiểm được tính đầy đủ.</strong> Viết một
+              <code>switch</code> trên <code>kind</code> mà thiếu một nhánh thì nó nói.
+            </li>
+            <li>
+              <strong>Nó là dữ liệu thuần.</strong> Một instance class không sống sót qua
+              biên SSR và không serialize vào log tử tế; một object thì có.
+            </li>
+            <li>
+              <strong>Feature không bao giờ rẽ nhánh theo status HTTP</strong> hay theo hình
+              dạng của thứ được ném ra.
+            </li>
+          </ul>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th><code>kind</code></th>
+                  <th>Nghĩa</th>
+                  <th>Ai xử lý</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>validation</code></td>
+                  <td>Dữ liệu gửi lên không hợp lệ (400, 422)</td>
+                  <td>Form — đánh dấu đúng field</td>
+                </tr>
+                <tr>
+                  <td><code>authentication</code></td>
+                  <td>Phiên hết hạn hoặc chưa đăng nhập (401)</td>
+                  <td>Interceptor refresh; nếu không cứu được thì <code>SessionService</code></td>
+                </tr>
+                <tr>
+                  <td><code>authorization</code></td>
+                  <td>Đăng nhập rồi nhưng không được phép (403)</td>
+                  <td>Trang — chuyển sang màn hình "không có quyền"</td>
+                </tr>
+                <tr>
+                  <td><code>not-found</code></td>
+                  <td>Bản ghi không tồn tại (404)</td>
+                  <td>Trang chi tiết</td>
+                </tr>
+                <tr>
+                  <td><code>conflict</code></td>
+                  <td>Mất một cuộc đua ghi, hoặc trùng dữ liệu (409)</td>
+                  <td>Form — mục 3.4</td>
+                </tr>
+                <tr>
+                  <td><code>rate-limited</code></td>
+                  <td>Quá nhiều request (429)</td>
+                  <td>Toast, kèm thời gian chờ nếu server nói</td>
+                </tr>
+                <tr>
+                  <td><code>server</code></td>
+                  <td>5xx, <em>và</em> một 200 sai hợp đồng</td>
+                  <td>Trang — kèm nút thử lại và correlation id</td>
+                </tr>
+                <tr>
+                  <td><code>network</code></td>
+                  <td>Không có response nào: offline, DNS, CORS</td>
+                  <td>Trang; được retry tự động trước đó</td>
+                </tr>
+                <tr>
+                  <td><code>timeout</code></td>
+                  <td>Quá hạn chờ do <code>request-policy</code> đặt</td>
+                  <td>Trang; cũng được retry</td>
+                </tr>
+                <tr>
+                  <td><code>cancelled</code></td>
+                  <td>Bị huỷ có chủ đích</td>
+                  <td><strong>Không ai</strong> — đây không phải lỗi người dùng cần biết</td>
+                </tr>
+                <tr>
+                  <td><code>unknown</code></td>
+                  <td>Mọi thứ còn lại</td>
+                  <td>Trang, với câu chữ chung nhất</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 <code>messageKey</code> là khoá, không phải câu</h3>
+
+          <div class="code">
+            <div class="code__file">core/errors/app-error.ts</div>
+            <pre><code>export const DEFAULT_ERROR_MESSAGE_KEYS: Readonly&lt;Record&lt;AppErrorKind, string&gt;&gt; = {
+  validation: 'errors.validation',
+  authentication: 'errors.authentication',
+  // …
+  unknown: 'errors.unknown',
+};</code></pre>
+          </div>
+
+          <p>
+            Chú thích nói: <em>"Two rules meet here: user-facing text goes through i18n, and
+            raw backend messages are never shown."</em> Quy tắc 1 và quy tắc 6 của
+            <code>CLAUDE.md</code> gặp nhau ở đúng field này.
+          </p>
+
+          <p>
+            Hệ quả cụ thể: không có đường nào để một câu như
+            <code>duplicate key value violates unique constraint "customers_email_key"</code>
+            đi tới màn hình. Nó nằm trong <code>cause</code>, và
+            <code>cause</code> có chú thích <em>"For logs and debugging only — never
+            rendered."</em>
+          </p>
+
+          <h3>3.3 Một chỗ dịch, và nó <em>không tin</em> body</h3>
+
+          <div class="code">
+            <div class="code__file">core/errors/http-error-mapper.ts</div>
+            <pre><code>export function mapHttpError(response: HttpErrorResponse, correlationId?: CorrelationId): AppError {
+  const envelope = readEnvelope(response);
+  const base = {
+    status: response.status,
+    // The server echoes the id it was sent; prefer its value so both sides'
+    // logs agree even if something rewrote the header in between.
+    correlationId: envelope?.error.correlationId ?? correlationId,
+    cause: response,
+  };
+
+  // Angular reports a status of 0 when the request never got an HTTP response
+  // at all: offline, DNS failure, connection refused, or a CORS rejection.
+  if (response.status === 0) {
+    return appError('network', base);
+  }
+
+  switch (response.status) { … }
+}
+
+/** Returns the parsed envelope, or `null` if the body is not one. */
+function readEnvelope(response: HttpErrorResponse): ApiErrorBody | null {
+  const parsed = apiErrorBodySchema.safeParse(response.error);
+  return parsed.success ? parsed.data : null;
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao body lỗi cũng phải validate</span>
+            <p>
+              Chú thích đầu file: <em>"A 422 whose body is an HTML error page from a proxy
+              is a real possibility, and reading
+              <code>body.error.details.fieldErrors</code> off it would throw inside the
+              error handler — turning a handled failure into an unhandled one."</em>
+            </p>
+            <p>
+              Đây là một ý rất đáng mang đi: <strong>code xử lý lỗi là code dễ bị bỏ quên
+              nhất, và một lỗi bên trong nó biến một thất bại có kiểm soát thành một trang
+              trắng.</strong> Nên nó phải phòng thủ hơn code bình thường, không phải ít
+              hơn.
+            </p>
+          </div>
+
+          <h3>3.4 Ba loại mang theo dữ liệu riêng</h3>
+
+          <h4><code>conflict</code> — và vì sao <code>currentVersion</code> là bản lề</h4>
+
+          <div class="code">
+            <div class="code__file">core/errors/app-error.ts</div>
+            <pre><code>/**
+ * A write that lost a race.
+ *
+ * `currentVersion` is the discriminator between the two things a 409 means on
+ * this API, and carrying it is what lets a caller tell them apart: present
+ * means "someone saved while your form was open", absent means the payload
+ * collided with a record that already exists - a duplicate email. Without it
+ * both arrive as an unhelpful "there was a conflict".
+ */
+export interface ConflictError extends AppErrorBase {
+  readonly kind: 'conflict';
+  readonly currentVersion?: number;
+}</code></pre>
+          </div>
+
+          <p>
+            Cùng một status code, hai tình huống hoàn toàn khác nhau về mặt người dùng:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th><code>currentVersion</code></th>
+                  <th>Nghĩa là</th>
+                  <th>Người dùng cần làm gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Có</td>
+                  <td>Ai đó đã lưu trong lúc form của bạn đang mở</td>
+                  <td>Xem bản mới rồi quyết định — <strong>không</strong> mất chữ đã gõ</td>
+                </tr>
+                <tr>
+                  <td>Không</td>
+                  <td>Dữ liệu trùng với một bản ghi đã tồn tại (email trùng)</td>
+                  <td>Sửa field đó</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Không có field này thì cả hai đến dưới dạng "đã xảy ra xung đột" — một câu
+            không giúp ai làm gì. Đây là ví dụ rõ nhất trong repo cho nguyên tắc:
+            <strong>taxonomy phải mang đủ dữ liệu để người nhận quyết định được.</strong>
+          </p>
+
+          <h4><code>validation</code> — hai bộ field, hai mục đích</h4>
+
+          <div class="code">
+            <div class="code__file">core/errors/app-error.ts</div>
+            <pre><code>export interface ValidationError extends AppErrorBase {
+  readonly kind: 'validation';
+  /**
+   * Field path to the server's developer sentences. Used for *which* field;
+   * never rendered.
+   */
+  readonly fieldErrors: Readonly&lt;Record&lt;string, readonly string[]&gt;&gt;;
+  /**
+   * Field path to the reasons, as codes (Phase 6). Empty when the server sent
+   * none - an older server, or a fault injected without them - and a form
+   * then falls back to "the server rejected this value".
+   */
+  readonly fieldIssues: Readonly&lt;Record&lt;string, readonly FieldIssue[]&gt;&gt;;
+}</code></pre>
+          </div>
+
+          <p>
+            <code>fieldErrors</code> trả lời "<em>field nào</em> sai" —
+            <strong>câu chữ của nó không bao giờ được hiển thị</strong>, vì đó là tiếng Anh
+            do backend viết. <code>fieldIssues</code> trả lời "<em>vì sao</em> sai" dưới
+            dạng <strong>mã</strong>, và form dịch mã đó sang câu trong ngôn ngữ của người
+            dùng.
+          </p>
+
+          <p>
+            Khoá là đường dẫn có dấu chấm (<code>address.city</code>), nên form đánh dấu
+            được đúng control lồng sâu. Và khi server không gửi <code>fieldIssues</code>,
+            form lùi về một câu chung — xuống cấp êm, không vỡ.
+          </p>
+
+          <h4><code>rate-limited</code> — bao lâu nữa thì thử lại được</h4>
+
+          <div class="code">
+            <div class="code__file">core/errors/http-error-mapper.ts</div>
+            <pre><code>case 429:
+  return {
+    kind: 'rate-limited',
+    messageKey: DEFAULT_ERROR_MESSAGE_KEYS['rate-limited'],
+    retryAfterSeconds:
+      envelope?.error.details?.retryAfterSeconds ??
+      parseRetryAfter(response.headers.get('Retry-After')),
+    ...base,
+  };</code></pre>
+          </div>
+
+          <p>
+            Hai nguồn, theo thứ tự ưu tiên: body của API, rồi header HTTP chuẩn. Không có
+            cái nào thì <code>undefined</code>, và UI nói câu chung. Đây là khuôn mẫu lặp
+            lại khắp mapper: <em>lấy được thì lấy, không thì xuống cấp</em> — không bao giờ
+            ném trong code xử lý lỗi.
+          </p>
+
+          <h3>3.5 Chốt chặn cuối chỉ <em>báo cáo</em>, không hiển thị</h3>
+
+          <div class="code">
+            <div class="code__file">core/errors/global-error-handler.ts — toàn bộ</div>
+            <pre><code>/**
+ * Last line of defence for anything that escapes a feature.
+ *
+ * It only reports - to the error tracker, which adds the steps that led here
+ * and groups repeats (ADR-0039). Deciding what a user sees belongs to the
+ * feature that knows the context; a global handler that also renders a toast
+ * produces a second, meaningless message next to the real one.
+ */
+@Injectable()
+export class GlobalErrorHandler implements ErrorHandler {
+  private readonly errors = inject(ErrorTracker);
+
+  handleError(error: unknown): void {
+    this.errors.captureError(error);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Phản xạ tự nhiên là cho handler toàn cục hiện một toast "Đã có lỗi xảy ra". Chú
+            thích giải thích vì sao không: feature đã hiện thông báo
+            <em>có ngữ cảnh</em> rồi, nên toast toàn cục là thông báo thứ hai, vô nghĩa,
+            nằm cạnh thông báo thật. Người dùng thấy hai lỗi cho một sự việc và không biết
+            tin cái nào.
+          </p>
+
+          <h3>3.6 Ai hiển thị cái gì, ở đâu</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chỗ hiển thị</th>
+                  <th>Dùng khi</th>
+                  <th>Ví dụ trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Toàn trang</strong> (<code>app-error-state</code>)</td>
+                  <td>
+                    Không có gì để hiện cả — câu hỏi chính của trang không trả lời được
+                  </td>
+                  <td>
+                    Danh sách lỗi khi chưa có dòng nào: nhánh <code>'error'</code> của
+                    <code>view()</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Băng cảnh báo</strong> trên dữ liệu cũ</td>
+                  <td>
+                    Có dữ liệu cũ vẫn dùng được, nhưng lần làm mới vừa hỏng
+                  </td>
+                  <td>
+                    <code>staleWarning()</code> — bảng ở lại, kèm một dòng nói đã không làm
+                    mới được
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Cạnh field</strong></td>
+                  <td>Người dùng sửa được, và sửa ở đúng chỗ đó</td>
+                  <td><code>validation</code> với <code>fieldIssues</code></td>
+                </tr>
+                <tr>
+                  <td><strong>Trong form, không mất dữ liệu</strong></td>
+                  <td>Cần người dùng quyết định, chữ đã gõ phải giữ</td>
+                  <td><code>conflict</code> có <code>currentVersion</code> — bài 18</td>
+                </tr>
+                <tr>
+                  <td><strong>Toast</strong></td>
+                  <td>
+                    Việc chạy nền, không có chỗ nào trên trang thuộc về nó
+                  </td>
+                  <td>Export CSV hỏng: <code>notifications.toast(messageKeyOf(error), …)</code></td>
+                </tr>
+                <tr>
+                  <td><strong>Không hiện gì</strong></td>
+                  <td>Lỗi không phải chuyện của người dùng</td>
+                  <td><code>cancelled</code>; và chính <code>GlobalErrorHandler</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — ví dụ toast</div>
+            <pre><code>error: (error: unknown) =&gt; {
+  this.exportProgress.set(null);
+  this.notifications.toast(messageKeyOf(error), { tone: 'danger' });
+},</code></pre>
+          </div>
+
+          <p>
+            <code>messageKeyOf</code> tồn tại vì <code>catch</code> và RxJS luôn đưa cho bạn
+            <code>unknown</code>. Chú thích: <em>"every one of those call sites needs the
+            same two lines"</em>, và việc gom lại đảm bảo một giá trị bằng cách nào đó lọt
+            tới component mà không qua tầng HTTP vẫn ra một câu, chứ không phải
+            <code>[object Object]</code>.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/errors/app-error.ts</code></td>
+                  <td>Taxonomy, ba loại có dữ liệu riêng, <code>messageKeyOf</code></td>
+                </tr>
+                <tr>
+                  <td><code>core/errors/http-error-mapper.ts</code></td>
+                  <td>Một chỗ dịch; envelope được validate; status 0 nghĩa là gì</td>
+                </tr>
+                <tr>
+                  <td><code>core/errors/global-error-handler.ts</code></td>
+                  <td>Chín dòng, và một quyết định quan trọng về việc <em>không</em> làm gì</td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui/error-state/error-state.ts</code></td>
+                  <td>Hình dạng chuẩn của một màn hình lỗi: nói gì hỏng, và làm gì tiếp</td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/translations/en.json</code> → <code>errors.*</code></td>
+                  <td>Câu chữ thật, và chúng nói với người dùng chứ không với lập trình viên</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    SRC1["HttpErrorResponse<br/>từ server"] --> MAP
+    SRC2["TimeoutError<br/>từ request-policy"] --> TOA["toAppError()"]
+    SRC3["Zod parse thất bại<br/>trong CustomerApi"] --> THROW["appError('server')"]
+    SRC4["Lỗi JS bất kỳ"] --> GEH
+
+    MAP["mapHttpError()<br/><i>validate envelope trước</i>"] --> AE
+    TOA --> AE
+    THROW --> AE
+
+    AE["AppError<br/>kind · messageKey · correlationId"] --> ST["Store: gán thành một trạng thái"]
+    ST --> V{"Có dữ liệu cũ không?"}
+    V -->|"không"| FULL["app-error-state toàn trang"]
+    V -->|"có"| STALE["dữ liệu cũ + băng cảnh báo"]
+
+    AE --> FORM["Form: fieldIssues → đánh dấu field<br/>conflict → hỏi người dùng"]
+    AE --> TOAST["Toast: việc chạy nền"]
+
+    GEH["GlobalErrorHandler"] --> TRK["ErrorTracker<br/><i>chỉ báo cáo, không hiện gì</i>"]
+            </pre>
+            <figcaption>
+              Bốn nguồn, một kiểu, nhiều cách hiển thị. Chú ý nhánh dưới cùng tách hẳn: thứ
+              lọt khỏi mọi feature chỉ được <em>ghi nhận</em>, vì feature nào biết ngữ cảnh
+              thì feature đó đã nói với người dùng rồi.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Union thay vì cây exception</h4>
+          <p>
+            Phương án bị loại: <code>class AppError extends Error</code> với các lớp con. Bị
+            loại vì mất tính đầy đủ kiểm được bởi trình biên dịch, và vì một instance class
+            không sống sót qua biên SSR cũng không serialize vào log. Giá phải trả: không
+            dùng được <code>instanceof</code>, nên có <code>isAppError()</code> — một hàm
+            type guard mà bạn phải nhớ dùng.
+          </p>
+
+          <h4>Mười một loại — không nhiều hơn, không ít hơn</h4>
+          <p>
+            Phương án bị loại: ánh xạ một-một với status code. Bị loại vì
+            <code>network</code>, <code>timeout</code> và <code>cancelled</code> không có
+            status nào, còn 400 và 422 thì là cùng một chuyện với người dùng. Tiêu chí chia
+            loại là <strong>người dùng phải làm gì khác nhau</strong>, không phải HTTP nói
+            gì.
+          </p>
+
+          <h4>Handler toàn cục không hiện gì</h4>
+          <p>
+            Phương án bị loại: toast "Đã có lỗi xảy ra" cho mọi thứ lọt ra. Bị loại vì nó
+            sinh ra thông báo thứ hai vô nghĩa cạnh thông báo thật của feature.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Hiện <code>error.message</code> của server</span>
+            <p>
+              Người dùng đọc được tên bảng, tên ràng buộc, đôi khi cả một đoạn SQL. Vừa vô
+              dụng với họ, vừa là rò rỉ thông tin về cấu trúc hệ thống. Quy tắc 6 tồn tại
+              vì đúng chuyện này.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Đọc thẳng <code>body.error.details</code> mà không kiểm</span>
+            <p>
+              Một 502 từ proxy trả về HTML. Code xử lý lỗi ném lỗi. Thất bại có kiểm soát
+              thành trang trắng — và stack trace trỏ vào chính error handler, nên bạn sẽ đi
+              tìm bug ở đó thay vì ở proxy.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Rẽ nhánh theo status code trong component</span>
+            <p>
+              <code>if (error.status === 409)</code> trong một trang nghĩa là mỗi trang phải
+              học lại ý nghĩa của từng mã, và mỗi lần API đổi một mã thì phải đi sửa khắp
+              nơi. Taxonomy tồn tại để chỉ <em>một</em> chỗ biết chuyện đó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Coi 409 là một chuyện</span>
+            <p>
+              Mất cuộc đua ghi và trùng email là hai tình huống khác hẳn nhau về việc người
+              dùng phải làm. Gộp lại thành "đã xảy ra xung đột" là một thông báo không giúp
+              ai. <code>currentVersion</code> là thứ phân biệt chúng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Toast cho mọi lỗi</span>
+            <p>
+              Toast biến mất sau vài giây, nên nó sai cho thứ người dùng cần đọc kỹ hoặc cần
+              hành động. Nó cũng không có ngữ cảnh: "Không lưu được" nổi lên ở góc màn hình
+              trong khi form vẫn trông như bình thường. Lỗi nên hiện
+              <em>cạnh thứ nó nói về</em>.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Hiện lỗi cho một request bị huỷ</span>
+            <p>
+              Người dùng gõ tiếp, <code>switchMap</code> huỷ request cũ, và một thông báo
+              "Đã có lỗi" nhảy ra. Không có gì hỏng cả — hệ thống đang làm đúng việc. Vì vậy
+              <code>cancelled</code> là một kind riêng, và nó không được hiển thị.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/errors/http-error-mapper.spec.ts</code></td>
+                  <td>
+                    Từng status map sang đúng kind; body không phải envelope thì
+                    <strong>không ném</strong>; status 0 là <code>network</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/http-interceptors.spec.ts</code></td>
+                  <td>
+                    Lỗi rời khỏi tầng HTTP đã là <code>AppError</code>, kèm đúng correlation
+                    id
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>Lỗi trở thành một trạng thái, và giữ dữ liệu cũ khi dữ liệu đó còn đúng</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-form/validation-messages.spec.ts</code></td>
+                  <td><code>fieldIssues</code> được dịch thành câu người dùng đọc được</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    Một lệnh ghi thua cuộc đua được giải thích, và chữ đã gõ vẫn còn
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    E["Một thứ vừa hỏng"] --> Q1{"Nó đã là AppError chưa?"}
+    Q1 -->|"chưa"| MAP["Phân loại NGAY TẠI BIÊN nó đi vào<br/>mapHttpError · appError('server') · toAppError"]
+    Q1 -->|"rồi"| Q2
+    MAP --> Q2{"Người dùng có cần biết không?"}
+
+    Q2 -->|"không — cancelled"| SILENT["Không hiện gì"]
+    Q2 -->|"có"| Q3{"Họ sửa được không, và ở đâu?"}
+
+    Q3 -->|"sửa được, ở một field"| FIELD["Cạnh field<br/>fieldIssues → khoá dịch"]
+    Q3 -->|"phải quyết định, dữ liệu phải giữ"| FORM["Trong form<br/>conflict + currentVersion"]
+    Q3 -->|"không sửa được"| Q4{"Màn hình còn gì dùng được không?"}
+
+    Q4 -->|"còn dữ liệu cũ"| STALE["Giữ dữ liệu + băng cảnh báo"]
+    Q4 -->|"không còn gì"| FULL["Toàn trang + nút thử lại<br/>+ correlation id"]
+    Q4 -->|"việc chạy nền"| TOAST["Toast"]
+
+    RULE["LUÔN LUÔN: messageKey là khoá dịch<br/>cause chỉ cho log, không bao giờ hiện"]
+            </pre>
+            <figcaption>
+              Hai câu hỏi quyết định mọi thứ: <em>người dùng có cần biết không</em>, và
+              <em>họ sửa được ở đâu</em>. Status code không xuất hiện trong cây này — đó là
+              dấu hiệu taxonomy đang làm đúng việc của nó.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Gây ra từng loại lỗi và xem nó hiện ở đâu</h3>
+            <p class="task__meta">~35 phút · không sửa code</p>
+            <p>
+              Mock API gây lỗi theo yêu cầu qua header <code>x-mock-scenario</code>; danh
+              mục ở <code>GET /api/_mock/scenarios</code> và trong
+              <code>docs/mock-backend.md</code>. Dùng DevTools để thêm header, hoặc gọi
+              bằng <code>curl</code>.
+            </p>
+            <p>Với mỗi tình huống, ghi lại: hiện ở đâu, nói gì, có nút gì:</p>
+            <ol>
+              <li>Danh sách lỗi 500 khi <strong>chưa</strong> có dữ liệu nào.</li>
+              <li>Danh sách lỗi 500 khi <strong>đã</strong> có dữ liệu (bấm Refresh).</li>
+              <li>Tắt mạng trong DevTools rồi bấm Refresh.</li>
+              <li>Lưu một form với email đã tồn tại.</li>
+              <li>Gõ nhanh vào ô tìm kiếm (request bị huỷ).</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                1 và 2 là cùng một lỗi, <strong>hai cách hiển thị khác nhau</strong> — đó là
+                nhánh <code>view()</code> và <code>staleWarning()</code>. Ở (2), bảng
+                <em>không</em> biến mất: dữ liệu cũ vẫn trả lời được câu hỏi, chỉ là nó có
+                thể đã cũ, và màn hình nói ra điều đó.
+              </p>
+              <p>
+                (3) hiện như một lỗi thông thường — nhưng chú ý <em>độ trễ</em>: nó đã được
+                thử lại hai lần với backoff trước khi bỏ cuộc (bài 07).
+              </p>
+              <p>
+                (5) không hiện gì cả. Nếu nó hiện gì đó, đó là một bug — xem mục 7 điểm 6.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đọc mapper và trả lời</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>
+                Server trả 418 (một mã không có trong <code>switch</code>). Kind là gì? Còn
+                503 thì sao? Dòng nào quyết định?
+              </li>
+              <li>
+                Vì sao <code>status === 0</code> được xử lý <em>trước</em>
+                <code>switch</code>, chứ không phải là một <code>case</code>?
+              </li>
+              <li>
+                <code>correlationId</code> lấy từ envelope <em>trước</em>, từ context
+                <em>sau</em>. Vì sao thứ tự đó?
+              </li>
+              <li>
+                Một 422 với body là HTML. <code>fieldErrors</code> bằng gì, và form hiện
+                gì?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  418 → <code>unknown</code>; 503 → <code>server</code>. Dòng
+                  <code>default: return appError(response.status &gt;= 500 ? 'server' : 'unknown', base)</code>.
+                  Phân biệt này quan trọng vì chỉ <code>server</code> mới đáng báo động cho
+                  người vận hành.
+                </li>
+                <li>
+                  Vì 0 không phải một status HTTP — nó là cách Angular nói "không có
+                  response nào cả": offline, DNS hỏng, kết nối bị từ chối, hoặc CORS từ
+                  chối. Để nó lẫn vào <code>switch</code> sẽ rơi vào
+                  <code>default</code> và thành <code>unknown</code>, mất mất thông tin quan
+                  trọng nhất — rằng vấn đề nằm ở mạng, nên <em>đáng</em> thử lại.
+                </li>
+                <li>
+                  Chú thích trả lời: server echo lại id nó nhận được, nên lấy giá trị của
+                  server để log hai phía chắc chắn khớp — kể cả khi có thứ gì đó ở giữa
+                  (proxy, gateway) viết lại header.
+                </li>
+                <li>
+                  <code>{}</code> — vì <code>readEnvelope</code> trả <code>null</code> và
+                  code dùng <code>?? {}</code>. Form không đánh dấu được field nào, nên nó
+                  lùi về một thông báo chung. Xuống cấp êm, và quan trọng nhất:
+                  <strong>không ném</strong>.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một kind mới</h3>
+            <p class="task__meta">~50 phút · branch <code>learning/*</code></p>
+            <p>
+              API sắp thêm 402 Payment Required cho tài khoản hết hạn thuê bao. Thêm kind
+              <code>payment-required</code>.
+            </p>
+            <ol>
+              <li>Thêm vào <code>AppErrorKind</code> và vào <code>DEFAULT_ERROR_MESSAGE_KEYS</code>.</li>
+              <li>Chạy <code>npm run typecheck</code> <strong>ngay</strong>. Ghi lại mọi chỗ đổ.</li>
+              <li>Thêm <code>case 402</code> vào mapper.</li>
+              <li>Thêm khoá dịch vào <code>en.json</code> và <code>vi.json</code>.</li>
+              <li>Quyết định: nó hiện ở đâu? Dùng cây ở mục 9 và viết lý do.</li>
+              <li>Thêm một test vào <code>http-error-mapper.spec.ts</code>.</li>
+            </ol>
+            <details>
+              <summary>Bước 2 mới là bài học</summary>
+              <p>
+                Chỗ đổ đầu tiên thường là <code>DEFAULT_ERROR_MESSAGE_KEYS</code> — vì nó là
+                <code>Record&lt;AppErrorKind, string&gt;</code>, thiếu một kind là lỗi biên
+                dịch. Rồi tới test khẳng định hai file dịch có cùng khoá.
+              </p>
+              <p>
+                Đó chính là giá trị của discriminated union + <code>Record</code> đầy đủ:
+                <strong>trình biên dịch dẫn bạn đi khắp những chỗ cần sửa.</strong> Với một
+                cây exception, thêm một lớp con không làm gì đổ cả — và bạn sẽ phát hiện ra
+                chỗ thiếu trên production.
+              </p>
+              <p>
+                Về bước 5: 402 là thứ người dùng <em>không sửa được tại chỗ</em> nhưng cần
+                hành động (liên hệ quản trị, gia hạn). Toàn trang với một lời giải thích và
+                một lối đi tiếp, không phải toast.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Tìm chỗ rò rỉ</h3>
+            <p class="task__meta">~25 phút · đọc code</p>
+            <p>
+              Quy tắc 6 nói người dùng không bao giờ thấy thông báo thô của backend. Hãy
+              <em>kiểm chứng</em> điều đó thay vì tin:
+            </p>
+            <ol>
+              <li>
+                Tìm mọi chỗ trong <code>apps/web/src</code> đọc tới
+                <code>.message</code> của một lỗi. Mỗi chỗ dùng để làm gì?
+              </li>
+              <li>
+                Tìm mọi chỗ đọc <code>cause</code>. Nó có bao giờ đi tới template không?
+              </li>
+              <li>
+                <code>fieldErrors</code> chứa câu tiếng Anh của server. Tìm chỗ dùng nó và
+                xác nhận rằng câu chữ không bao giờ được hiển thị.
+              </li>
+            </ol>
+            <details>
+              <summary>Cách tìm, và điều bạn nên kết luận</summary>
+              <p>
+                Dùng tìm kiếm trong repo. Mẹo: lỗi chỉ được <em>hiển thị</em> qua các khoá
+                dịch, nên thứ cần tìm là đường đi ngược — bắt đầu từ các template có
+                <code>t(...)</code> trên một biến, và xem biến đó từ đâu ra.
+              </p>
+              <p>
+                Kết luận bạn nên rút ra không phải "repo này sạch", mà
+                <strong>quy tắc kiểu đó chỉ giữ được nếu có cách kiểm</strong>. Ở đây lớp
+                kiểm là: <code>messageKey</code> có kiểu <code>string</code> nhưng mọi chỗ
+                tạo nó đều lấy từ <code>DEFAULT_ERROR_MESSAGE_KEYS</code>, và lint chặn chuỗi
+                cứng trong template. Nếu bạn thấy một đường nào lách qua được cả hai, đó là
+                một phát hiện thật — ghi vào <code>journal.md</code>.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao taxonomy là union chứ không phải cây class?</summary>
+            <p>
+              Trình biên dịch kiểm được tính đầy đủ của <code>switch</code>; giá trị là dữ
+              liệu thuần nên đi qua biên SSR và vào log được. Đổi lại không dùng
+              <code>instanceof</code>, nên có <code>isAppError()</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>messageKey</code> là gì, và vì sao không phải một câu?</summary>
+            <p>
+              Một khoá dịch. Hai quy tắc gặp nhau ở đây: mọi chữ người dùng đọc đi qua i18n,
+              và thông báo thô của backend không bao giờ được hiển thị. Câu chữ của server
+              nằm trong <code>cause</code>, chỉ dành cho log.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao body lỗi cũng phải validate?</summary>
+            <p>
+              Vì một 422 có thể trả về HTML từ proxy, và đọc
+              <code>body.error.details</code> trên đó sẽ ném — biến một thất bại có kiểm
+              soát thành một thất bại không ai bắt. Code xử lý lỗi phải phòng thủ hơn code
+              thường, không phải ít hơn.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. <code>currentVersion</code> trong <code>ConflictError</code> để làm gì?</summary>
+            <p>
+              Phân biệt hai nghĩa của 409 trên API này: có nó nghĩa là ai đó đã lưu trong
+              lúc form đang mở; không có nghĩa là dữ liệu trùng với bản ghi đã tồn tại. Hai
+              tình huống đòi hai hành động khác nhau từ người dùng.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>fieldErrors</code> khác <code>fieldIssues</code> thế nào?</summary>
+            <p>
+              <code>fieldErrors</code> cho biết <em>field nào</em> — câu chữ bên trong là
+              tiếng Anh của backend và không bao giờ hiển thị.
+              <code>fieldIssues</code> cho biết <em>vì sao</em>, dưới dạng mã mà form dịch
+              được sang ngôn ngữ người dùng.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao <code>GlobalErrorHandler</code> không hiện gì?</summary>
+            <p>
+              Vì feature biết ngữ cảnh đã hiện thông báo có nghĩa rồi. Một toast toàn cục
+              thêm vào sẽ là thông báo thứ hai, vô nghĩa, cạnh thông báo thật — người dùng
+              thấy hai lỗi cho một sự việc.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Status 0 nghĩa là gì?</summary>
+            <p>
+              Request không nhận được response HTTP nào: offline, DNS hỏng, kết nối bị từ
+              chối, hoặc CORS từ chối. Nó map thành <code>network</code> — và đó là một
+              trong hai kind <em>đáng</em> thử lại tự động.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 11 là bài ◆ đầu tiên: <code>RemoteData</code> và máy trạng thái của nó —
+              năm nhánh, và nhánh thứ năm là nhánh hầu hết người viết frontend bỏ sót.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="09-interceptor.html">← Bài 09</a></span>
+            <span><a href="11-server-state.html">Bài 11 — Server state ◆ →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

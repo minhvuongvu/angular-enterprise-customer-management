@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 12 — Cache, huỷ request, race</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 12 ◆
+        </p>
+        <h1>Cache, huỷ request, race</h1>
+        <p class="lede">
+          Bài cuối chặng 2, và là bài về những bug không bao giờ báo lỗi: một response cũ
+          đè lên response mới, một cache tự nhất quán nhưng sai, một danh sách đúng từng ô
+          nhưng sai toàn cục. Repo thắng ba cuộc đua này bằng một toán tử, một khoá, và một
+          luật xoá cache trông như quá tay.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · <strong>Mốc 2</strong></li>
+          <li class="tag">◆ có máy trạng thái</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Cache key</strong></td>
+                  <td>
+                    Chuỗi định danh một câu hỏi. Hai câu hỏi giống nhau phải cho cùng một
+                    khoá — nếu không, cache trượt.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Normalisation</strong></td>
+                  <td>
+                    Đưa dữ liệu về dạng chuẩn trước khi so sánh hoặc làm khoá.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>LRU</strong></td>
+                  <td>
+                    Least Recently Used: khi đầy, bỏ cái lâu nhất không ai dùng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Invalidation</strong></td>
+                  <td>
+                    Vô hiệu hoá cache — tuyên bố rằng thứ đang giữ không còn đáng tin.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Race condition</strong></td>
+                  <td>
+                    Kết quả phụ thuộc vào thứ tự hai việc chạy song song kết thúc — thứ tự
+                    mà không ai đảm bảo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Self-consistent and wrong</strong></td>
+                  <td>
+                    Trạng thái mà <em>mọi giá trị riêng lẻ đều đúng</em> nhưng tổng thể thì
+                    sai. Loại bug khó thấy nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Entity cache</strong></td>
+                  <td>
+                    Cache theo id, tách khỏi cache theo câu hỏi. Repo có cả hai.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Revalidate</strong></td>
+                  <td>Hiện bản đang có, đồng thời hỏi lại server để xác nhận.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Thiết kế một khoá cache không trượt vì những khác biệt vô nghĩa.</li>
+            <li>
+              Nói được vì sao vá một dòng trong cache nguy hiểm hơn là xoá cả trang.
+            </li>
+            <li>Nhận ra ba kiểu race trong một ứng dụng có dữ liệu, và cách chặn từng kiểu.</li>
+            <li>
+              Hoàn thành <strong>Mốc 2</strong>: một lời gọi API mới end-to-end, có test.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cache Redis / Caffeine</td>
+                  <td><code>CustomerCache</code></td>
+                  <td>
+                    Cache của bạn dùng chung cho mọi người và có TTL. Cái này là
+                    <strong>của một người, trong một tab</strong>, và chết khi họ rời khỏi
+                    khu vực — không có TTL vì vòng đời đã thay nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cache eviction policy</td>
+                  <td>LRU 20 trang</td>
+                  <td>
+                    Rất gần. Khác ở chỗ con số được chọn từ hành vi người dùng (lật qua lật
+                    lại vài trang) chứ không từ dung lượng RAM.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Transaction isolation</td>
+                  <td>Không có gì tương đương</td>
+                  <td>
+                    Database bảo vệ bạn khỏi ghi đồng thời. Ở đây
+                    <strong>không có gì bảo vệ cả</strong> — hai request của chính bạn có
+                    thể về ngược thứ tự, và không có lớp nào phát hiện.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Optimistic locking (<code>@Version</code>)</td>
+                  <td>Trường <code>version</code> trong contract</td>
+                  <td>
+                    Cùng ý tưởng chính xác. Khác ở chỗ xung đột phải
+                    <em>hiển thị ra</em> cho người dùng quyết định — bài 18.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Khoá cache: chuẩn hoá <em>trước</em>, rồi mới làm khoá</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer-list-criteria.ts</div>
+            <pre><code>/**
+ * The cache key for a set of criteria.
+ *
+ * Built from the normalised value in a fixed field order, so two URLs that
+ * differ only in parameter order or in omitted defaults produce the same key.
+ * That is the whole point of normalising first: a cache keyed by the raw query
+ * string would miss on `?size=20&amp;page=2` versus `?page=2&amp;size=20`.
+ */
+export function criteriaKey(criteria: CustomerListCriteria): string {
+  return [
+    criteria.page,
+    criteria.size,
+    criteria.sort,
+    criteria.search,
+    criteria.status,
+    criteria.gender,
+    criteria.createdFrom,
+    criteria.createdTo,
+  ].join('|');
+}</code></pre>
+          </div>
+
+          <p>
+            Khoá được dựng từ <strong>giá trị đã chuẩn hoá</strong>, theo thứ tự field cố
+            định. Ba khác biệt vô nghĩa bị xoá bỏ trước khi tới đây:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hai URL</th>
+                  <th>Nếu khoá bằng query string thô</th>
+                  <th>Với <code>criteriaKey</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>?page=2&amp;size=20</code> vs <code>?size=20&amp;page=2</code></td>
+                  <td>Hai khoá khác nhau → cache trượt</td>
+                  <td>Cùng khoá</td>
+                </tr>
+                <tr>
+                  <td><code>/customers</code> vs <code>?page=1&amp;size=20&amp;sort=updatedAt,desc</code></td>
+                  <td>Hai khoá khác nhau</td>
+                  <td>Cùng khoá — mặc định đã được điền vào</td>
+                </tr>
+                <tr>
+                  <td><code>?page=abc</code> vs <code>?page=1</code></td>
+                  <td>Hai khoá, và một cái vô nghĩa</td>
+                  <td>
+                    Cùng khoá — <code>readCriteria</code> đã kẹp giá trị rác về mặc định
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer-list-criteria.ts</div>
+            <pre><code>export function readCriteria(raw: RawCriteria): CustomerListCriteria {
+  return {
+    page: positiveInteger(raw.page, DEFAULT_CRITERIA.page),
+    size: clampedSize(raw.size),
+    sort: validSort(raw.sort),
+    search: text(raw.search).slice(0, 100),
+    status: member(customerStatusSchema.options, raw.status),
+    gender: member(genderSchema.options, raw.gender),
+    createdFrom: calendarDate(raw.createdFrom),
+    createdTo: calendarDate(raw.createdTo),
+  };
+}</code></pre>
+          </div>
+
+          <p>
+            Tám dòng, tám cách làm sạch khác nhau, và <strong>một cửa vào duy
+            nhất</strong> cho dữ liệu người dùng gõ thẳng vào thanh địa chỉ. Đây vừa là
+            điều kiện để cache hoạt động, vừa là một biên an toàn:
+            <code>sort</code> đi thẳng vào query gửi lên server, nên
+            <code>validSort</code> là thứ chặn một tên field tuỳ tiện.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">URL ra thì ngược lại: bỏ bớt</span>
+            <p>
+              <code>readCriteria</code> điền đầy mặc định khi <em>đọc</em>;
+              <code>criteriaToQueryParams</code> bỏ mặc định đi khi <em>ghi</em>, nên
+              <code>/customers</code> vẫn là <code>/customers</code> chứ không thành một URL
+              tám tham số nói "không đổi gì". Chú thích nói vì sao điều đó không phải thẩm
+              mỹ: <em>"it is the one a person will actually paste into a message, and it
+              keeps the back button's history readable."</em>
+            </p>
+          </div>
+
+          <h3>3.2 Hai tầng cache, và mối quan hệ giữa chúng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-cache.ts</div>
+            <pre><code>/** Insertion-ordered, and re-inserted on read, which makes eviction LRU. */
+private readonly pages = new Map&lt;string, PageResponse&lt;Customer&gt;&gt;();
+private readonly entities = new Map&lt;string, Customer&gt;();</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Khoá</th>
+                  <th>Trả lời câu hỏi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>pages</code></td>
+                  <td><code>criteriaKey</code></td>
+                  <td>"Trang 2, lọc theo ACTIVE, sắp xếp theo tên — gồm những ai?"</td>
+                </tr>
+                <tr>
+                  <td><code>entities</code></td>
+                  <td><code>id</code></td>
+                  <td>"Khách hàng <code>abc-123</code> là ai?"</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>putPage(key: string, page: PageResponse&lt;Customer&gt;): void {
+  this.pages.delete(key);
+  this.pages.set(key, page);
+
+  for (const customer of page.items) {
+    this.entities.set(customer.id, customer);   // ← mấu chốt
+  }
+
+  while (this.pages.size &gt; MAX_CACHED_PAGES) { … }
+}</code></pre>
+          </div>
+
+          <p>
+            Vòng lặp ở giữa là thứ làm việc bấm vào một dòng cảm giác tức thì: khi danh sách
+            về, <strong>mọi khách hàng trong đó được lưu luôn vào tầng entity</strong>. Nên
+            lúc người dùng mở trang chi tiết, <code>fetchDetail</code> gọi
+            <code>cache.getEntity(id)</code> và đã có sẵn một bản ghi để vẽ — trạng thái là
+            <code>refreshing</code>, không phải <code>loading</code>, và màn hình hiện ngay
+            thay vì quay spinner cho dữ liệu nó đang cầm trong tay.
+          </p>
+
+          <h3>3.3 LRU bằng thứ tự chèn của <code>Map</code></h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-cache.ts</div>
+            <pre><code>getPage(key: string): PageResponse&lt;Customer&gt; | null {
+  const page = this.pages.get(key);
+  if (!page) {
+    return null;
+  }
+  // Re-inserting moves it to the end of the iteration order, so the entry
+  // evicted below is genuinely the least recently used one.
+  this.pages.delete(key);
+  this.pages.set(key, page);
+  return page;
+}</code></pre>
+          </div>
+
+          <p>
+            <code>Map</code> của JavaScript giữ thứ tự chèn. Xoá rồi chèn lại đưa một mục về
+            cuối hàng — nên mục đầu hàng luôn là mục lâu nhất không ai đụng tới. Đó là toàn
+            bộ cách cài LRU ở đây: <strong>không có thư viện, không có timestamp, bốn
+            dòng.</strong>
+          </p>
+
+          <p>
+            Và con số 20 có lý do viết sẵn: <em>"Twenty pages at the default size is 400
+            records — enough that paging back and forth is instant, small enough that
+            browsing a 50,000-row dataset does not accumulate the whole thing."</em> Con số
+            đến từ hành vi người dùng, không từ dung lượng bộ nhớ.
+          </p>
+
+          <h3>3.4 Luật vô hiệu hoá: <em>mọi</em> lệnh ghi xoá <em>toàn bộ</em> các trang</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-cache.ts — bảng trong chú thích</div>
+            <pre><code>| Mutation | Pages         | Entity                        |
+| -------- | ------------- | ----------------------------- |
+| create   | all dropped   | -                             |
+| update   | all dropped   | replaced with the response    |
+| delete   | all dropped   | dropped                       |
+| bulk     | all dropped   | dropped for every id affected |</code></pre>
+          </div>
+
+          <p>
+            Phản ứng đầu tiên là "quá tay — sao không vá đúng dòng vừa đổi?". Chú thích trả
+            lời, và đây là đoạn đáng giá nhất của cả file:
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao vá một dòng là sai</span>
+            <p>
+              <em>"A write can change which page a record belongs on: under the default
+              <code>updatedAt,desc</code> an edit moves the record to page one, and under a
+              status filter a deactivation removes it from the result set entirely. Patching
+              the row in place would leave a cache that is self-consistent and wrong — the
+              hardest kind of bug to see, because every individual value on screen is
+              correct."</em>
+            </p>
+          </div>
+
+          <p>Đọc chậm hai ví dụ, vì chúng là hai cơ chế khác nhau:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tình huống</th>
+                  <th>Nếu vá dòng tại chỗ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Sắp xếp mặc định <code>updatedAt,desc</code>; bạn sửa một khách hàng ở
+                    trang 7
+                  </td>
+                  <td>
+                    Bản ghi đó bây giờ phải ở <strong>trang 1</strong>. Vá tại chỗ thì nó
+                    vẫn ở trang 7, và trang 1 thiếu nó. Mọi dòng đều có dữ liệu đúng; thứ
+                    sai là <em>dòng nào nằm ở trang nào</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đang lọc <code>status=ACTIVE</code>; bạn vô hiệu hoá một khách hàng</td>
+                  <td>
+                    Bản ghi đó không còn thuộc tập kết quả. Vá tại chỗ thì nó vẫn nằm đó với
+                    nhãn "INACTIVE" — một dòng đúng dữ liệu, trong một danh sách nói rằng nó
+                    chỉ chứa khách hàng đang hoạt động.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Trong cả hai, <strong>mọi ô trên màn hình đều đúng</strong>. Không có gì để một
+            người kiểm thử chỉ tay vào. Đó là định nghĩa của "self-consistent and wrong", và
+            là lý do luật ở đây chọn thứ đơn giản và đúng thay vì thứ tối ưu và mong manh.
+          </p>
+
+          <p>
+            Entity thì <strong>sống sót</strong>, vì một id vẫn là chính bản ghi đó — thuộc
+            tính "nằm ở trang nào" không áp cho nó.
+          </p>
+
+          <h3>3.5 Ba cuộc đua, và cách thắng từng cái</h3>
+
+          <h4>Đua 1 — Response cũ về sau response mới</h4>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>this.listRequests
+  .pipe(
+    switchMap((criteria) =&gt; this.fetchList(criteria)),
+    takeUntilDestroyed(),
+  )
+  .subscribe();</code></pre>
+          </div>
+
+          <p>
+            Một toán tử. Giá trị mới vào thì <code>switchMap</code> unsubscribe khỏi luồng
+            cũ, và việc đó abort fetch đang bay. Không cờ, không timestamp, không biến
+            <code>latestRequestId</code>. <strong>Response đến muộn không bao giờ
+            đến</strong>, vì không còn ai nghe.
+          </p>
+
+          <p>
+            Đây là khác biệt quan trọng so với cách "so sánh id rồi bỏ qua kết quả cũ": cách
+            đó vẫn tốn băng thông, vẫn chạy phần parse, và vẫn có một dòng code bạn có thể
+            viết sai. Huỷ thì không có gì để viết sai.
+          </p>
+
+          <h4>Đua 2 — Hỏi lại cùng một câu hỏi</h4>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>setCriteria(criteria: CustomerListCriteria): void {
+  const unchanged =
+    this.activeCriteria !== null &amp;&amp;
+    criteriaKey(this.activeCriteria) === criteriaKey(criteria) &amp;&amp;
+    this.listState().status !== 'idle';
+
+  this.activeCriteria = criteria;
+  if (!unchanged || this.listStale) {
+    this.listStale = false;
+    this.listRequests.next(criteria);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Angular có thể gọi lại <code>effect</code> vì nhiều lý do, và một lần điều hướng
+            không đổi gì vẫn đẩy tiêu chí xuống. Ba điều kiện ở trên lọc chúng ra:
+            <strong>đã từng hỏi</strong>, <strong>khoá giống hệt</strong>,
+            <strong>và đã có câu trả lời</strong>. Thiếu điều kiện thứ ba thì một trang
+            <code>idle</code> sẽ không bao giờ được tải.
+          </p>
+
+          <p>
+            Dấu <code>|| this.listStale</code> là cửa thoát: một lệnh ghi hoặc một sự kiện
+            realtime đã đánh dấu dữ liệu cũ, nên lần này
+            <em>phải</em> hỏi lại dù tiêu chí không đổi.
+          </p>
+
+          <h4>Đua 3 — Người khác sửa thứ bạn đang xem</h4>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>/**
+ * Someone else created, changed or deleted a customer.
+ *
+ * The rules, each chosen so an event never fights what the user is doing:
+ *
+ *  - every cached page is dropped, because any of them might contain it;
+ *  - the list refetches if it is on screen - a list holds nothing the user
+ *    typed, and its selection survives a refresh;
+ *  - the cached copy of that customer is dropped, so the next visit loads it;
+ *  - if it is the customer on screen, it is **flagged**, not replaced.
+ */
+applyRemoteChange(customerId: CustomerId, change: 'updated' | 'deleted' | 'created'): void {
+  this.cache.invalidatePages();
+  if (change !== 'created') {
+    this.cache.dropEntity(customerId);
+    if (this.activeId === customerId) {
+      this.detailStalenessState.set(change);
+    }
+  }
+  this.refreshList();
+}</code></pre>
+          </div>
+
+          <p>
+            Dòng quan trọng nhất là dòng <em>không</em> có ở đây: bản ghi đang mở
+            <strong>không bị thay</strong>. Nó chỉ được đánh dấu. Chú thích ở chỗ khác giải
+            thích vì sao: người dùng có thể đang đọc nó — hoặc đang
+            <em>sửa</em> nó, trong một form đã được điền từ nó — và dữ liệu đổi dưới con trỏ
+            còn tệ hơn dữ liệu cũ một phút mà nói rõ là cũ.
+          </p>
+
+          <p>
+            Để ý nguyên tắc chung: <strong>sự kiện không bao giờ được đánh nhau với việc
+            người dùng đang làm.</strong> Danh sách thì làm mới được (nó không chứa gì người
+            dùng gõ); bản ghi đang mở thì không.
+          </p>
+
+          <h4>Và khi không biết đã bỏ lỡ gì</h4>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>/**
+ * The event stream reconnected and could not say what was missed. Anything
+ * may have changed: drop what is cached, refetch what is visible, and flag
+ * the open record as unverified rather than claiming someone changed it.
+ */
+revalidateAll(): void {
+  this.cache.invalidatePages();
+  this.refreshList();
+  if (this.activeId &amp;&amp; valueOf(this.detailState()) &amp;&amp; !this.detailStalenessState()) {
+    this.detailStalenessState.set('unverified');
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Chú ý sự phân biệt: <code>'unverified'</code> chứ không phải
+            <code>'updated'</code>. Nói "ai đó đã sửa bản ghi này" khi bạn không biết điều
+            đó là <strong>nói dối cho tiện</strong>. Nói "tôi không chắc bản này còn mới
+            nhất" là sự thật, và người dùng xử lý được sự thật.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-cache.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> 110 dòng, gần nửa là chú thích — bảng vô
+                    hiệu hoá và lập luận "self-consistent and wrong"
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/customer-list-criteria.ts</code></td>
+                  <td>Chuẩn hoá vào, bỏ bớt ra, và khoá cache</td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.ts</code></td>
+                  <td>
+                    <code>switchMap</code>, <code>setCriteria</code>,
+                    <code>applyRemoteChange</code>, <code>revalidateAll</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>docs/state-management.md</code></td>
+                  <td>Toàn cảnh, và phần tự kiểm điểm về cache viết tay</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Vòng đời một lần lấy danh sách ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> ChoTieuChi
+    ChoTieuChi --> KiemTra: setCriteria(criteria)
+
+    KiemTra --> ChoTieuChi: khoá trùng và đã có dữ liệu<br/>→ không làm gì
+    KiemTra --> TraCache: khoá mới, hoặc listStale
+
+    TraCache --> DangTaiMoi: cache trượt<br/>state = loading
+    TraCache --> DangLamMoi: cache trúng<br/>state = refreshing
+
+    DangTaiMoi --> Xong: 200 → putPage + success
+    DangLamMoi --> Xong: 200 → putPage + success
+    DangTaiMoi --> HongTrong: lỗi → error(null)
+    DangLamMoi --> HongCoDuLieu: lỗi → error(dữ liệu cũ)
+
+    DangTaiMoi --> DaHuy: tiêu chí mới tới trước
+    DangLamMoi --> DaHuy: tiêu chí mới tới trước
+    DaHuy --> KiemTra: switchMap bắt đầu lượt mới
+
+    Xong --> ChoTieuChi
+    HongTrong --> ChoTieuChi
+    HongCoDuLieu --> ChoTieuChi
+
+    state "Chờ tiêu chí" as ChoTieuChi
+    state "Kiểm tra: có cần hỏi không?" as KiemTra
+    state "Tra cache theo criteriaKey" as TraCache
+    state "Đang tải (chưa có gì)" as DangTaiMoi
+    state "Đang làm mới (đã có)" as DangLamMoi
+    state "Đã huỷ - fetch bị abort" as DaHuy
+    state "error(null)" as HongTrong
+    state "error(dữ liệu cũ)" as HongCoDuLieu
+
+    note right of DaHuy
+        Không callback nào chạy.
+        Không state nào bị gán.
+    end note
+            </pre>
+            <figcaption>
+              Nhánh <strong>Đã huỷ</strong> là nhánh không tồn tại trong phần lớn code
+              frontend người ta viết — và chính nó là thứ ngăn một response cũ ghi đè lên
+              màn hình. Chú ý nó không gán state: trạng thái đã thuộc về lượt mới rồi.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Hai tầng cache và luật vô hiệu hoá</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    LIST["GET /customers?…"] --> PP["putPage(key, page)"]
+    PP --> PAGES["pages: Map&lt;criteriaKey, trang&gt;<br/>LRU, tối đa 20"]
+    PP -->|"mọi khách hàng trong trang"| ENT["entities: Map&lt;id, Customer&gt;"]
+
+    DETAIL["Mở trang chi tiết"] --> GE["getEntity(id)"]
+    ENT -->|"trúng → refreshing, hiện ngay"| GE
+    GE --> FD["GET /customers/:id<br/>xác nhận lại"]
+    FD --> PE["putEntity(customer)"] --> ENT
+
+    W["Bất kỳ lệnh ghi nào<br/>create · update · delete · bulk"] -->|"invalidatePages()"| CLR["XOÁ TOÀN BỘ pages"]
+    W -->|"update → putEntity<br/>delete/bulk → dropEntity"| ENT
+    CLR --> PAGES
+
+    RT["Sự kiện realtime"] -->|"người khác sửa"| CLR
+    RT -->|"bản ghi đang mở → ĐÁNH DẤU,<br/>không thay"| FLAG["detailStaleness"]
+            </pre>
+            <figcaption>
+              Mũi tên đậm nhất là mũi tên <em>xoá toàn bộ</em>. Trang là câu trả lời cho một
+              câu hỏi, và một lệnh ghi có thể đổi câu trả lời của <em>mọi</em> câu hỏi.
+              Entity thì chỉ bị động tới đúng id liên quan.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Xoá tất cả thay vì vá dòng</h4>
+          <p>
+            Phương án bị loại: cập nhật bản ghi trong các trang đã cache. Bị loại vì nó tạo
+            ra cache <em>tự nhất quán nhưng sai</em> — loại bug khó thấy nhất, vì mọi giá
+            trị riêng lẻ đều đúng. Giá phải trả: sau mỗi lệnh ghi, quay lại một trang đã xem
+            là một request mới. Đó là một cái giá đo được, và nó được chọn một cách tỉnh
+            táo.
+          </p>
+
+          <h4>Cache sống theo route, không có TTL</h4>
+          <p>
+            Phương án bị loại: cache ở <code>root</code> với thời gian hết hạn. Bị loại vì
+            vòng đời đã trả lời câu hỏi mà TTL cố trả lời — rời khỏi
+            <code>/customers</code> là xoá sạch. Và quan trọng hơn: một cache sống lâu hơn
+            phiên là cách dữ liệu cũ sống sót qua một lần đăng xuất.
+          </p>
+
+          <h4>Huỷ request thay vì bỏ qua kết quả muộn</h4>
+          <p>
+            Phương án bị loại: gắn id cho mỗi request rồi bỏ qua kết quả không khớp id mới
+            nhất. Bị loại vì nó vẫn tốn băng thông, vẫn chạy parse, và là một đoạn logic bạn
+            có thể viết sai. <code>switchMap</code> không có gì để viết sai.
+          </p>
+
+          <h4>Sự kiện realtime không thay bản ghi đang mở — ADR-0020</h4>
+          <p>
+            Phương án bị loại: cập nhật ngay cho "luôn mới nhất". Bị loại vì người dùng có
+            thể đang sửa nó. Giá phải trả: màn hình có thể hiện dữ liệu cũ một lúc — nhưng
+            nó <em>nói ra</em> điều đó, và đó là đánh đổi đúng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Khoá cache bằng query string thô</span>
+            <p>
+              <code>?page=2&amp;size=20</code> và <code>?size=20&amp;page=2</code> là hai
+              khoá. Cache trượt một cách im lặng — nó vẫn "hoạt động", chỉ là gần như không
+              bao giờ trúng, và bạn sẽ kết luận rằng cache không đáng giá.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Vá một dòng trong cache sau khi sửa</span>
+            <p>
+              Dưới sắp xếp theo <code>updatedAt,desc</code>, bản ghi vừa sửa phải nhảy về
+              trang 1 — nhưng nó vẫn ở trang cũ. Dưới một bộ lọc trạng thái, bản ghi vừa vô
+              hiệu hoá phải biến mất — nhưng nó vẫn nằm đó. Mọi ô đều đúng; danh sách thì
+              sai.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. So sánh tiêu chí bằng <code>===</code> trên object</span>
+            <p>
+              Hai object luôn khác nhau, nên mọi lần <code>effect</code> chạy đều sinh một
+              request. Màn hình vẫn đúng, nên không ai phát hiện — cho tới khi ai đó nhìn
+              tab Network và thấy ba request cho một thao tác.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Thiếu điều kiện "đã có câu trả lời" trong <code>setCriteria</code></span>
+            <p>
+              Khoá trùng + chưa từng tải = không gọi gì cả. Trang đứng mãi ở
+              <code>idle</code>, và màn hình kẹt ở skeleton vĩnh viễn. Đây là một lỗi rất dễ
+              viết ra khi "tối ưu" hàm này.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Thay bản ghi đang mở khi có sự kiện realtime</span>
+            <p>
+              Người dùng đang gõ trong form, và các field tự đổi dưới tay họ. Tệ hơn nữa:
+              nếu form được điền lại từ bản mới, chữ họ vừa gõ biến mất và không có cách nào
+              lấy lại. "Luôn mới nhất" nghe như một tính năng cho tới khi nó xoá công việc
+              của ai đó.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Nói "ai đó đã sửa" khi chỉ biết "có thể đã lỡ gì đó"</span>
+            <p>
+              Sau khi luồng sự kiện kết nối lại, bạn không biết chuyện gì đã xảy ra. Hiện
+              "bản ghi này vừa được người khác sửa" là một lời khẳng định bạn không có cơ sở
+              — và người dùng sẽ đi tìm xem ai đã sửa. <code>'unverified'</code> là sự thật;
+              <code>'updated'</code> là tiện.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-cache.spec.ts</code></td>
+                  <td>
+                    LRU đẩy đúng mục lâu nhất không dùng; đọc một mục làm nó "mới" lại; lệnh
+                    ghi xoá mọi trang nhưng giữ entity
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>
+                    Tiêu chí trùng không sinh request; request trước bị huỷ
+                    (<code>TestRequest.cancelled</code>); lỗi giữ dữ liệu cũ đúng chỗ
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/customer-list-criteria.spec.ts</code></td>
+                  <td>
+                    Hai URL khác thứ tự tham số cho cùng khoá; giá trị rác bị kẹp về mặc
+                    định
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-realtime-sync.spec.ts</code></td>
+                  <td>Sự kiện làm mới danh sách nhưng chỉ <em>đánh dấu</em> bản ghi đang mở</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    Xoá một khách hàng rồi tìm lại thì không thấy — bằng chứng cache đã bị
+                    vô hiệu hoá chứ không để cũ
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Dữ liệu từ server — tôi phải nghĩ gì?"}
+
+    Q0 --> K["KHOÁ<br/>chuẩn hoá TRƯỚC khi làm khoá<br/>thứ tự tham số, mặc định, giá trị rác<br/>đều phải biến mất"]
+    Q0 --> C["GIỮ<br/>pages theo câu hỏi · entities theo id<br/>LRU, giới hạn chọn theo hành vi người dùng"]
+    Q0 --> I["XOÁ<br/>mọi lệnh ghi xoá TOÀN BỘ pages<br/>vì một lệnh ghi đổi được câu trả lời<br/>của mọi câu hỏi"]
+    Q0 --> R["ĐUA<br/>switchMap huỷ cái cũ<br/>so khoá để không hỏi lại thứ đã có<br/>sự kiện không đánh nhau với người dùng"]
+
+    I --> WHY["Vá dòng = tự nhất quán nhưng SAI<br/>mọi ô đúng, danh sách sai"]
+    R --> WHY2["Bản ghi đang mở: ĐÁNH DẤU, không thay<br/>không biết thì nói 'chưa xác minh',<br/>đừng nói 'ai đó đã sửa'"]
+            </pre>
+            <figcaption>
+              Bốn việc, và cả bốn đều quy về một câu hỏi: <em>thứ tôi đang giữ có còn trả
+              lời đúng câu hỏi đang được hỏi không?</em> Khi câu trả lời là "không chắc",
+              hành động đúng gần như luôn là nói ra điều đó chứ không đoán.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Nhìn cache trúng và trượt</h3>
+            <p class="task__meta">~25 phút · thêm log tạm rồi xoá</p>
+            <ol>
+              <li>
+                Trong <code>fetchList</code>, thêm sau dòng lấy cache:
+                <div class="code">
+                  <pre><code>console.log(cached ? 'HIT ' : 'MISS', key, 'pages:', this.cache.pageCount);</code></pre>
+                </div>
+              </li>
+              <li>Đi trang 1 → 2 → 3 → 2 → 1. Đọc log.</li>
+              <li>
+                Bây giờ sửa URL thủ công: <code>?page=2&amp;size=20</code> rồi
+                <code>?size=20&amp;page=2</code>. HIT hay MISS?
+              </li>
+              <li>Thử <code>?page=abc</code>. Khoá là gì?</li>
+              <li>Sửa một khách hàng rồi quay lại danh sách. <code>pageCount</code> bằng mấy?</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (2): MISS, MISS, MISS, rồi HIT, HIT. (3): HIT — chuẩn hoá đã xoá khác biệt
+                về thứ tự tham số. (4): khoá bắt đầu bằng <code>1|</code>, vì
+                <code>positiveInteger</code> kẹp giá trị rác về mặc định.
+              </p>
+              <p>
+                (5): <code>pageCount</code> về <strong>0</strong>. Mọi trang bị xoá chỉ vì
+                một bản ghi đổi — trông lãng phí, cho tới khi bạn nhớ rằng bản ghi đó có thể
+                vừa nhảy sang trang khác.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tự tay tạo ra "self-consistent and wrong"</h3>
+            <p class="task__meta">~35 phút · sửa rồi hoàn nguyên · bài quan trọng nhất</p>
+            <ol>
+              <li>
+                Trong <code>CustomerCache</code>, thêm một phương thức "tối ưu":
+                <div class="code">
+                  <pre><code>patchInPages(customer: Customer): void {
+  for (const [key, page] of this.pages) {
+    const index = page.items.findIndex((row) =&gt; row.id === customer.id);
+    if (index !== -1) {
+      const items = [...page.items];
+      items[index] = customer;
+      this.pages.set(key, { ...page, items });
+    }
+  }
+}</code></pre>
+                </div>
+              </li>
+              <li>
+                Trong store, ở nhánh update, thay
+                <code>this.cache.invalidatePages()</code> bằng
+                <code>this.cache.patchInPages(updated)</code>.
+              </li>
+              <li>
+                Vào <code>/customers</code> với sắp xếp mặc định
+                (<code>updatedAt,desc</code>). Sang trang 3, mở một khách hàng, sửa tên, lưu.
+              </li>
+              <li>Quay về trang 3, rồi về trang 1. Tìm bản ghi vừa sửa.</li>
+              <li>
+                Bây giờ lọc <code>status=ACTIVE</code>, sửa một khách hàng thành
+                <code>INACTIVE</code>, quay lại danh sách.
+              </li>
+              <li><code>git checkout</code> cả hai file.</li>
+            </ol>
+            <details>
+              <summary>Hai thứ bạn phải thấy, và vì sao bài này đáng 35 phút</summary>
+              <p>
+                (4): bản ghi vừa sửa vẫn ở trang 3 với tên mới, và trang 1 — nơi nó
+                <em>phải</em> ở, vì vừa được cập nhật và sắp xếp là theo thời gian cập nhật
+                — không có nó. Hai trang đều "đúng". Tổng của chúng thì sai.
+              </p>
+              <p>
+                (5): khách hàng INACTIVE vẫn nằm trong danh sách đang lọc "chỉ ACTIVE", với
+                nhãn INACTIVE hiển thị đúng. Một dòng hoàn toàn chính xác, trong một danh
+                sách nói dối về điều kiện lọc của chính nó.
+              </p>
+              <p>
+                Bài này đáng 35 phút vì nó dạy một thứ không đọc mà hiểu được: có những bug
+                mà <strong>không có ô nào sai</strong>. Bạn không thể chỉ tay vào một giá
+                trị và nói "cái này sai". Và vì thế bạn cũng không thể viết một test khẳng
+                định "giá trị này đúng" để bắt nó — bạn phải test
+                <em>quan hệ</em>. Đó là lý do luật ở đây chọn sự đơn giản.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thắng cuộc đua bằng mắt</h3>
+            <p class="task__meta">~25 phút · DevTools</p>
+            <ol>
+              <li>Network → throttling "Slow 4G".</li>
+              <li>
+                Gõ nhanh vào ô tìm kiếm rồi dừng. Đếm request, và đếm request
+                <code>(canceled)</code>.
+              </li>
+              <li>Trong console tìm các dòng <code>HTTP request cancelled</code>.</li>
+              <li>
+                Bây giờ bấm nhanh qua các trang 1 → 2 → 3 → 4. Request nào hoàn tất?
+              </li>
+              <li>
+                Câu hỏi: trong bước 4, có bao nhiêu trang được đưa vào cache?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án bước 5, và vì sao nó thú vị</summary>
+              <p>
+                Chỉ <strong>một</strong> — trang cuối cùng. <code>putPage</code> nằm trong
+                <code>tap</code>, mà <code>tap</code> chỉ chạy khi response thật sự về. Các
+                request bị huỷ không bao giờ tới đó.
+              </p>
+              <p>
+                Điều này đúng và hợp lý, nhưng để ý một hệ quả: bấm nhanh qua các trang
+                <em>không</em> làm nóng cache. Nếu muốn điều đó, bạn sẽ cần một cơ chế khác
+                hẳn (prefetch), và nó sẽ phải đánh đổi với băng thông. Repo không làm, và đó
+                là một quyết định chứ không phải thiếu sót.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Mốc 2</h3>
+            <p class="task__meta">~90 phút · branch <code>learning/*</code> · tốt nghiệp chặng 2</p>
+            <p>
+              Nếu bạn đã làm bài tập 3 của bài 08, bạn đã có một nửa. Bây giờ làm nốt nửa
+              còn lại: đưa <code>GET /customers/stats</code> vào store và lên màn hình.
+            </p>
+            <ol>
+              <li>
+                Thêm vào <code>CustomerStore</code>: một <code>Subject</code>, một
+                <code>signal&lt;RemoteData&lt;CustomerStats&gt;&gt;</code>, một pipeline
+                <code>switchMap</code>, theo đúng khuôn của ba cái đã có.
+              </li>
+              <li>
+                Quyết định: stats có cần cache không? Nếu có thì khoá là gì, và lệnh ghi có
+                làm nó cũ không? <strong>Viết lý do.</strong>
+              </li>
+              <li>
+                Hiện nó trên trang danh sách, với cả bốn trạng thái xử lý qua một
+                <code>computed</code> kiểu <code>view()</code>.
+              </li>
+              <li>
+                Một spec cho store: tải lần đầu là <code>loading</code>, lần sau là
+                <code>refreshing</code>, lỗi giữ dữ liệu cũ.
+              </li>
+              <li><code>npm run verify</code> — toàn bộ.</li>
+            </ol>
+            <details>
+              <summary>Ba câu hỏi để tự chấm, và gợi ý cho bước 2</summary>
+              <ol>
+                <li>
+                  State của bạn có <code>asReadonly()</code> ra ngoài không, hay store lộ
+                  luôn signal ghi được? Phải là cái đầu (bài 03 mục 3.8).
+                </li>
+                <li>
+                  Component có đọc <code>status</code> trực tiếp trong template không? Không
+                  nên — nó đọc một <code>computed</code>, như <code>view()</code>.
+                </li>
+                <li>
+                  Lỗi của bạn có <code>return EMPTY</code> trong <code>catchError</code>
+                  không, và <code>catchError</code> có nằm <em>bên trong</em>
+                  <code>switchMap</code> không? Thiếu một trong hai là store im lặng vĩnh
+                  viễn (bài 07).
+                </li>
+              </ol>
+              <p>
+                <strong>Gợi ý bước 2:</strong> stats không có tham số, nên khoá là hằng — và
+                khi đó "cache" chỉ còn là chính cái signal. Nhưng
+                <em>mọi</em> lệnh ghi đều làm nó cũ, vì tạo/xoá/đổi trạng thái đều đổi số
+                đếm. Cách gọn nhất: cho nó dùng chung cơ chế
+                <code>listStale</code>/<code>watchList</code> mà danh sách đang dùng, thay
+                vì phát minh cơ chế thứ hai.
+              </p>
+              <p>
+                <strong>Qua được thì bạn đã đạt Mốc 2.</strong> Ghi ngày vào
+                <code>README.md</code> §4 và commit. Chặng 3 — form và routing — là chặng
+                chiếm 80% việc thật, và nó dẫn tới Mốc 3: sau mốc đó bạn đủ tự tin nhận việc
+                Angular thật.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao phải chuẩn hoá tiêu chí trước khi làm khoá cache?</summary>
+            <p>
+              Vì cùng một câu hỏi viết được bằng nhiều URL: khác thứ tự tham số, khác việc
+              có ghi mặc định hay không, và có cả giá trị rác. Khoá bằng query string thô
+              thì cache gần như không bao giờ trúng.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <em>mọi</em> lệnh ghi xoá <em>toàn bộ</em> các trang?</summary>
+            <p>
+              Vì một lệnh ghi đổi được việc một bản ghi <em>thuộc về trang nào</em>, hoặc
+              thuộc về tập kết quả hay không. Vá dòng tại chỗ để lại một cache tự nhất quán
+              nhưng sai — mọi ô đúng, danh sách sai.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao entity sống sót qua một lệnh ghi còn page thì không?</summary>
+            <p>
+              Vì một id vẫn là chính bản ghi đó — thuộc tính "nằm ở trang nào" không áp cho
+              entity. Với update thì entity được <em>thay bằng</em> response; với delete thì
+              bị bỏ.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. LRU ở đây cài bằng gì?</summary>
+            <p>
+              Bằng thứ tự chèn của <code>Map</code>: mỗi lần đọc trúng thì xoá và chèn lại,
+              đưa mục đó về cuối hàng. Mục đầu hàng do đó luôn là mục lâu nhất không ai
+              dùng. Bốn dòng, không thư viện, không timestamp.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Ba điều kiện trong <code>setCriteria</code> là gì, và bỏ cái nào thì hỏng gì?</summary>
+            <p>
+              Đã từng hỏi; khoá giống hệt; <strong>và</strong> đã có câu trả lời
+              (<code>status !== 'idle'</code>). Bỏ điều kiện cuối thì một trang chưa bao giờ
+              được tải sẽ không bao giờ được tải — màn hình kẹt ở skeleton.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao sự kiện realtime không thay bản ghi đang mở?</summary>
+            <p>
+              Vì người dùng có thể đang đọc nó, hoặc đang sửa nó trong một form được điền từ
+              nó. Dữ liệu đổi dưới con trỏ tệ hơn dữ liệu cũ mà nói rõ là cũ — và tệ nhất là
+              nó xoá mất chữ người ta vừa gõ.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Khác biệt giữa <code>'updated'</code> và <code>'unverified'</code>?</summary>
+            <p>
+              <code>'updated'</code> là một khẳng định: ai đó đã sửa bản ghi này.
+              <code>'unverified'</code> là sự thật khi luồng sự kiện vừa kết nối lại và
+              không nói được đã bỏ lỡ gì. Nói cái thứ nhất khi chỉ biết cái thứ hai là nói
+              dối cho tiện, và người dùng sẽ đi tìm một thay đổi không tồn tại.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Hết chặng 2</span>
+            <p>
+              Bạn đã đi hết đường dữ liệu: RxJS, HttpClient, contract, interceptor, lỗi,
+              trạng thái, cache. <strong>Bài tập 4 ở trên là Mốc 2.</strong>
+            </p>
+            <p>
+              Chặng 3 là chặng dài nhất và cũng là chặng gần với việc thật nhất: form có
+              type, validation ba kiểu, router, guard, URL là state, và ghi dữ liệu an toàn
+              khi có người khác cùng sửa. Kết thúc ở <strong>Mốc 3</strong> — thêm một field
+              xuyên suốt từ contract tới test.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="11-server-state.html">← Bài 11</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ ◆</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

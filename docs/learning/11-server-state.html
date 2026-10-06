@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 11 — Server state</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 11 ◆
+        </p>
+        <h1>Server state</h1>
+        <p class="lede">
+          Dữ liệu từ server không giống dữ liệu của bạn: nó có thể đang được lấy về, có thể
+          cũ, có thể vừa hỏng trong khi bản cũ vẫn dùng được. Bài này về
+          <code>RemoteData</code> — năm trạng thái, và nhánh thứ năm là nhánh hầu hết người
+          viết frontend bỏ sót.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · hướng tới Mốc 2</li>
+          <li class="tag">◆ có máy trạng thái</li>
+          <li class="tag">~3 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Server state</strong></td>
+                  <td>
+                    Dữ liệu bạn <em>không sở hữu</em> — nó sống ở server, bạn chỉ giữ một
+                    bản sao có thể đã cũ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Client state</strong></td>
+                  <td>
+                    Dữ liệu bạn sở hữu hoàn toàn: dòng đang chọn, tab đang mở, chữ đang gõ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>RemoteData&lt;T&gt;</code></td>
+                  <td>Union năm nhánh mô tả trạng thái của một thứ phải đi lấy về.</td>
+                </tr>
+                <tr>
+                  <td><code>refreshing</code></td>
+                  <td>
+                    Đang lấy lại, <strong>và đã có sẵn câu trả lời cho đúng câu hỏi
+                    này</strong>. Nhánh hay bị bỏ sót.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Stale</strong></td>
+                  <td>
+                    Dữ liệu còn dùng được nhưng có thể đã cũ so với server.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Derived state</strong></td>
+                  <td>
+                    Trạng thái <em>suy ra</em>, không lưu. "Rỗng" là một ví dụ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Illegal state</strong></td>
+                  <td>
+                    Tổ hợp giá trị không thể xảy ra trong thực tế nhưng kiểu dữ liệu vẫn cho
+                    phép biểu diễn. Mục 3.1.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Revalidate</strong></td>
+                  <td>Hỏi lại server về thứ mình đã có, để xác nhận nó còn đúng.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Giải thích được vì sao ba biến <code>loading</code>, <code>error</code>,
+              <code>data</code> là một thiết kế sai — không phải "kém đẹp" mà
+              <em>sai</em>.
+            </li>
+            <li>Vẽ được máy trạng thái của một lần lấy dữ liệu, kể cả nhánh thất bại.</li>
+            <li>
+              Nói được dữ liệu nào thuộc về store, dữ liệu nào không — và bảo vệ được ranh
+              giới đó.
+            </li>
+            <li>Nhận ra khi nào một "trạng thái" thật ra là một giá trị suy ra được.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="box box--backend">
+            <span class="box__label">Khái niệm này gần như không có bản tương đương ở backend</span>
+            <p>
+              Ở backend, bạn truy vấn database và nhận kết quả. Không có trạng thái "đang
+              truy vấn" cần hiển thị, không có "kết quả cũ vẫn còn trên màn hình", không có
+              "truy vấn hỏng nhưng vẫn còn bản trước". Request kết thúc, mọi thứ biến mất.
+            </p>
+            <p>
+              Thứ gần nhất bạn từng gặp là <strong>cache</strong>: một bản sao có thể cũ,
+              cần biết khi nào làm mới. Server state <em>là</em> cache — nhưng là cache mà
+              người dùng đang nhìn chằm chằm, nên trạng thái của nó phải vẽ ra được.
+            </p>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Optional&lt;T&gt;</code></td>
+                  <td><code>RemoteData&lt;T&gt;</code></td>
+                  <td>
+                    <code>Optional</code> có hai trạng thái. Ở đây có năm, vì "chưa có" tách
+                    thành ba chuyện khác nhau: chưa hỏi, đang hỏi lần đầu, đang hỏi lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cache có TTL</td>
+                  <td>Cache + trạng thái hiển thị</td>
+                  <td>
+                    Cache của bạn im lặng. Cái này phải nói ra nó đang ở đâu, vì có người
+                    đang nhìn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>Either&lt;Error, T&gt;</code></td>
+                  <td>Nhánh <code>error</code> của <code>RemoteData</code></td>
+                  <td>
+                    <code>Either</code> là hoặc lỗi hoặc giá trị. Ở đây nhánh lỗi
+                    <strong>có thể mang theo giá trị cũ</strong> — và đó là một trong những
+                    chi tiết hữu ích nhất của cả thiết kế.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Vì sao ba biến boolean là một thiết kế sai</h3>
+
+          <div class="code">
+            <div class="code__file">cách phổ biến — và nó sai</div>
+            <pre><code>isLoading = signal(false);
+error = signal&lt;string | null&gt;(null);
+data = signal&lt;Customer[] | null&gt;(null);</code></pre>
+          </div>
+
+          <p>
+            Ba signal này cho phép biểu diễn <strong>tám</strong> tổ hợp. Chỉ bốn trong số
+            đó có nghĩa. Bốn cái còn lại là <em>illegal state</em> — chúng không thể xảy ra
+            trong thực tế, nhưng kiểu dữ liệu không ngăn được:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th><code>isLoading</code></th>
+                  <th><code>error</code></th>
+                  <th><code>data</code></th>
+                  <th>Có nghĩa không?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>true</td>
+                  <td>có</td>
+                  <td>—</td>
+                  <td><strong>Không.</strong> Đang tải mà cũng đang lỗi?</td>
+                </tr>
+                <tr>
+                  <td>false</td>
+                  <td>có</td>
+                  <td>có</td>
+                  <td>Có — nhưng nó là trạng thái gì? Template phải đoán.</td>
+                </tr>
+                <tr>
+                  <td>true</td>
+                  <td>—</td>
+                  <td>có</td>
+                  <td>Có — và đây chính là <code>refreshing</code>, nhưng không có tên.</td>
+                </tr>
+                <tr>
+                  <td>false</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td><strong>Mơ hồ.</strong> Chưa hỏi, hay đã hỏi và rỗng?</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Chú thích trong repo nói hậu quả thực tế: <em>"every template ends up ordering
+            its <code>@if</code>s carefully and silently depending on that order."</em> Tức
+            là tính đúng đắn của màn hình phụ thuộc vào <strong>thứ tự các nhánh
+            <code>@if</code></strong> — một thứ không ai viết ra, không ai test, và người
+            sửa sau sẽ đổi mà không biết.
+          </p>
+
+          <h3>3.2 Năm nhánh, mỗi nhánh mang đúng dữ liệu nó cần</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/remote-data.ts</div>
+            <pre><code>export type RemoteData&lt;T&gt; =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'refreshing'; readonly value: T }
+  | { readonly status: 'success'; readonly value: T }
+  | { readonly status: 'error'; readonly error: AppError; readonly value: T | null };</code></pre>
+          </div>
+
+          <p>
+            Đọc kỹ chỗ nào <em>có</em> <code>value</code> và chỗ nào không — đó là toàn bộ
+            thiết kế:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nhánh</th>
+                  <th>Có <code>value</code>?</th>
+                  <th>Nghĩa</th>
+                  <th>Màn hình hiện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>idle</code></td>
+                  <td>Không</td>
+                  <td>Chưa ai hỏi gì cả</td>
+                  <td>Như đang tải (trang vừa mở)</td>
+                </tr>
+                <tr>
+                  <td><code>loading</code></td>
+                  <td>Không</td>
+                  <td>Đang hỏi, và <strong>không có gì để hiện</strong></td>
+                  <td>Skeleton</td>
+                </tr>
+                <tr>
+                  <td><code>refreshing</code></td>
+                  <td><strong>Có</strong>, bắt buộc</td>
+                  <td>
+                    Đang hỏi lại, và đã có câu trả lời cho
+                    <em>đúng câu hỏi này</em>
+                  </td>
+                  <td>Dữ liệu cũ, hơi mờ đi — <strong>không</strong> skeleton</td>
+                </tr>
+                <tr>
+                  <td><code>success</code></td>
+                  <td>Có</td>
+                  <td>Xong</td>
+                  <td>Dữ liệu</td>
+                </tr>
+                <tr>
+                  <td><code>error</code></td>
+                  <td>Có thể, hoặc <code>null</code></td>
+                  <td>Hỏng — có thể vẫn còn bản cũ</td>
+                  <td>Toàn trang lỗi, <em>hoặc</em> dữ liệu cũ + băng cảnh báo</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Vì <code>value</code> chỉ tồn tại ở những nhánh có nó, trình biên dịch
+            <strong>chặn</strong> việc đọc dữ liệu ở nhánh <code>loading</code>. Illegal
+            state không còn biểu diễn được — đó là khác biệt giữa "quy ước" và "thiết kế".
+          </p>
+
+          <h3>3.3 <code>refreshing</code>: nhánh bị bỏ sót, và vì sao nó quan trọng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/remote-data.ts — chú thích</div>
+            <pre><code>- `refreshing` a request is in flight and **a value for that same request
+               is already here**. This is what lets a reload keep the table
+               on screen instead of replacing it with a skeleton, which is
+               the difference between a list that feels instant and one
+               that flickers every time it is revisited;</code></pre>
+          </div>
+
+          <p>
+            Không có nhánh này, mọi lần lấy dữ liệu đều là <code>loading</code>, và mọi
+            <code>loading</code> đều thay bảng bằng skeleton. Hậu quả bạn đã gặp ở nhiều
+            ứng dụng: quay lại một trang vừa xem và màn hình nháy trắng một nhịp, dù dữ liệu
+            đã nằm sẵn trong bộ nhớ.
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/state/remote-data.ts</div>
+            <pre><code>/**
+ * Enters the in-flight state for a request whose cached answer is `cached`.
+ *
+ * The single place that decides "is this a load or a refresh", so no call site
+ * has to. It takes the cached value for *this* request rather than whatever
+ * was on screen a moment ago, which is what keeps `refreshing` meaning
+ * something precise: you are looking at the answer to this question, and it is
+ * being checked again. Showing the previous page's rows while a different page
+ * loads would technically be a refresh and would read as a bug.
+ */
+export function reloadFrom&lt;T&gt;(cached: T | null): RemoteData&lt;T&gt; {
+  return cached === null ? loading : { status: 'refreshing', value: cached };
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Chi tiết tinh tế nhất của cả bài</span>
+            <p>
+              <code>reloadFrom</code> nhận giá trị cache <strong>của chính câu hỏi
+              này</strong>, không phải thứ vừa có trên màn hình. Nếu nhận thứ vừa trên màn
+              hình thì: đang ở trang 1, bấm sang trang 5 chưa từng xem → trạng thái là
+              "refreshing" với dữ liệu trang 1 → màn hình hiện <em>dữ liệu trang 1</em>
+              trong khi URL nói trang 5. Về mặt kỹ thuật là một lần làm mới; với người dùng
+              là một bug.
+            </p>
+            <p>
+              Và vì đây là <em>chỗ duy nhất</em> quyết định "load hay refresh", không nơi
+              gọi nào phải tự nghĩ — nên không nơi nào nghĩ sai.
+            </p>
+          </div>
+
+          <h3>3.4 "Rỗng" không phải một trạng thái</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/remote-data.ts — chú thích</div>
+            <pre><code>"Empty" is deliberately **not** a state. A list with no rows is a successful
+answer to a question, not a different kind of outcome, and making it a state
+would force every consumer to remember two success cases. It is derived -
+`success` with zero items - and rendered explicitly by each surface that has
+something meaningful to say about it.</code></pre>
+          </div>
+
+          <p>
+            Lập luận này đáng tổng quát hoá:
+            <strong>một thứ suy ra được từ dữ liệu thì không được là một trạng thái.</strong>
+            Thêm <code>empty</code> vào union nghĩa là mỗi chỗ xử lý <code>success</code>
+            phải nhớ rằng còn một ca thành công thứ hai — và chỗ nào quên thì sai im lặng.
+          </p>
+
+          <p>Chỗ suy ra nó nằm ở trang, cùng với ba cách hiển thị khác:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>protected readonly view = computed&lt;'loading' | 'error' | 'empty' | 'rows'&gt;(() =&gt; {
+  const state = this.state();
+  if (state.status === 'idle' || state.status === 'loading') {
+    return 'loading';
+  }
+  if (state.status === 'error' &amp;&amp; state.value === null) {
+    return 'error';
+  }
+  return this.rows().length === 0 ? 'empty' : 'rows';
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>idle</code> và <code>loading</code> gộp</td>
+                  <td>
+                    Với người dùng, "chưa ai hỏi" và "đang hỏi" trông giống nhau. Phân biệt
+                    chúng là việc của store, không phải của màn hình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>error &amp;&amp; value === null</code></td>
+                  <td>
+                    Chỉ hiện màn hình lỗi toàn phần khi <strong>không còn gì</strong> để
+                    hiện. Còn dữ liệu cũ thì rơi xuống nhánh dưới và hiện kèm cảnh báo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>rows().length === 0 ? 'empty' : 'rows'</code></td>
+                  <td>"Rỗng" được suy ra ở đây, đúng một lần, cho cả trang.</td>
+                </tr>
+                <tr>
+                  <td>Bốn nhánh dẫn xuất ở <strong>một</strong> chỗ</td>
+                  <td>
+                    Thay vì một chuỗi <code>@if</code> lồng nhau trong template: các nhánh
+                    loại trừ nhau một cách thấy được, và kiểu union làm
+                    <code>@case ('loaded')</code> viết nhầm trở thành lỗi biên dịch.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 Lỗi mang theo dữ liệu cũ — nhưng chỉ khi nó còn đúng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>catchError((error: unknown) =&gt; {
+  // The stale value is carried only when it answers this same request.
+  // Leaving a different page's rows on screen under an error banner
+  // would be worse than an honest empty failure.
+  this.listState.set(failed(toAppError(error), cached));
+  return EMPTY;
+}),</code></pre>
+          </div>
+
+          <p>
+            <code>cached</code> ở đây là cache <em>của chính tiêu chí này</em>, lấy ở đầu
+            <code>fetchList</code>. Nếu trang này chưa từng được xem, <code>cached</code> là
+            <code>null</code>, và <code>failed(error, null)</code> cho ra một màn hình lỗi
+            trung thực thay vì dữ liệu của một câu hỏi khác nằm dưới băng cảnh báo.
+          </p>
+
+          <p>Và trang đọc nó như sau:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>/** An error while stale rows are still on screen: warn, do not replace. */
+protected readonly staleWarning = computed(() =&gt; this.state().status === 'error');</code></pre>
+          </div>
+
+          <h3>3.6 Store sở hữu gì, và cố ý không sở hữu gì</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts — chú thích đầu class</div>
+            <pre><code>It owns three questions and their answers: which page of the list is on
+screen, which customer is open, and that customer's audit trail. It owns the
+cache and the invalidation rules. It owns nothing else - and in particular it
+does **not** own:
+
+ - the criteria themselves. Those live in the URL and are pushed in.
+ - which rows are selected. That is local UI state; putting it here would
+   make it survive navigation, and a selection that outlives the screen it
+   was made on is a bug users report as "it deleted the wrong ones".
+ - form values, or whether a save is in flight. Those belong to the form.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dữ liệu</th>
+                  <th>Chủ sở hữu</th>
+                  <th>Vì sao không phải store</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Trang danh sách + cache</td>
+                  <td><strong>Store</strong></td>
+                  <td>—</td>
+                </tr>
+                <tr>
+                  <td>Khách hàng đang mở</td>
+                  <td><strong>Store</strong></td>
+                  <td>—</td>
+                </tr>
+                <tr>
+                  <td>Audit trail</td>
+                  <td><strong>Store</strong></td>
+                  <td>—</td>
+                </tr>
+                <tr>
+                  <td>Tiêu chí lọc</td>
+                  <td>URL</td>
+                  <td>Phải sống sót qua F5 và chia sẻ được bằng link</td>
+                </tr>
+                <tr>
+                  <td>Dòng đang chọn</td>
+                  <td>Signal trong trang</td>
+                  <td>
+                    Để trong store thì nó sống sót qua điều hướng — và "một selection sống
+                    lâu hơn màn hình nó được tạo ra" là bug người dùng báo là
+                    <em>"nó xoá nhầm người"</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Giá trị form, đang lưu hay chưa</td>
+                  <td>Form</td>
+                  <td>Nó là client state, không phải bản sao của server</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.7 Ba câu hỏi, ba máy trạng thái độc lập</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts — rút gọn</div>
+            <pre><code>private readonly listRequests = new Subject&lt;CustomerListCriteria&gt;();
+private readonly listState = signal&lt;RemoteData&lt;PageResponse&lt;Customer&gt;&gt;&gt;(idle);
+readonly list: Signal&lt;RemoteData&lt;PageResponse&lt;Customer&gt;&gt;&gt; = this.listState.asReadonly();
+
+private readonly detailRequests = new Subject&lt;CustomerId&gt;();
+private readonly detailState = signal&lt;RemoteData&lt;Customer&gt;&gt;(idle);
+readonly detail: Signal&lt;RemoteData&lt;Customer&gt;&gt; = this.detailState.asReadonly();
+
+private readonly auditRequests = new Subject&lt;CustomerId&gt;();
+private readonly auditState = signal&lt;RemoteData&lt;readonly AuditEntry[]&gt;&gt;(idle);
+readonly audit: Signal&lt;RemoteData&lt;readonly AuditEntry[]&gt;&gt; = this.auditState.asReadonly();</code></pre>
+          </div>
+
+          <p>
+            Cùng một khuôn ba lần, và đó là chủ ý: mỗi câu hỏi có
+            <code>Subject</code> riêng, state riêng, và được lộ ra dưới dạng chỉ-đọc theo
+            đúng khuôn "ghi trong, đọc ngoài" của bài 03.
+          </p>
+
+          <p>
+            Chúng độc lập: danh sách đang <code>refreshing</code> trong khi chi tiết đang
+            <code>error</code> là hoàn toàn hợp lệ. Gộp chúng vào một trạng thái duy nhất là
+            cách tạo ra một màn hình nói dối về một nửa nội dung của nó.
+          </p>
+
+          <h3>3.8 Chỉ làm mới khi có người xem</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>/**
+ * How many pages are showing the list right now, and whether what they
+ * would see is known to be out of date.
+ *
+ * A write used to refetch the list whether or not anyone was looking at it
+ * (debt row 15). With realtime events arriving for every change anyone
+ * makes, that would be a request per event for a list nobody is on. Now a
+ * write or an event marks the list stale; it is refetched immediately if it
+ * is on screen, and on the way back to it otherwise.
+ */
+private listWatchers = 0;
+private listStale = false;
+
+watchList(): () =&gt; void {
+  this.listWatchers += 1;
+  let released = false;
+  return () =&gt; {
+    if (!released) {
+      released = true;
+      this.listWatchers -= 1;
+    }
+  };
+}
+
+refreshList(): void {
+  if (!this.activeCriteria) {
+    return;
+  }
+  if (this.listWatchers === 0) {
+    this.listStale = true;
+    return;
+  }
+  this.listStale = false;
+  this.listRequests.next(this.activeCriteria);
+}</code></pre>
+          </div>
+
+          <p>Và trang đăng ký bằng một dòng:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — constructor</div>
+            <pre><code>this.destroyRef.onDestroy(this.store.watchList());</code></pre>
+          </div>
+
+          <p>
+            Dòng này gọn đến mức dễ bỏ qua: <code>watchList()</code> tăng bộ đếm
+            <em>và</em> trả về hàm giảm nó, rồi <code>onDestroy</code> nhận đúng hàm đó.
+            Đăng ký và huỷ đăng ký trong một biểu thức — không có cách nào làm một nửa.
+          </p>
+
+          <p>
+            Đây là một trạng thái <strong>thứ hai</strong> nằm cạnh
+            <code>RemoteData</code>: "biết là đã cũ nhưng chưa ai nhìn". Nó không phải một
+            nhánh của union, vì nó không mô tả thứ đang hiển thị — nó mô tả một món nợ sẽ
+            được trả vào lần ghé thăm sau.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/remote-data.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> 36 dòng chú thích cho 50 dòng code — và
+                    chú thích mới là bài học
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.ts</code></td>
+                  <td>Ba máy trạng thái, luật sở hữu, cơ chế watcher</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.ts</code></td>
+                  <td><code>view()</code>, <code>staleWarning()</code>, bốn nhánh hiển thị</td>
+                </tr>
+                <tr>
+                  <td><code>docs/state-management.md</code></td>
+                  <td>
+                    Ai sở hữu state nào, và phần tự kiểm điểm về việc store viết tay có trụ
+                    được không
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một dòng chú thích đáng chép lại</span>
+            <p>
+              Cuối <code>remote-data.ts</code>: <em>"It lives in the customer feature because
+              that is the only feature there is. When a second one needs it, this file moves
+              to <code>core/state</code>; moving it then is a rename, and naming a shared
+              location before there is a second caller is what rule 8 in
+              <code>CLAUDE.md</code> forbids."</em>
+            </p>
+            <p>
+              Đây là kỷ luật chống trừu tượng hoá sớm, viết thành một câu: đặt ở chỗ hẹp
+              trước, mở rộng khi có người gọi thứ hai — vì <em>mở rộng là một thao tác đổi
+              tên</em>, còn đoán sai chỗ chung thì đắt hơn nhiều.
+            </p>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của <code>RemoteData</code> ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+    idle --> loading: setCriteria, chưa có cache
+    idle --> refreshing: setCriteria, CÓ cache
+
+    loading --> success: response về
+    loading --> error_empty: thất bại
+
+    success --> refreshing: hỏi lại cùng câu hỏi
+    success --> loading: đổi sang câu hỏi CHƯA có cache
+
+    refreshing --> success: response về
+    refreshing --> error_stale: thất bại
+
+    error_empty --> loading: thử lại
+    error_stale --> refreshing: thử lại
+    error_stale --> success: thử lại thành công
+
+    state "error (value = null)" as error_empty
+    state "error (value = dữ liệu cũ)" as error_stale
+
+    note right of refreshing
+        Bảng VẪN trên màn hình.
+        Không skeleton.
+    end note
+
+    note right of error_stale
+        Dữ liệu cũ + băng cảnh báo.
+        Người dùng vẫn làm việc được.
+    end note
+            </pre>
+            <figcaption>
+              Chú ý hai cặp song song: <code>loading</code>/<code>refreshing</code> và hai
+              dạng <code>error</code>. Trong cả hai cặp, nhánh bên phải là nhánh
+              <strong>có dữ liệu</strong> — và đó là nhánh quyết định ứng dụng cảm giác
+              mượt hay giật.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Từ trạng thái tới pixel</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    RD["RemoteData<br/>5 nhánh"] --> V["view()<br/>computed"]
+    RD --> P["pending()<br/>computed"]
+    RD --> SW["staleWarning()<br/>computed"]
+    RD --> R["rows() · totalItems()<br/>computed"]
+
+    V --> SW1["@switch loading → skeleton"]
+    V --> SW2["@switch error → app-error-state"]
+    V --> SW3["@switch empty → app-empty-state"]
+    V --> SW4["@switch rows → bảng"]
+    P --> ARIA["aria-busy + bảng mờ đi"]
+    SW --> BANNER["băng 'không làm mới được'"]
+    R --> TBL["[rows] vào CustomerTable"]
+            </pre>
+            <figcaption>
+              Một nguồn, năm giá trị dẫn xuất, và template không bao giờ đọc
+              <code>status</code> trực tiếp. Thêm một nhánh vào union thì chỉ các
+              <code>computed</code> này phải xét lại — không phải mọi template.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Store viết tay, không dùng thư viện — ADR-0013, §5.5</h4>
+          <p>
+            Phương án bị loại: NgRx, hoặc một thư viện server-state kiểu TanStack Query. Lý
+            do loại: feature có ba câu hỏi và một luật cache; chi phí học
+            action/reducer/effect không mua lại được gì ở quy mô đó. Giá phải trả:
+            <strong>bạn tự viết cache, tự viết invalidation, và tự chịu khi nó sai.</strong>
+            <code>docs/state-management.md</code> có phần tự kiểm điểm về việc lựa chọn này
+            có trụ được hay không — đọc nó để thấy một quyết định được xem lại trung thực.
+          </p>
+
+          <h4>"Empty" là suy ra, không phải một nhánh</h4>
+          <p>
+            Phương án bị loại: thêm <code>empty</code> vào union. Bị loại vì nó buộc mọi
+            consumer nhớ hai ca thành công. Giá phải trả: mỗi màn hình tự quyết định cách
+            nói "không có gì" — nhưng đó lại là điều đúng, vì danh sách rỗng vì bộ lọc và
+            danh sách rỗng vì chưa có dữ liệu cần hai câu khác nhau.
+          </p>
+
+          <h4>Ba máy trạng thái riêng, không gộp</h4>
+          <p>
+            Phương án bị loại: một <code>RemoteData</code> cho cả store. Bị loại vì danh
+            sách và chi tiết được hỏi độc lập và hỏng độc lập; gộp lại là làm màn hình nói
+            dối về một nửa nội dung.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Ba biến boolean</span>
+            <p>
+              Illegal state biểu diễn được, nên tính đúng đắn của màn hình phụ thuộc vào thứ
+              tự các <code>@if</code> — một ràng buộc không ai viết ra và không ai test.
+              Người sửa sau đổi thứ tự cho "gọn hơn" và một ca hiển thị sai.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Không có <code>refreshing</code></span>
+            <p>
+              Mọi lần lấy dữ liệu đều thay bảng bằng skeleton. Quay lại một trang vừa xem
+              cũng nháy. Người dùng mô tả nó là "chậm" dù dữ liệu đã nằm sẵn trong bộ nhớ —
+              vì cảm giác tốc độ đến từ việc màn hình <em>không</em> biến mất.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>refreshing</code> với dữ liệu của câu hỏi khác</span>
+            <p>
+              Bấm sang trang 5 chưa từng xem, màn hình hiện dữ liệu trang 1 vì "vẫn đang
+              refresh". URL nói trang 5, bảng hiện trang 1. Đây là lý do
+              <code>reloadFrom</code> nhận cache <em>của chính tiêu chí này</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Để selection trong store</span>
+            <p>
+              Nó sống sót qua điều hướng. Người dùng chọn ba dòng ở trang 1, đi sang trang
+              khác, quay lại — ba dòng vẫn được chọn, nhưng giờ là ba dòng
+              <em>khác</em>. Bấm Xoá. Chú thích trong repo gọi đúng tên hiện tượng:
+              <em>"it deleted the wrong ones"</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Thêm một trạng thái cho mỗi tình huống hiển thị</span>
+            <p>
+              <code>empty</code>, rồi <code>emptyBecauseFiltered</code>, rồi
+              <code>partiallyLoaded</code>… Union phình ra và mọi
+              <code>switch</code> phải sửa. Phép thử: nếu suy ra được từ dữ liệu đã có thì
+              nó là một <code>computed</code>, không phải một trạng thái.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Làm mới một danh sách không ai nhìn</span>
+            <p>
+              Với realtime, mỗi thay đổi của bất kỳ ai là một sự kiện. Làm mới mù quáng
+              nghĩa là một request cho mỗi sự kiện, cho một màn hình không ai mở. Đây là
+              <em>debt row 15</em> trong repo — một khoản nợ đã được ghi, rồi được trả bằng
+              cơ chế watcher.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>
+                    Lần đầu là <code>loading</code>, lần sau là <code>refreshing</code>; lỗi
+                    giữ dữ liệu cũ khi và chỉ khi nó trả lời cùng câu hỏi; tiêu chí trùng
+                    không sinh request
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.phase4.spec.ts</code></td>
+                  <td>
+                    Cơ chế watcher: không ai xem thì đánh dấu cũ thay vì gọi lại
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.spec.ts</code></td>
+                  <td>
+                    Bốn nhánh <code>view()</code> hiện đúng thứ; băng cảnh báo xuất hiện khi
+                    lỗi mà vẫn còn dữ liệu
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một mẹo test cho máy trạng thái</span>
+            <p>
+              Cách test một union như thế này không phải kiểm từng field, mà
+              <strong>đi một đường qua máy trạng thái</strong>: tải lần đầu → thành công →
+              hỏi lại → hỏng → thử lại. Mỗi bước khẳng định
+              <code>status</code> và sự có mặt của <code>value</code>. Một đường đi như vậy
+              bắt được nhiều lỗi hơn mười test riêng lẻ, vì phần lớn bug nằm ở
+              <em>chuyển trạng thái</em>, không ở trạng thái.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Một mẩu dữ liệu — nó thuộc về đâu?"}
+    Q0 -->|"server sở hữu, tôi chỉ giữ bản sao"| SS["SERVER STATE → store<br/>RemoteData 5 nhánh"]
+    Q0 -->|"phải sống qua F5 và chia sẻ được"| URL["URL query param"]
+    Q0 -->|"của riêng màn hình này"| LOCAL["signal trong component"]
+    Q0 -->|"người dùng đang gõ"| FORM["form model"]
+
+    SS --> Q1{"Suy ra được từ state đã có?"}
+    Q1 -->|"có"| CMP["computed — KHÔNG thêm nhánh<br/>empty · pending · staleWarning"]
+    Q1 -->|"không"| BR["một nhánh của union"]
+
+    SS --> Q2{"Đang lấy dữ liệu —<br/>đã có câu trả lời cho CÂU HỎI NÀY chưa?"}
+    Q2 -->|"chưa"| L["loading → skeleton"]
+    Q2 -->|"rồi"| R["refreshing → giữ màn hình"]
+
+    SS --> Q3{"Hỏng — còn gì dùng được không?"}
+    Q3 -->|"không"| E1["error(null) → màn hình lỗi"]
+    Q3 -->|"còn"| E2["error(cũ) → dữ liệu + cảnh báo"]
+            </pre>
+            <figcaption>
+              Câu hỏi trên cùng là câu hỏi kiến trúc thật sự của frontend, và bài 00 đã báo
+              trước: "cái này sống bao lâu và ai xoá nó". Ba câu hỏi dưới là ba quyết định
+              lặp lại ở mọi màn hình có dữ liệu từ server.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi hết máy trạng thái bằng mắt</h3>
+            <p class="task__meta">~30 phút · thêm log tạm rồi xoá</p>
+            <ol>
+              <li>
+                Trong <code>fetchList</code>, sau
+                <code>this.listState.set(reloadFrom(cached));</code> thêm:
+                <div class="code">
+                  <pre><code>console.log('→', this.listState().status, 'cached?', cached !== null);</code></pre>
+                </div>
+                và trong <code>tap</code> cùng <code>catchError</code> thêm hai dòng tương
+                tự.
+              </li>
+              <li>Đi: trang 1 → trang 2 → trang 1 → Refresh → Refresh.</li>
+              <li>
+                Bây giờ gây lỗi 500 (bài 10 bài tập 1) ở hai tình huống: trang chưa xem, và
+                trang đã xem.
+              </li>
+              <li>Vẽ lại đường đi của bạn lên sơ đồ 5.1.</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Đường đi bạn phải thấy</summary>
+              <p>
+                Trang 1 lần đầu: <code>loading → success</code>. Trang 2 lần đầu:
+                <code>loading → success</code>. Quay lại trang 1:
+                <code>refreshing → success</code> — <strong>và bảng không biến mất</strong>.
+                Refresh: <code>refreshing → success</code> mỗi lần.
+              </p>
+              <p>
+                Lỗi ở trang chưa xem: <code>loading → error(null)</code> → màn hình lỗi toàn
+                phần. Lỗi ở trang đã xem: <code>refreshing → error(cũ)</code> → bảng ở lại,
+                băng cảnh báo hiện ra. Cùng một lỗi HTTP, hai trải nghiệm hoàn toàn khác
+                nhau — và khác biệt đó nằm gọn trong một tham số của
+                <code>failed()</code>.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá <code>reloadFrom</code> để thấy vì sao nó nhận cache của <em>câu hỏi này</em></h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>fetchList</code>, đổi <code>reloadFrom(cached)</code> thành
+                <code>reloadFrom(valueOf(this.listState()))</code> — tức là "bất cứ thứ gì
+                đang trên màn hình".
+              </li>
+              <li>
+                Vào <code>/customers</code>, xem trang 1, rồi nhảy thẳng sang một trang chưa
+                từng xem (đổi URL thành <code>?page=20</code>).
+              </li>
+              <li>Quan sát bảng trong lúc chờ.</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Bảng hiện <strong>dữ liệu trang 1</strong> trong khi URL và ô phân trang nói
+                trang 20. Về mặt kỹ thuật đó là một lần "refresh" — nhưng nó trả lời sai câu
+                hỏi, và người dùng sẽ đọc nó như dữ liệu thật trong một nhịp.
+              </p>
+              <p>
+                Đây là loại bug không gây lỗi, không vào log, và chỉ bị phát hiện khi ai đó
+                nhìn kỹ. Chú thích một câu trong <code>remote-data.ts</code> là thứ ngăn nó.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thiết kế <code>RemoteData</code> cho một bài toán khác</h3>
+            <p class="task__meta">~40 phút · giấy, rồi code</p>
+            <p>
+              Màn hình tải lên một file CSV: chọn file → xem trước (server kiểm từng dòng) →
+              xác nhận → nhập. Thiết kế kiểu trạng thái cho nó.
+            </p>
+            <ol>
+              <li>Liệt kê mọi trạng thái người dùng phân biệt được.</li>
+              <li>Với mỗi cái, dữ liệu nào <em>bắt buộc</em> phải có?</li>
+              <li>Cái nào thật ra là <code>computed</code>?</li>
+              <li>Viết union bằng TypeScript.</li>
+              <li>
+                Rồi mở <code>customers/customer-import/customer-import-page.ts</code> và so
+                sánh với cách repo làm.
+              </li>
+            </ol>
+            <details>
+              <summary>Gợi ý, và hai bẫy</summary>
+              <p>
+                <strong>Bẫy 1:</strong> "đang tải lên 40%" có phải một trạng thái? Có — và
+                nó <em>bắt buộc</em> mang theo phần trăm, giống <code>refreshing</code> bắt
+                buộc mang <code>value</code>. Nhưng "40%" thì không: nó là dữ liệu bên trong
+                trạng thái đó.
+              </p>
+              <p>
+                <strong>Bẫy 2:</strong> "xem trước xong, có 3 dòng lỗi" và "xem trước xong,
+                không dòng nào lỗi" là <em>một</em> trạng thái hay hai? Một —
+                "có lỗi hay không" suy ra được từ danh sách lỗi. Đây đúng là lập luận
+                "empty không phải một trạng thái", áp vào chỗ khác.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Tìm ranh giới sở hữu bị vi phạm</h3>
+            <p class="task__meta">~25 phút · đọc code</p>
+            <p>
+              Mở <code>customer-list-page.ts</code> và liệt kê <em>mọi</em> signal nó sở
+              hữu. Với từng cái, trả lời: vì sao nó không nằm trong store?
+            </p>
+            <ol>
+              <li><code>selectedIds</code></li>
+              <li><code>bulkRunning</code>, <code>bulkResult</code></li>
+              <li><code>exportProgress</code></li>
+              <li><code>focusReturn</code></li>
+              <li>
+                Và câu khó: <code>criteria</code> là một <code>computed</code>, không phải
+                signal. Nó "thuộc về" ai?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  Client state gắn với <em>màn hình này và trang kết quả này</em>. Trong
+                  store thì nó sống sót qua điều hướng — xem mục 7 điểm 4.
+                </li>
+                <li>
+                  Trạng thái của một thao tác do trang khởi xướng. Store không khởi xướng
+                  nó, và không trang nào khác cần biết.
+                </li>
+                <li>
+                  Tương tự, cộng một lý do nữa: export là việc chạy nền của riêng trang
+                  này, và tiến độ của nó không phải dữ liệu server.
+                </li>
+                <li>
+                  Hoàn toàn là chuyện trình bày — focus đi đâu sau khi vẽ lại. Store không
+                  có khái niệm focus.
+                </li>
+                <li>
+                  Không ai cả, và đó là điểm quan trọng nhất.
+                  <code>criteria</code> là một <em>khung nhìn</em> dẫn xuất từ URL. Trang
+                  không sở hữu nó (nó không gán được), store cũng không (nó chỉ được đẩy
+                  vào). Chủ sở hữu là <strong>URL</strong> — và vì vậy nó sống sót qua F5,
+                  qua nút Back, và qua việc gửi link cho đồng nghiệp.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao ba biến <code>loading</code>/<code>error</code>/<code>data</code> là thiết kế sai?</summary>
+            <p>
+              Vì chúng cho phép biểu diễn những tổ hợp không thể xảy ra, nên tính đúng đắn
+              của màn hình chuyển thành việc sắp xếp các <code>@if</code> đúng thứ tự — một
+              ràng buộc ngầm, không test được, và người sửa sau sẽ phá.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>loading</code> khác <code>refreshing</code> ở đâu?</summary>
+            <p>
+              <code>refreshing</code> <strong>bắt buộc</strong> mang theo một giá trị, và
+              giá trị đó phải là câu trả lời cho <em>chính câu hỏi đang hỏi lại</em>. Nhờ
+              vậy màn hình giữ nguyên nội dung thay vì nháy sang skeleton.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao "rỗng" không phải một trạng thái?</summary>
+            <p>
+              Vì nó suy ra được: <code>success</code> với không dòng nào. Thêm nó vào union
+              buộc mọi consumer nhớ hai ca thành công, và chỗ nào quên thì sai im lặng. Quy
+              tắc tổng quát: suy ra được thì là <code>computed</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Khi nào nhánh <code>error</code> mang theo giá trị cũ?</summary>
+            <p>
+              Khi giá trị cũ trả lời <em>cùng câu hỏi</em> vừa thất bại. Khi đó màn hình giữ
+              dữ liệu và thêm một băng cảnh báo. Không có giá trị như vậy thì
+              <code>value</code> là <code>null</code> và màn hình lỗi toàn phần — trung thực
+              hơn là hiện dữ liệu của câu hỏi khác.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Store sở hữu gì, và ba thứ nó cố ý không sở hữu?</summary>
+            <p>
+              Sở hữu: trang danh sách, khách hàng đang mở, audit trail, cộng cache và luật
+              vô hiệu hoá. Không sở hữu: tiêu chí lọc (URL), dòng đang chọn (signal trong
+              trang), giá trị form (form).
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Cơ chế <code>watchList</code> giải quyết vấn đề gì?</summary>
+            <p>
+              Một thay đổi từ bất kỳ ai cũng sinh ra sự kiện realtime; làm mới mù quáng là
+              một request cho mỗi sự kiện, cho một danh sách không ai đang mở. Giải pháp:
+              đánh dấu cũ, và chỉ lấy lại ngay nếu đang có người xem.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao ba câu hỏi của store có ba máy trạng thái riêng?</summary>
+            <p>
+              Vì chúng được hỏi độc lập và hỏng độc lập. Danh sách đang làm mới trong khi
+              chi tiết đang lỗi là hợp lệ; gộp lại thành một trạng thái là làm màn hình nói
+              dối về một nửa nội dung của nó.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 12 là bài ◆ cuối của chặng 2, và nó nói về phần còn lại của store: cache
+              được đánh khoá thế nào, vì sao <em>mọi</em> lệnh ghi xoá <em>toàn bộ</em> các
+              trang, và ba cuộc đua mà repo thắng bằng một toán tử.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="10-loi.html">← Bài 10</a></span>
+            <span><a href="12-cache-huy-request-race.html">Bài 12 — Cache, huỷ request, race ◆ →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ ◆</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
