@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 06 — CSS trong Angular</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 1 — Viết được UI → Bài 06</p>
+        <h1>CSS trong Angular</h1>
+        <p class="lede">
+          Bài cuối của chặng 1. Bạn đã biết CSS — bài này không dạy lại nó, mà dạy bốn thứ
+          chỉ xuất hiện khi CSS sống trong một ứng dụng component: style được cô lập ra sao,
+          vì sao component không bao giờ viết màu, vì sao đổi theme chỉ tốn một thuộc tính,
+          và vì sao <code>margin-left</code> làm build đổ.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 1 · hướng tới Mốc 1</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>View encapsulation</strong></td>
+                  <td>
+                    Cơ chế cô lập CSS của một component: Angular thêm một thuộc tính riêng
+                    vào mọi thẻ và viết lại selector để chỉ khớp thẻ đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:host</code></td>
+                  <td>Chính thẻ của component, ví dụ <code>&lt;app-badge&gt;</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>::ng-deep</code></td>
+                  <td>
+                    Cửa thoát hiểm xuyên qua lớp cô lập. Đã deprecated; repo dùng đúng một
+                    lần, có lý do kèm theo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Custom property</strong></td>
+                  <td>
+                    Biến CSS thật — <code>--accent: #2563c4</code>, đọc bằng
+                    <code>var(--accent)</code>. Khác biến SCSS ở chỗ nó
+                    <em>sống lúc chạy</em> và kế thừa theo cây DOM.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Primitive token</strong></td>
+                  <td>
+                    Màu thô: <code>--palette-blue-600</code>. Không mang ý nghĩa gì về chỗ
+                    dùng. Component <strong>không được</strong> chạm vào.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Semantic token</strong></td>
+                  <td>
+                    Ý nghĩa: <code>--accent</code>, <code>--surface-raised</code>,
+                    <code>--danger-text</code>. Đây là thứ duy nhất component được dùng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Logical property</strong></td>
+                  <td>
+                    <code>margin-inline-start</code> thay cho
+                    <code>margin-left</code>: nó theo <em>chiều đọc</em>, nên tự lật khi
+                    ngôn ngữ viết phải-sang-trái.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:focus-visible</code></td>
+                  <td>
+                    Chỉ khớp khi focus đến từ bàn phím hoặc từ code — không khớp khi bấm
+                    chuột.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Contrast ratio</strong></td>
+                  <td>
+                    Độ tương phản giữa chữ và nền. WCAG AA yêu cầu 4.5:1 cho chữ thường.
+                    Mục 3.4 cho thấy một lần repo trượt ngưỡng này.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@use 'styles/breakpoints'</code></td>
+                  <td>
+                    Cách SCSS nạp một partial. Repo cấu hình sẵn đường dẫn gốc nên mọi
+                    component viết giống nhau.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Viết CSS cho một component mới mà không sợ đụng độ với component khác.</li>
+            <li>
+              Chọn đúng token ngữ nghĩa cho một tình huống, và biết vì sao không được viết
+              mã màu.
+            </li>
+            <li>
+              Giải thích được vì sao đổi theme không làm component nào vẽ lại.
+            </li>
+            <li>
+              Nhận ra bốn thứ <code>npm run lint</code> sẽ chặn trong CSS, và sửa đúng cách
+              thay vì tắt nó đi.
+            </li>
+            <li>Biết khi nào responsive là việc của CSS, khi nào là việc của TypeScript.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>CSS toàn cục + quy ước đặt tên (BEM)</td>
+                  <td>View encapsulation</td>
+                  <td>
+                    Bạn tránh đụng độ bằng kỷ luật. Ở đây trình biên dịch làm hộ — CSS của
+                    một component <em>không thể</em> rò ra ngoài, kể cả khi trùng tên class.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hằng số trong code (<code>PRIMARY_COLOR</code>)</td>
+                  <td>CSS custom property</td>
+                  <td>
+                    Hằng số của bạn biến mất sau khi biên dịch. Custom property
+                    <strong>sống lúc chạy</strong> và kế thừa theo cây DOM — đó là lý do
+                    đổi một thuộc tính trên <code>&lt;html&gt;</code> đổi được cả giao
+                    diện.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Biến SCSS (<code>$tablet-min</code>)</td>
+                  <td>Cũng có, nhưng dùng cho việc khác</td>
+                  <td>
+                    Biến SCSS được thay thế lúc build, nên dùng được trong
+                    <code>@media</code> — chỗ custom property không dùng được. Repo dùng cả
+                    hai, mỗi loại một việc.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Enum cho trạng thái</td>
+                  <td>Thuộc tính <code>data-*</code> trên thẻ</td>
+                  <td>
+                    Cách truyền một lựa chọn từ TypeScript sang CSS mà không cần class
+                    động: <code>host: { '[attr.data-tone]': 'tone()' }</code> rồi
+                    <code>:host([data-tone='danger'])</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 CSS được cô lập bằng cách nào</h3>
+
+          <p>Bạn viết:</p>
+
+          <div class="code">
+            <div class="code__file">trong styles của một component</div>
+            <pre><code>.sort { border: none; cursor: pointer; }</code></pre>
+          </div>
+
+          <p>Angular biên dịch thành đại ý:</p>
+
+          <div class="code">
+            <div class="code__file">CSS thật trong trang</div>
+            <pre><code>.sort[_ngcontent-abc123] { border: none; cursor: pointer; }</code></pre>
+          </div>
+
+          <p>
+            Và nó thêm <code>_ngcontent-abc123</code> vào mọi thẻ do template của component
+            đó sinh ra. Kết quả: một class tên <code>.sort</code> ở component khác
+            <strong>không thể</strong> bị ảnh hưởng. Đây là chế độ mặc định, tên là
+            <em>emulated</em> — mô phỏng sự cô lập của Shadow DOM mà không dùng Shadow DOM
+            thật, nên vẫn hoạt động với SSR và với mọi công cụ.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Hệ quả thực tế, và một ngoại lệ</span>
+            <p>
+              Bạn vẫn nên đặt tên class có nghĩa (<code>.page-header__actions</code>), nhưng
+              lý do đổi: không còn để tránh đụng độ, mà để người đọc hiểu. Repo vẫn dùng BEM
+              vì lý do thứ hai.
+            </p>
+            <p>
+              Ngoại lệ: style <strong>toàn cục</strong> trong
+              <code>src/styles/</code> không bị cô lập — đó là nơi đặt reset, focus ring,
+              và định nghĩa token. Chúng cố ý toàn cục.
+            </p>
+          </div>
+
+          <h3>3.2 Ba selector đặc biệt</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selector</th>
+                  <th>Trỏ tới</th>
+                  <th>Ví dụ thật</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>:host</code></td>
+                  <td>
+                    Chính thẻ <code>&lt;app-badge&gt;</code>. Cần vì mặc định một
+                    component là <code>display: inline</code> và thường đó không phải điều
+                    bạn muốn.
+                  </td>
+                  <td><code>:host { display: inline-flex; }</code></td>
+                </tr>
+                <tr>
+                  <td><code>:host([attr])</code></td>
+                  <td>Chính thẻ đó, khi nó mang thuộc tính này.</td>
+                  <td>
+                    <code>:host([data-tone='danger']) { background-color: var(--danger-subtle); }</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>::ng-deep</code></td>
+                  <td>
+                    Xuyên qua lớp cô lập để chạm vào bên trong component con.
+                    <strong>Deprecated.</strong>
+                  </td>
+                  <td>
+                    <code>page-header.ts</code>, đúng một lần, để nút trong slot giãn hết
+                    chiều ngang trên điện thoại
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Hai tầng token — và vì sao component chỉ được dùng tầng trên</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_tokens.scss — chú thích đầu file</div>
+            <pre><code>/* Design tokens.
+ *
+ * Two layers, and the separation is the whole point (ADR-0010):
+ *
+ *   1. PRIMITIVES - the raw palette and scales. `--palette-blue-600` is a
+ *      colour. It has no opinion about where it is used.
+ *   2. SEMANTIC   - what a thing means: `--accent`, `--surface-raised`,
+ *      `--text-muted`. These are the only tokens a component may reference.
+ *
+ * Only the semantic layer is redefined per theme. That is why switching to dark
+ * is one attribute on &lt;html&gt; and not a second stylesheet: every component is
+ * already written against meaning rather than against a colour.
+ */</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file — hai tầng, rút gọn</div>
+            <pre><code>:root {
+  /* 1. Primitives - no component may use these directly */
+  --palette-blue-600: #2563c4;
+  --palette-red-600: #c53030;
+  --palette-neutral-50: #f7f8fa;
+
+  /* 2. Semantic - what a component speaks */
+  --accent: var(--palette-blue-600);
+  --danger-subtle: var(--palette-red-100);
+  --danger-text: var(--palette-red-700);
+  --surface-raised: var(--palette-neutral-0);
+  --focus-ring: var(--palette-blue-600);
+}</code></pre>
+          </div>
+
+          <p>
+            Component viết <code>var(--danger-text)</code>, không bao giờ viết
+            <code>var(--palette-red-700)</code> và càng không viết
+            <code>#9b2222</code>. Lý do không phải thẩm mỹ:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Chỉ tầng ngữ nghĩa được định nghĩa lại theo theme.</strong> Component
+              nói "màu chữ nguy hiểm" thì theme tối trả lời bằng một màu khác. Component
+              nói "đỏ 700" thì theme tối không có gì để trả lời.
+            </li>
+            <li>
+              <strong>Một mã màu viết thẳng là một lần opt-out khỏi theming mà không ai
+              biết.</strong> Nó không báo lỗi; nó chỉ sai trong theme tối, và chỉ với người
+              dùng theme tối.
+            </li>
+            <li>
+              <strong>Tên ngữ nghĩa sống qua được một lần đổi thiết kế.</strong>
+              <code>tone="danger"</code> vẫn đúng sau khi công ty quyết định màu cảnh báo là
+              cam; <code>tone="red"</code> thì không.
+            </li>
+          </ul>
+
+          <h3>3.4 Theme tối: hai cách áp, và cả hai đều cần</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_tokens.scss</div>
+            <pre><code>@mixin dark-theme {
+  color-scheme: dark;
+  --surface-page: var(--palette-neutral-950);
+  --text-primary: var(--palette-neutral-50);
+  --accent-text: var(--palette-blue-200);
+  /* … toàn bộ tầng ngữ nghĩa, định nghĩa lại */
+}
+
+:root[data-theme='dark'] {
+  @include dark-theme;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark-theme;
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Khối</th>
+                  <th>Phục vụ ai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>:root[data-theme='dark']</code></td>
+                  <td>
+                    Người đã <em>chọn</em> theme tối. Thuộc tính do
+                    <code>ThemeService</code> viết (bài 03 mục 3.6).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@media (prefers-color-scheme: dark)</code></td>
+                  <td>
+                    Người để "theo hệ điều hành" — <strong>và</strong>, quan trọng hơn, lần
+                    vẽ đầu tiên của HTML render sẵn, lúc chưa có dòng JavaScript nào chạy.
+                    Không có khối này thì trang đăng nhập nháy trắng một nhịp trước khi
+                    chuyển tối.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:not([data-theme='light'])</code></td>
+                  <td>
+                    Bảo vệ lựa chọn tường minh: người chọn <em>sáng</em> trên một máy đang
+                    để tối vẫn được nền sáng. Thiếu dấu <code>:not</code> này thì media
+                    query sẽ đè lên lựa chọn của họ.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Một chi tiết tương phản đáng đọc kỹ</h4>
+
+          <div class="code">
+            <div class="code__file">cùng file — chú thích trong khối dark</div>
+            <pre><code>/* `--accent` is a filled surface carrying white text, so it does not get
+   lighter in the dark theme - a lighter blue behind white text drops below
+   4.5:1. What changes is `--accent-text`, which is a *text* colour on the
+   page background and has the opposite requirement. */
+--accent: var(--palette-blue-600);
+--accent-text: var(--palette-blue-200);
+
+/* Unchanged from light. Phase 6's audit found the danger button filled
+   with `--danger` here - red-400 behind white text, 2.6:1. */
+--danger-solid: var(--palette-red-600);</code></pre>
+          </div>
+
+          <p>
+            Đây là lý do có <strong>hai</strong> token cho mỗi màu nghĩa: một cho
+            <em>nền</em> (<code>--accent</code>, <code>--danger-solid</code>) và một cho
+            <em>chữ</em> (<code>--accent-text</code>, <code>--danger-text</code>). Trong
+            theme tối chúng đi hai hướng ngược nhau: chữ phải sáng lên để nổi trên nền tối,
+            còn nền có chữ trắng phải <em>giữ nguyên độ đậm</em> — sáng lên là tụt xuống
+            dưới 4.5:1.
+          </p>
+
+          <p>
+            Và chú thích thứ hai ghi lại một lỗi thật: ở phase 6, nút nguy hiểm trong theme
+            tối từng được tô bằng <code>--danger</code> (red-400) với chữ trắng —
+            <strong>2.6:1</strong>, trượt xa ngưỡng. Một đợt audit tìm ra. Đây là loại lỗi
+            không ai thấy khi nhìn màn hình sáng của mình.
+          </p>
+
+          <h3>3.5 Đổi theme không làm component nào vẽ lại</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant T as ThemeService
+    participant H as thẻ &lt;html&gt;
+    participant B as Trình duyệt
+    U->>T: chọn "tối"
+    T->>T: current.set('dark')
+    T->>H: effect → setAttribute('data-theme','dark')
+    H->>B: selector :root[data-theme='dark'] khớp
+    B->>B: tính lại giá trị các custom property
+    B->>U: repaint
+    Note over T,B: KHÔNG component nào chạy lại template
+            </pre>
+            <figcaption>
+              Toàn bộ cơ chế theming nằm ngoài Angular. Angular chỉ đặt một thuộc tính;
+              phần còn lại là CSS. Điều này chỉ khả thi vì <em>mọi</em> component đã viết
+              bằng token ngữ nghĩa — một component có mã màu cứng sẽ đứng im ở đây.
+            </figcaption>
+          </figure>
+
+          <h3>3.6 Hướng logic thay vì hướng vật lý</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Đừng viết</th>
+                  <th>Viết</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>margin-left</code>, <code>padding-right</code></td>
+                  <td><code>margin-inline-start</code>, <code>padding-inline-end</code></td>
+                </tr>
+                <tr>
+                  <td><code>left: 0</code>, <code>right: 0</code></td>
+                  <td><code>inset-inline-start: 0</code>, <code>inset-inline-end: 0</code></td>
+                </tr>
+                <tr>
+                  <td><code>text-align: left</code></td>
+                  <td><code>text-align: start</code></td>
+                </tr>
+                <tr>
+                  <td><code>border-left</code></td>
+                  <td><code>border-inline-start</code></td>
+                </tr>
+                <tr>
+                  <td><code>float: left</code></td>
+                  <td>thường là không cần — dùng flex hoặc grid</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lý do, theo đúng chú thích trong <code>lint/styles.ts</code>: các thuộc tính
+            logic <em>tự lật</em> dưới <code>dir="rtl"</code>; các thuộc tính vật lý phải đi
+            tìm và lật bằng tay. <strong>Đây là luật giữ cho việc hỗ trợ tiếng Ả Rập hay
+            tiếng Do Thái chỉ cách một dòng trong <code>languages.ts</code></strong> — thay
+            vì một đợt rà soát toàn bộ stylesheet.
+          </p>
+
+          <p>
+            Lưu ý: hướng <em>dọc</em> không đổi khi lật, nên
+            <code>margin-top</code> và <code>margin-bottom</code> vẫn hợp lệ. Luật chỉ áp
+            cho trục ngang.
+          </p>
+
+          <h3>3.7 Một vòng focus cho cả ứng dụng</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_base.scss</div>
+            <pre><code>/* One focus indicator for the whole application.
+ *
+ * `:focus-visible` rather than `:focus` so a mouse click does not leave a ring
+ * behind, while keyboard and programmatic focus always show one. Components
+ * must not remove this; if a component needs a different shape, it overrides
+ * `outline-offset` or `border-radius`, never `outline: none`. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}</code></pre>
+          </div>
+
+          <p>
+            <code>outline: none</code> là thứ bị lint chặn, và lý do rất cụ thể: người dùng
+            bàn phím mất hoàn toàn khả năng biết mình đang ở đâu trên trang. Nếu vòng focus
+            trông xấu ở một chỗ, cách sửa là đổi <code>outline-offset</code> hoặc
+            <code>border-radius</code> — <strong>không bao giờ</strong> xoá nó.
+          </p>
+
+          <h3>3.8 Breakpoint: hai nguồn, một sự thật</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_breakpoints.scss</div>
+            <pre><code>$tablet-min: 48rem; /* 768px */
+$desktop-min: 64rem; /* 1024px */
+
+$tablet-up: '(min-width: #{$tablet-min})';
+$below-tablet: '(max-width: #{$tablet-min - 0.01rem})';</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">dùng trong một component</div>
+            <pre><code>@use 'styles/breakpoints' as bp;
+
+@media #{bp.$below-tablet} {
+  .page-header { flex-direction: column; }
+}</code></pre>
+          </div>
+
+          <p>Hai chi tiết trong file này đáng học:</p>
+
+          <ul>
+            <li>
+              <strong><code>rem</code> chứ không <code>px</code>.</strong> Chú thích nói:
+              người dùng tăng cỡ chữ mặc định của trình duyệt là đang nói rằng màn hình của
+              họ hẹp hơn trên thực tế — và một breakpoint tính bằng <code>rem</code> thì
+              tin họ.
+            </li>
+            <li>
+              <strong>Cùng hai con số tồn tại trong
+              <code>layout/layout-breakpoints.ts</code></strong>, vì TypeScript cần biết
+              layout nào đang hoạt động cho những hành vi CSS không diễn đạt được — như bẫy
+              focus trong ngăn kéo di động. <strong>Và có một test khẳng định hai bên
+              khớp nhau.</strong> Đó là cách đúng để xử lý một thứ buộc phải tồn tại hai
+              nơi: không giả vờ rằng nó không, mà dựng một cái cổng.
+            </li>
+          </ul>
+
+          <h3>3.9 Khi nào CSS, khi nào TypeScript</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tình huống</th>
+                  <th>Công cụ</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cùng nội dung, xếp khác đi</td>
+                  <td>CSS (<code>@media</code>)</td>
+                  <td>
+                    Hàng nút đổi thành cột trên điện thoại — vẫn là những nút đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đổi hẳn component</td>
+                  <td>TypeScript (<code>@if</code>)</td>
+                  <td>
+                    Bảng thành danh sách thẻ. Render cả hai rồi ẩn một bằng CSS sẽ đặt
+                    <strong>mọi dòng hai lần trong DOM và mọi checkbox hai lần trong thứ tự
+                    Tab</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ẩn với mắt nhưng screen reader vẫn đọc</td>
+                  <td>CSS — class <code>.visually-hidden</code></td>
+                  <td>
+                    Nhãn cho nút chỉ có icon. <code>display: none</code> sẽ giấu khỏi cả
+                    screen reader.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ẩn khỏi tất cả</td>
+                  <td>TypeScript (<code>@if</code>)</td>
+                  <td>Thẻ không tồn tại thì không ai đọc được và không vào thứ tự Tab.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: bốn luật của lint</h2>
+
+          <p>
+            <code>npm run lint:styles</code> chạy <code>lint/styles.ts</code> — một script
+            tự viết, không phải stylelint. Nó đọc cả <code>styles:</code> nội tuyến của
+            component lẫn các file <code>.scss</code>, và chặn bốn thứ:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Luật</th>
+                  <th>Chặn gì</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>literal-colour</code></td>
+                  <td>
+                    <code>#1f2937</code>, <code>rgb(…)</code>, <code>hsl(…)</code> ngoài
+                    file token
+                  </td>
+                  <td>
+                    Một lần opt-out khỏi theming mà không nói ra — và là bug theme tối
+                    không ai phát hiện cho tới khi khách hàng báo
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>palette-token</code></td>
+                  <td><code>--palette-*</code> ngoài file token</td>
+                  <td>Component nói bằng ý nghĩa, không nói bằng màu (ADR-0010)</td>
+                </tr>
+                <tr>
+                  <td><code>physical-direction</code></td>
+                  <td>
+                    <code>margin-left</code>, <code>left:</code>,
+                    <code>text-align: right</code>, <code>float</code>…
+                  </td>
+                  <td>Giữ cho hỗ trợ RTL chỉ cách một dòng cấu hình</td>
+                </tr>
+                <tr>
+                  <td><code>outline-removed</code></td>
+                  <td><code>outline: none</code> và <code>outline: 0</code></td>
+                  <td>Vòng focus toàn cục không được phép biến mất</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Khi bạn thật sự cần một ngoại lệ</h4>
+
+          <div class="code">
+            <div class="code__file">cú pháp, theo lint/styles.ts</div>
+            <pre><code>/* style-lint-allow: lý do thật sự, viết ra */
+left: 0;</code></pre>
+          </div>
+
+          <p>
+            <strong>Lý do là bắt buộc.</strong> Một comment cho phép mà không kèm lý do bị
+            báo như một vi phạm. Đó là một thiết kế đáng học: cửa thoát hiểm nên tồn tại,
+            nhưng phải tốn công đúng bằng việc viết ra vì sao.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao một script tự viết thay vì stylelint</span>
+            <p>
+              Chú thích đầu <code>lint/styles.ts</code> trả lời: style ở đây nằm bên trong
+              template literal của TypeScript, mà stylelint chỉ đọc được qua một plugin
+              custom-syntax — tức là thêm hai dependency và một cấu hình parser để kiểm tra
+              bốn biểu thức chính quy. Và nó nói luôn điều kiện đổi ý: "nếu tập luật lớn
+              hơn mức một biểu thức chính quy nói thật được, đó là lúc dùng stylelint."
+            </p>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    P["Primitives<br/>--palette-blue-600: #2563c4"]
+    P --> S_LIGHT["Semantic - sáng<br/>--accent · --text-primary · --danger-text"]
+    P --> S_DARK["Semantic - tối<br/>cùng TÊN, khác giá trị"]
+
+    S_LIGHT --> C["Component<br/>var(--danger-text)"]
+    S_DARK --> C
+    C --> PAINT(["Pixel"])
+
+    ATTR["data-theme trên &lt;html&gt;"] -->|"chọn tầng nào đang áp"| S_LIGHT
+    ATTR --> S_DARK
+    MQ["@media prefers-color-scheme"] -->|"khi chưa chọn, và khi chưa có JS"| S_DARK
+
+    LINT["lint/styles.ts"] -.->|"chặn component chạm thẳng vào"| P
+            </pre>
+            <figcaption>
+              Component chỉ nối vào tầng giữa. Hai mũi tên từ
+              <code>data-theme</code> và media query quyết định tầng giữa mang giá trị nào.
+              Mũi tên nét đứt là lý do kiến trúc này không trôi dần: lint chặn đường tắt
+              xuống tầng dưới.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Hai tầng token thay vì một — ADR-0010</h4>
+          <p>
+            Phương án bị loại: một tầng, component dùng thẳng
+            <code>--blue-600</code>. Bị loại vì theme tối sẽ cần một stylesheet thứ hai và
+            mỗi component phải được sửa. Giá phải trả: thêm một lớp gián tiếp, và phải đặt
+            tên cho từng ý nghĩa — việc khó hơn nó nghe.
+          </p>
+
+          <h4>Hai token cho mỗi màu: nền và chữ</h4>
+          <p>
+            Phương án bị loại: một token <code>--danger</code> dùng cho mọi chỗ. Bị loại vì
+            trong theme tối, màu chữ phải sáng lên còn màu nền mang chữ trắng phải giữ
+            nguyên — hai yêu cầu ngược nhau. Chi phí của việc gộp đã được đo: một nút nguy
+            hiểm ở 2.6:1.
+          </p>
+
+          <h4>Chỉ ba breakpoint</h4>
+          <p>
+            Phương án bị loại: năm cỡ như các framework CSS phổ biến. Chú thích trong
+            <code>_breakpoints.scss</code> nói lý do: layout ở đây thật sự đổi hình ba lần
+            (ADR-0011) — không phải vì một framework mời chào năm cỡ.
+          </p>
+
+          <h4>Lint styles bằng script tự viết</h4>
+          <p>
+            Phương án bị loại: stylelint. Bị loại vì chi phí cấu hình để nó đọc được style
+            trong template literal lớn hơn giá trị của bốn luật. Giá phải trả: một script
+            phải tự bảo trì — và repo trả giá đó bằng cách
+            <strong>viết test cho chính script lint</strong>.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Viết thẳng một mã màu "chỉ chỗ này thôi"</span>
+            <p>
+              Lint chặn ngay. Nhưng giả sử nó lọt: chỗ đó sẽ đúng trong theme sáng và sai
+              trong theme tối, và bạn — người làm việc với màn hình sáng — sẽ không bao giờ
+              thấy. Người thấy là khách hàng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. <code>outline: none</code> cho "đẹp hơn"</span>
+            <p>
+              Người dùng bàn phím mất dấu vị trí hoàn toàn. Đây là lỗi accessibility phổ
+              biến nhất trên web, và nó gần như luôn bắt đầu bằng ý định thẩm mỹ. Cần hình
+              khác thì đổi <code>outline-offset</code> hoặc <code>border-radius</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Ẩn bằng CSS thay vì <code>@if</code></span>
+            <p>
+              <code>display: none</code> giấu khỏi mắt <em>và</em> khỏi screen reader,
+              nhưng thẻ vẫn tồn tại, component bên trong vẫn chạy, vẫn gọi API. Còn
+              <code>visibility: hidden</code> hay <code>opacity: 0</code> thì tệ hơn: thẻ
+              vẫn trong thứ tự Tab, nên người dùng bàn phím focus vào một nút họ không nhìn
+              thấy.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Dùng <code>::ng-deep</code> để chỉnh component con</span>
+            <p>
+              Nó xuyên thủng đúng cái lớp cô lập vừa giúp bạn khỏi phải nghĩ về đụng độ, và
+              nó đã deprecated. Thứ bạn thường cần thay vào đó: một CSS custom property do
+              component con khai sẵn để bên ngoài chỉnh — như
+              <code>--spinner-size</code> trong <code>spinner.ts</code>.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Sửa breakpoint ở một bên</span>
+            <p>
+              Đổi <code>$tablet-min</code> trong SCSS mà quên
+              <code>layout-breakpoints.ts</code>: CSS chuyển sang layout điện thoại ở một
+              bề rộng, TypeScript nghĩ vẫn là desktop ở bề rộng khác. Trong khoảng giữa,
+              giao diện là cột nhưng hành vi vẫn là bảng. Một test khẳng định hai bên khớp
+              — nó sẽ bắt bạn.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>lint/styles.test.ts</code></td>
+                  <td>
+                    Bốn luật thật sự bắt được vi phạm; file token được miễn; comment cho
+                    phép không có lý do thì không được tính
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>layout/layout-breakpoints.spec.ts</code></td>
+                  <td>Breakpoint trong TypeScript khớp với SCSS</td>
+                </tr>
+                <tr>
+                  <td><code>core/theme/theme.service.spec.ts</code></td>
+                  <td>
+                    Thuộc tính được <em>xoá</em> cho lựa chọn <code>system</code>, gán cho
+                    lựa chọn tường minh
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/accessibility.spec.ts</code></td>
+                  <td>
+                    axe quét mọi route trong <strong>cả hai theme</strong> — đây là cái
+                    cổng đã bắt lỗi 2.6:1
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e-visual/visual.spec.ts</code></td>
+                  <td>So sánh ảnh chụp với ảnh gốc, chạy trong Docker để pixel ổn định</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>Một câu hỏi duy nhất, bốn đường ra — gặp mỗi lần bạn định viết một dòng CSS.</p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q{"Tôi định viết gì?"}
+    Q -->|"một màu"| C1{"Trong file token?"}
+    C1 -->|"có"| OK1["primitive hoặc semantic đều được"]
+    C1 -->|"không"| OK2["CHỈ semantic: var(--danger-text)<br/>lint chặn mọi thứ khác"]
+
+    Q -->|"một khoảng cách ngang"| C2["logic: margin-inline-start<br/>không bao giờ margin-left"]
+    Q -->|"một khoảng cách dọc"| C3["margin-top / margin-bottom<br/>hợp lệ - trục dọc không lật"]
+
+    Q -->|"ẩn một thứ"| C4{"Ai không được thấy?"}
+    C4 -->|"mắt, nhưng screen reader vẫn đọc"| H1[".visually-hidden"]
+    C4 -->|"tất cả, và đừng chạy code bên trong"| H2["@if trong template"]
+
+    Q -->|"đổi theo bề rộng màn hình"| C5{"Cùng component?"}
+    C5 -->|"có, chỉ xếp khác"| M1["@media + breakpoints partial"]
+    C5 -->|"không, đổi hẳn component"| M2["@if trong TypeScript<br/>LayoutBreakpoints"]
+
+    STOP["outline: none — không bao giờ"]
+            </pre>
+            <figcaption>
+              Bốn nhánh này phủ gần hết CSS bạn sẽ viết trong repo. Ô dưới cùng không có
+              nhánh nào dẫn tới, và đó là chủ ý.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Để lint dạy bạn bốn luật</h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <p>
+              Trong <code>shared/ui/badge/badge.ts</code>, thêm lần lượt từng dòng sau vào
+              khối <code>styles</code>, chạy <code>npm run lint:styles</code> sau mỗi lần,
+              rồi xoá đi:
+            </p>
+            <ol>
+              <li><code>color: #ff0000;</code></li>
+              <li><code>background: var(--palette-red-600);</code></li>
+              <li><code>margin-left: 4px;</code></li>
+              <li><code>outline: none;</code></li>
+              <li>
+                Bây giờ thêm lại dòng 3 kèm
+                <code>/* style-lint-allow: */</code> ở dòng trên. Rồi thử
+                <code>/* style-lint-allow: thử nghiệm */</code>.
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Bốn vi phạm, mỗi cái một thông báo nói rõ luật nào và nên dùng gì thay thế.
+                Ở bước 5, comment <em>không có lý do</em> cũng bị báo — đó là thiết kế: cửa
+                thoát hiểm tốn công đúng bằng việc viết ra vì sao.
+              </p>
+              <p>
+                Thử luôn một thứ nữa: đặt một dòng <code>margin-left</code> vào
+                <em>trong một comment</em> giải thích. Nó không bị báo, vì script bóc
+                comment trước khi kiểm — văn xuôi nhắc tới một luật không phải là vi phạm
+                luật đó.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tìm một lỗi tương phản bằng chính công cụ của repo</h3>
+            <p class="task__meta">~30 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>_tokens.scss</code>, bên trong <code>@mixin dark-theme</code>,
+                đổi <code>--danger-solid</code> thành
+                <code>var(--palette-red-400)</code> — tức là hoàn tác đúng bản sửa mà audit
+                phase 6 đã làm.
+              </li>
+              <li>Chạy app, bật theme tối, mở hộp thoại xoá một khách hàng.</li>
+              <li>Nhìn nút "Delete" và tự đánh giá: bạn có thấy nó khó đọc không?</li>
+              <li>Chạy <code>npm run e2e -- accessibility</code> và đọc kết quả.</li>
+              <li><code>git checkout</code> file đó.</li>
+            </ol>
+            <details>
+              <summary>Bài học</summary>
+              <p>
+                Phần lớn người làm sẽ trả lời bước 3 là "trông cũng được" — và đó chính là
+                vấn đề. 2.6:1 không hiện ra như một thứ hỏng; nó hiện ra như một thứ
+                <em>hơi</em> mờ, và mắt bạn bù lại được vì bạn biết nút đó viết gì.
+              </p>
+              <p>
+                Bước 4 là lý do repo có cổng axe chạy mọi route trong cả hai theme: tương
+                phản là thứ con người đánh giá kém và máy đánh giá chính xác. Nếu bạn định
+                mang một thứ từ bài này sang dự án thật, mang thứ này.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một token ngữ nghĩa mới</h3>
+            <p class="task__meta">~45 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm một cặp token cho trạng thái "thông tin trung lập":
+              <code>--info-subtle</code> (nền) và <code>--info-text</code> (chữ), rồi dùng
+              chúng cho một <code>tone="info"</code> trong <code>Badge</code>.
+            </p>
+            <ul>
+              <li>Định nghĩa trong cả hai theme.</li>
+              <li>
+                Chỉ trỏ tới primitive có sẵn — không thêm mã màu mới nào.
+              </li>
+              <li>
+                Trong theme tối, nghĩ kỹ hướng đi của từng token: cái nào sáng lên, cái nào
+                giữ nguyên, vì sao. Viết lý do thành comment.
+              </li>
+              <li><code>npm run lint</code> sạch.</li>
+            </ul>
+            <details>
+              <summary>Gợi ý, và chỗ dễ sai</summary>
+              <p>
+                Mở <code>_tokens.scss</code> và xem <code>--accent</code> làm gì — repo đã
+                có <code>--accent-subtle</code> và <code>--accent-text</code> cho đúng tình
+                huống này, nên bạn có một khuôn mẫu để theo.
+              </p>
+              <p>
+                <strong>Chỗ dễ sai:</strong> chọn cùng một primitive cho cả hai theme vì
+                "nó trung tính mà". Chữ trên nền tối cần sáng hơn chữ trên nền sáng — nếu
+                hai theme dùng chung một giá trị thì gần như chắc chắn một trong hai sai.
+                Kiểm bằng cách bật theme tối và nhìn, rồi kiểm lại bằng axe.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Mốc 1 bắt đầu từ đây</h3>
+            <p class="task__meta">~2 giờ · branch <code>learning/*</code> · bài tốt nghiệp chặng 1</p>
+            <p>
+              Thêm một trang read-only mới hiện dữ liệu thật:
+              <code>/customers/:id/summary</code> — một trang tóm tắt gọn của một khách
+              hàng.
+            </p>
+            <p>Nó phải dùng gần hết chặng 1:</p>
+            <ul>
+              <li>Một route mới trong <code>customers.routes.ts</code>, lazy, có title là khoá dịch.</li>
+              <li>
+                Một page component đọc <code>id</code> từ URL qua
+                <code>input()</code> (bài 01, 04).
+              </li>
+              <li>Lấy dữ liệu từ <code>CustomerStore</code> đã có, không gọi HTTP (bài 01).</li>
+              <li>
+                Bốn trạng thái hiển thị bằng <code>@switch</code> trên một
+                <code>computed</code> (bài 02, 03).
+              </li>
+              <li>Ít nhất một component trình bày mới, với input/output rõ ràng (bài 04).</li>
+              <li>Chỉ dùng semantic token, hướng logic (bài 06).</li>
+              <li>Mọi chuỗi đi qua lớp dịch, cả <code>aria-label</code>.</li>
+              <li><code>npm run lint</code>, <code>typecheck</code>, <code>test</code> sạch.</li>
+            </ul>
+            <details>
+              <summary>Cách tự chấm, và một gợi ý về thứ tự làm</summary>
+              <p>
+                <strong>Thứ tự ít đau nhất:</strong> route trước (xác nhận trang rỗng hiện
+                ra được), rồi đọc <code>id</code> và hiện một dòng chữ, rồi mới nối store,
+                rồi mới tách component. Mỗi bước chạy app xem một lần — đừng viết cả trang
+                rồi mới chạy.
+              </p>
+              <p>
+                <strong>Tham chiếu gần nhất:</strong>
+                <code>customer-detail-page.ts</code> làm đúng những việc này. Đọc nó
+                <em>sau khi</em> bạn đã thử, không phải trước.
+              </p>
+              <p>
+                <strong>Qua được thì bạn đã đạt Mốc 1.</strong> Ghi ngày vào
+                <code>README.md</code> §4 và commit. Chặng 2 bắt đầu bằng RxJS, và từ đó
+                bạn sẽ tự gọi được API mới thay vì dùng lại store có sẵn.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. CSS của một component có rò sang component khác được không?</summary>
+            <p>
+              Không, trừ khi cố ý dùng <code>::ng-deep</code>. Angular thêm một thuộc tính
+              riêng vào mọi thẻ của component và viết lại selector để chỉ khớp thẻ mang
+              thuộc tính đó. Ngoại lệ: các file trong <code>src/styles/</code> là toàn cục
+              có chủ ý.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao component không được dùng <code>--palette-*</code>?</summary>
+            <p>
+              Vì chỉ tầng ngữ nghĩa được định nghĩa lại theo theme. Component nói "màu chữ
+              nguy hiểm" thì theme tối trả lời được; nói "đỏ 700" thì không có gì để trả
+              lời. Một primitive viết thẳng là một lần opt-out khỏi theming mà không ai
+              biết.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao cần cả <code>[data-theme='dark']</code> lẫn media query?</summary>
+            <p>
+              Thuộc tính phục vụ lựa chọn tường minh. Media query phục vụ lựa chọn "theo hệ
+              điều hành" <em>và</em> lần vẽ đầu tiên của HTML render sẵn, khi chưa có
+              JavaScript nào chạy. <code>:not([data-theme='light'])</code> bảo vệ người đã
+              chọn sáng trên máy đang để tối.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao mỗi màu nghĩa có hai token — nền và chữ?</summary>
+            <p>
+              Vì trong theme tối chúng đi hai hướng ngược nhau: màu chữ phải sáng lên để nổi
+              trên nền tối, còn màu nền mang chữ trắng phải giữ nguyên độ đậm — sáng lên là
+              tụt dưới 4.5:1. Repo có một lỗi được ghi lại vì gộp hai thứ này: nút nguy hiểm
+              ở 2.6:1.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>margin-top</code> có bị lint chặn không?</summary>
+            <p>
+              Không. Luật chỉ áp cho trục ngang, vì chỉ trục ngang mới lật khi ngôn ngữ viết
+              phải-sang-trái. <code>margin-left</code> thì bị chặn —
+              <code>margin-inline-start</code> là bản đúng.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Khi nào dùng <code>@media</code>, khi nào dùng <code>@if</code> trong TypeScript?</summary>
+            <p>
+              <code>@media</code> khi cùng component chỉ xếp khác đi. <code>@if</code> khi
+              đổi hẳn component — render cả hai rồi ẩn một bằng CSS sẽ đặt mọi dòng hai lần
+              trong DOM và mọi checkbox hai lần trong thứ tự Tab.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Một comment <code>style-lint-allow</code> không có lý do thì sao?</summary>
+            <p>
+              Bị báo như một vi phạm. Cửa thoát hiểm vẫn tồn tại, nhưng nó tốn công đúng
+              bằng việc viết ra vì sao — đó là thiết kế, không phải phiền hà.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Hết chặng 1</span>
+            <p>
+              Bạn đã có đủ để viết giao diện: component, template, signal, giao tiếp giữa
+              component, DI và CSS. <strong>Bài tập 4 ở trên chính là Mốc 1.</strong> Làm
+              nó trước khi sang chặng 2 — đọc tiếp mà chưa viết là cách tự lừa mình số một
+              trong <code>README.md</code> §11.
+            </p>
+            <p>
+              Chặng 2 bắt đầu bằng RxJS tối thiểu, rồi HttpClient và contract Zod, rồi
+              interceptor, lỗi, và server state. Kết thúc ở Mốc 2: thêm một lời gọi API mới
+              end-to-end, có test.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="05-di-config-feature-flag.html">← Bài 05</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Bốn luật của lint</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

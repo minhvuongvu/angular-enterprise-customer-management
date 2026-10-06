@@ -1,0 +1,1297 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 05 — DI, config &amp; feature flag</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 1 — Viết được UI → Bài 05</p>
+        <h1>DI, config &amp; feature flag</h1>
+        <p class="lede">
+          Bài 04 nói về thứ cha truyền xuống. Bài này nói về thứ một component
+          <em>xin</em> được: service, cấu hình, khả năng của trình duyệt. Dependency
+          injection của Angular mạnh hơn Spring ở một điểm — nó phân cấp — và chính điểm
+          đó là cách repo chọn tuổi thọ cho dữ liệu.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 1 · hướng tới Mốc 1</li>
+          <li class="tag">~3 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Injector</strong></td>
+                  <td>
+                    Cái hộp biết tạo và giữ các đối tượng. Angular có một
+                    <em>cây</em> injector, không phải một cái.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Token</strong></td>
+                  <td>
+                    Cái khoá để xin. Thường là chính class; khi không có class thì là một
+                    <code>InjectionToken</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Provider</strong></td>
+                  <td>Lời khai "xin token này thì đưa cái kia", kèm cách tạo.</td>
+                </tr>
+                <tr>
+                  <td><code>inject(X)</code></td>
+                  <td>Xin một thứ. Chỉ gọi được trong injection context.</td>
+                </tr>
+                <tr>
+                  <td><strong>Injection context</strong></td>
+                  <td>
+                    Khoảng thời gian Angular đang dựng một đối tượng: thân constructor,
+                    field initializer, factory của provider, hàm được gọi từ những chỗ đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>providedIn: 'root'</code></td>
+                  <td>Một instance cho cả ứng dụng, tạo khi lần đầu có người xin.</td>
+                </tr>
+                <tr>
+                  <td><code>useClass</code> / <code>useExisting</code> / <code>useValue</code> / <code>useFactory</code></td>
+                  <td>
+                    Bốn cách trả lời một token: tạo class khác, dùng lại cái đã có, trả
+                    thẳng một giá trị, gọi một hàm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>EnvironmentProviders</code></td>
+                  <td>
+                    Gói provider cấp môi trường (ứng dụng hoặc route), tạo bằng
+                    <code>makeEnvironmentProviders</code>. Đây là thứ các hàm
+                    <code>provideX()</code> trả về.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>provideAppInitializer</code></td>
+                  <td>
+                    Đăng ký việc phải chạy xong <strong>trước</strong> khi ứng dụng render
+                    lần đầu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Build-time flag</strong></td>
+                  <td>
+                    Hằng số quyết định lúc build. Bundler nhìn thấy nhánh chết và
+                    <em>xoá code đi</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Runtime flag</strong></td>
+                  <td>
+                    Giá trị đọc lúc chạy từ <code>config.json</code>. Code vẫn nằm trong
+                    bundle; chỉ hành vi đổi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Chọn đúng chỗ đặt một provider, và nói được nó cho tuổi thọ nào.</li>
+            <li>
+              Viết một <code>InjectionToken</code> cho thứ không phải class — ví dụ một
+              khả năng của trình duyệt — sao cho code gọi không phải kiểm tra
+              <code>if (isBrowser)</code>.
+            </li>
+            <li>Viết một hàm <code>provideX()</code> gói hạ tầng theo khuôn của repo.</li>
+            <li>
+              Nói được vì sao một build chạy được ở mọi môi trường, và cái gì phải fetch
+              lúc khởi động để điều đó thành sự thật.
+            </li>
+            <li>
+              Chọn đúng giữa runtime flag và build-time flag, với lý do kỹ thuật chứ không
+              phải cảm tính.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Spring</th>
+                  <th>Angular</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>ApplicationContext</td>
+                  <td>Injector</td>
+                  <td>
+                    Spring có <strong>một</strong> context. Angular có một
+                    <strong>cây</strong>: injector gốc, rồi mỗi route và mỗi component có
+                    thể có injector con. Cùng một class tồn tại nhiều instance ở nhiều
+                    nhánh — và đó là tính năng, không phải tai nạn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@Autowired</code> / constructor injection</td>
+                  <td><code>inject(X)</code></td>
+                  <td>
+                    Gọi như một hàm thường, nhưng chỉ hợp lệ trong "injection context".
+                    Ngoài context đó nó ném lỗi — mục 3.1.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@Bean</code> trong <code>@Configuration</code></td>
+                  <td>Provider</td>
+                  <td>Gần như y hệt.</td>
+                </tr>
+                <tr>
+                  <td><code>@Qualifier</code> cho hai bean cùng kiểu</td>
+                  <td><code>InjectionToken</code></td>
+                  <td>
+                    Ở đây cần token không chỉ khi trùng kiểu, mà cả khi
+                    <em>không có class nào</em> — "đối tượng <code>window</code>" không
+                    phải một class bạn viết.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>application-prod.yml</code></td>
+                  <td><code>public/config.json</code></td>
+                  <td>
+                    File của bạn nằm trên server và người dùng không thấy. File này được
+                    <strong>gửi tới trình duyệt</strong>. Không có gì bí mật được phép nằm
+                    trong đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@PostConstruct</code> / <code>ApplicationRunner</code></td>
+                  <td><code>provideAppInitializer</code></td>
+                  <td>
+                    Giống ở ý "chạy trước khi phục vụ". Khác ở chỗ ứng dụng này chạy trong
+                    máy người dùng, nên "khởi động" xảy ra lại mỗi lần ai đó mở tab.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 <code>inject()</code> và injection context</h3>
+
+          <div class="code">
+            <div class="code__file">khuôn gặp ở mọi nơi trong repo</div>
+            <pre><code>@Injectable({ providedIn: 'root' })
+export class CustomerApi {
+  private readonly http = inject(HttpClient);          // field initializer: OK
+  private readonly config = inject(AppConfigStore).config;
+}</code></pre>
+          </div>
+
+          <p>
+            <code>inject()</code> hợp lệ ở bốn chỗ, và chỉ bốn chỗ: field initializer, thân
+            constructor, factory của một provider, và một hàm được gọi từ những chỗ đó
+            (<code>lockScrollWhile</code> ở bài 03 là ví dụ loại cuối).
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Gọi sai chỗ thì lỗi lúc chạy, không phải lúc biên dịch</span>
+            <div class="code">
+              <pre><code>protected onSave(): void {
+  const logger = inject(Logger);   // NG0203: inject() must be called from an
+                                   // injection context
+}</code></pre>
+            </div>
+            <p>
+              Cách đúng: inject ở field, dùng ở method. Nếu thật sự cần inject muộn — hiếm
+              — thì giữ một <code>Injector</code> rồi
+              <code>runInInjectionContext(injector, () =&gt; …)</code>.
+              <code>customer-list-page.ts</code> giữ một <code>Injector</code> đúng vì lý do
+              họ hàng: truyền nó cho <code>afterNextRender</code> gọi từ trong một effect.
+            </p>
+          </div>
+
+          <h3>3.2 Cây injector: chỗ đặt provider quyết định tuổi thọ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    ROOT["Injector gốc<br/><i>providedIn: 'root' + provideCore()</i>"]
+    ROOT --> R1["Route ''<br/>AppShell"]
+    R1 --> R2["Route 'customers'<br/>providers: CustomerCache, CustomerStore"]
+    R2 --> P1["CustomerListPage"]
+    R2 --> P2["CustomerDetailPage"]
+    R2 --> P3["CustomerFormPage"]
+    ROOT --> R3["Route 'login'<br/>LoginPage"]
+
+    N1["SessionService · HttpClient · ThemeService<br/>sống bằng tuổi của tab"] -.- ROOT
+    N2["Một CustomerStore cho CẢ BA trang<br/>chết khi rời /customers"] -.- R2
+            </pre>
+            <figcaption>
+              Ba trang dưới <code>/customers</code> xin <code>CustomerStore</code> và nhận
+              <strong>cùng một instance</strong>, vì injector gần nhất có nó là injector
+              của route cha. Đi sang <code>/login</code> thì nhánh đó bị huỷ, store và cache
+              biến mất cùng.
+            </figcaption>
+          </figure>
+
+          <p>Quy tắc tra cứu: Angular đi từ injector gần nhất lên dần tới gốc, lấy cái đầu tiên biết trả lời.</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Khai ở đâu</th>
+                  <th>Bao nhiêu instance</th>
+                  <th>Chết khi nào</th>
+                  <th>Dùng cho</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>providedIn: 'root'</code></td>
+                  <td>Một, cho cả app</td>
+                  <td>Đóng tab</td>
+                  <td>
+                    Hạ tầng và state toàn cục: <code>SessionService</code>,
+                    <code>AppConfigStore</code>, <code>ThemeService</code>,
+                    <code>CustomerApi</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>providers</code> trên route</td>
+                  <td>Một, cho cả nhánh route</td>
+                  <td>Rời khỏi nhánh</td>
+                  <td>
+                    State của một feature: <code>CustomerStore</code>,
+                    <code>CustomerCache</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>providers</code> trên component</td>
+                  <td>Một cho mỗi lần dựng</td>
+                  <td>Component bị huỷ</td>
+                  <td>Hiếm. Khi state thuộc đúng một màn hình cụ thể</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao <code>CustomerApi</code> ở <code>'root'</code> mà <code>CustomerStore</code> thì không</span>
+            <p>
+              <code>CustomerApi</code> <strong>không giữ state</strong> — nó chỉ biến
+              request thành giá trị. Một instance dùng chung không hại gì.
+              <code>CustomerStore</code> giữ cache và lịch sử duyệt của một người; để nó ở
+              <code>'root'</code> nghĩa là cache sống qua cả một lần đăng xuất. Đó là lập
+              luận trong chú thích đầu <code>customers.routes.ts</code>, và nó là một trong
+              những quyết định đáng mang đi nhất của repo.
+            </p>
+          </div>
+
+          <h3>3.3 Token cho thứ không phải class</h3>
+
+          <p>
+            Bạn không <code>inject(window)</code> được — <code>window</code> không phải
+            class, và trên server nó không tồn tại. Đây là lúc cần
+            <code>InjectionToken</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/platform/platform.tokens.ts</div>
+            <pre><code>export const IS_BROWSER = new InjectionToken&lt;boolean&gt;('ecm.isBrowser', {
+  providedIn: 'root',
+  factory: () =&gt; isPlatformBrowser(inject(PLATFORM_ID)),
+});
+
+export const WINDOW = new InjectionToken&lt;Window | null&gt;('ecm.window', {
+  providedIn: 'root',
+  factory: () =&gt; inject(DOCUMENT).defaultView,
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thành phần</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>new InjectionToken&lt;Window | null&gt;(…)</code></td>
+                  <td>
+                    Tạo một khoá có kiểu. Generic là thứ làm
+                    <code>inject(WINDOW)</code> trả về đúng kiểu
+                    <code>Window | null</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>'ecm.window'</code></td>
+                  <td>
+                    Mô tả, chỉ hiện trong thông báo lỗi. Tiền tố để không trùng với token
+                    của thư viện khác.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>providedIn: 'root'</code> + <code>factory</code></td>
+                  <td>
+                    Token tự khai luôn cách tạo ra mình. Nhờ vậy không file nào khác phải
+                    nhớ đăng ký nó — và nếu không ai xin thì nó không bao giờ được tạo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>inject(DOCUMENT).defaultView</code></td>
+                  <td>
+                    Lấy <code>window</code> <em>qua</em> <code>document</code> mà Angular
+                    cung cấp, nên trên server nó là <code>null</code> một cách tự nhiên
+                    thay vì ném lỗi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Thiết kế đáng học: thu hẹp API thay vì bọc nguyên</h4>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>/**
+ * The subset of `Storage` the application is allowed to use.
+ *
+ * Deliberately not the DOM `Storage` interface: `key()`, `length` and `clear()`
+ * invite code that walks or wipes storage owned by someone else.
+ */
+export interface KeyValueStorage {
+  read(key: string): string | null;
+  write(key: string, value: string): void;
+  remove(key: string): void;
+}</code></pre>
+          </div>
+
+          <p>
+            Ba phương thức, không phải cả <code>Storage</code>. Lý do viết thẳng trong chú
+            thích: <code>clear()</code> xoá cả storage của thứ khác trên cùng origin, và
+            <code>key()</code>/<code>length</code> mời gọi code đi duyệt storage của người
+            khác. <strong>Một seam không chỉ để thay thế được — nó còn là chỗ thu hẹp
+            quyền.</strong>
+          </p>
+
+          <p>Và phần làm cho code gọi không phải phân nhánh:</p>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>class UnavailableStorage implements KeyValueStorage {
+  read(): string | null {
+    return null;
+  }
+  write(): void {
+    /* intentionally empty */
+  }
+  remove(): void {
+    /* intentionally empty */
+  }
+}
+
+function storageFrom(pick: (win: Window) =&gt; Storage): KeyValueStorage {
+  const win = inject(WINDOW);
+  if (!win) {
+    return new UnavailableStorage();
+  }
+  try {
+    // Touching the property can throw before we ever read a key.
+    return new WebStorage(pick(win));
+  } catch {
+    return new UnavailableStorage();
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Trên server, trong cửa sổ ẩn danh, khi người dùng chặn site data —
+            <code>LOCAL_STORAGE</code> vẫn trả về một đối tượng dùng được, chỉ là nó không
+            làm gì. Mẫu này có tên: <strong>null object</strong>. Nhìn lại
+            <code>ThemeService</code> ở bài 03: nó gọi
+            <code>this.storage.read(STORAGE_KEY)</code> thẳng, không một dòng kiểm tra môi
+            trường nào.
+          </p>
+
+          <h3>3.4 Bốn cách trả lời một token</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cách</th>
+                  <th>Ví dụ thật trong repo</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>useClass</code></td>
+                  <td>
+                    <code>{ provide: TitleStrategy, useClass: TranslatedTitleStrategy }</code>
+                  </td>
+                  <td>
+                    Xin cái của Angular, nhận bản của repo. Đây là cách thay một mảnh của
+                    framework mà không fork nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>useClass</code></td>
+                  <td><code>{ provide: ErrorHandler, useClass: GlobalErrorHandler }</code></td>
+                  <td>Mọi lỗi chưa bắt được đi qua lớp của repo.</td>
+                </tr>
+                <tr>
+                  <td><code>useExisting</code></td>
+                  <td><code>{ provide: HttpBackend, useExisting: UploadAwareBackend }</code></td>
+                  <td>
+                    <strong>Cùng một instance</strong> trả lời hai token.
+                    <code>useClass</code> ở đây sẽ tạo ra hai đối tượng, và trạng thái của
+                    chúng sẽ lệch.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>useValue</code></td>
+                  <td>Trong các file test, để đưa vào một bản giả</td>
+                  <td>Trả thẳng một giá trị có sẵn.</td>
+                </tr>
+                <tr>
+                  <td><code>factory</code></td>
+                  <td>Mọi token trong <code>platform.tokens.ts</code></td>
+                  <td>Gọi một hàm để tạo — hàm đó lại được phép <code>inject()</code>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 Khuôn <code>provideX()</code></h3>
+
+          <div class="code">
+            <div class="code__file">core/core.providers.ts</div>
+            <pre><code>export function provideCore(): EnvironmentProviders {
+  return makeEnvironmentProviders([
+    provideObservability(),
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
+    provideAppHttp(),
+    provideI18n(),
+    // After provideI18n(): it subscribes to the translation service.
+    provideDocumentLanguage(),
+    provideRuntimeConfig(),
+    // Needs the router, which app.config provides alongside this; environment
+    // initializers run once the whole injector exists.
+    provideSessionExpiryRedirect(),
+    provideSessionCrossTab(),
+  ]);
+}</code></pre>
+          </div>
+
+          <p>
+            Khuôn này là cách Angular hiện đại gói hạ tầng, và nó thay cho
+            <code>NgModule</code> của thời trước. Ba điều nó mua được:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Một tên cho một nhóm.</strong> <code>app.config.ts</code> đọc ra là
+              danh sách những thứ ứng dụng <em>là</em>, không phải một đống provider không
+              ai dám sắp xếp lại.
+            </li>
+            <li>
+              <strong>Chỗ để viết ràng buộc thứ tự.</strong> Hai chú thích trong đoạn trên
+              là hai ràng buộc thật, và chúng nằm ngay cạnh code chúng ràng buộc.
+            </li>
+            <li>
+              <strong>Thêm hạ tầng không phải sửa file bootstrap.</strong>
+            </li>
+          </ul>
+
+          <h3>3.6 <code>provideAppInitializer</code>: cấu hình trước khi render</h3>
+
+          <div class="code">
+            <div class="code__file">core/config/runtime-config.provider.ts — rút gọn</div>
+            <pre><code>export function provideRuntimeConfig(): EnvironmentProviders {
+  return makeEnvironmentProviders([
+    provideAppInitializer(async () =&gt; {
+      if (!inject(IS_BROWSER)) {
+        return;
+      }
+
+      const http = inject(HttpClient);
+      const store = inject(AppConfigStore);
+      const logger = inject(Logger);
+      const language = inject(LanguageService);
+
+      let raw: unknown;
+      try {
+        raw = await firstValueFrom(http.get&lt;unknown&gt;(RUNTIME_CONFIG_URL));
+      } catch {
+        logger.warn('Runtime configuration unavailable; using defaults', { … });
+      }
+
+      if (raw !== undefined) {
+        const parsed = appConfigOverridesSchema.safeParse(raw);
+        if (parsed.success) {
+          store.apply(parsed.data);
+        } else {
+          logger.error('Runtime configuration invalid; using defaults', { … });
+        }
+      }
+
+      await language.restore(store.config().defaultLanguage);
+    }),
+  ]);
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Trả về sớm nếu không phải trình duyệt</td>
+                  <td>
+                    Server fetch file tĩnh của chính nó là gửi một request cho chính mình.
+                    Bản render phía server dùng mặc định biên dịch sẵn, và trình duyệt cấu
+                    hình lại khi hydrate.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Fetch hỏng thì <code>warn</code> rồi chạy tiếp</td>
+                  <td>
+                    "Khởi động với mặc định tốt hơn là không khởi động." Nhưng phải có cảnh
+                    báo, nếu không một file thiếu sẽ thành một lỗi bí ẩn ba tháng sau.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cấu hình sai thì <strong>bỏ hết</strong>, không áp một phần</td>
+                  <td>
+                    Chú thích nói rõ: "nửa cấu hình — URL áp mà flag không — là một trạng
+                    thái chưa ai test. Mặc định thì có."
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chọn ngôn ngữ ở <em>trong</em> initializer này</td>
+                  <td>
+                    Các initializer khởi động cùng lúc. Một initializer riêng cho ngôn ngữ
+                    sẽ đọc mặc định <em>trước khi</em> cái này kịp thay. Thứ tự là lý do nó
+                    nằm chung chỗ, và <code>await</code> là lý do lần render đầu đã đúng
+                    ngôn ngữ.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.7 Cấu hình: build-time và runtime</h3>
+
+          <div class="code">
+            <div class="code__file">core/config/app-config.ts</div>
+            <pre><code>export interface AppConfig {
+  readonly apiBaseUrl: string;
+  readonly defaultLanguage: string;
+  readonly logLevel: LogLevel;
+  readonly features: Readonly&lt;Record&lt;FeatureFlag, boolean&gt;&gt;;
+}
+
+export const DEFAULT_APP_CONFIG: AppConfig = {
+  apiBaseUrl: '/api',
+  defaultLanguage: 'en',
+  logLevel: 'info',
+  features: { technicalLabs: true, routePreloading: true, customerImport: true },
+};</code></pre>
+          </div>
+
+          <p>
+            Nguyên tắc ở đầu file: <em>"One built artifact is promoted from staging to
+            production unchanged; what differs between them is fetched from
+            <code>/config.json</code> at boot."</em> Và ngay sau đó:
+            <em>"Nothing secret goes here. This file is served to every browser."</em>
+          </p>
+
+          <h4>Vì sao file cấu hình phải được <em>validate</em></h4>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>export const appConfigOverridesSchema = z.strictObject({
+  apiBaseUrl: z
+    .string()
+    .regex(SAME_ORIGIN_PATH, 'must be a same-origin path such as "/api"')
+    .optional(),
+  defaultLanguage: z.string().min(2).max(10).optional(),
+  logLevel: z.enum(LOG_LEVELS as [LogLevel, ...LogLevel[]]).optional(),
+  features: z.strictObject({ … }).optional(),
+});</code></pre>
+          </div>
+
+          <p>Ba lý do, cả ba đều rút từ chuyện đã xảy ra thật:</p>
+
+          <ul>
+            <li>
+              <strong>File do người sửa tay, theo từng môi trường, bởi người không đọc code
+              này.</strong> <code>"technicalLabs": "false"</code> là một chuỗi, và chuỗi
+              thì truthy — flag sẽ không bao giờ tắt.
+            </li>
+            <li>
+              <strong><code>strictObject</code>, nên khoá viết sai là lỗi tự nói tên nó.</strong>
+              <code>"customerImprot"</code> mà im lặng thì bạn sẽ đi tìm bug ở chỗ khác.
+            </li>
+            <li>
+              <strong><code>apiBaseUrl</code> phải là đường dẫn cùng origin.</strong> Chú
+              thích ghi lại một sự cố thật: một URL tuyệt đối đã qua được kiểm tra và làm
+              <em>mọi</em> lệnh ghi bị 403, vì cookie phiên là first-party và
+              <code>csrfInterceptor</code> chỉ đóng dấu lên URL tương đối.
+            </li>
+          </ul>
+
+          <h3>3.8 Feature flag: hai loại, và lý do kỹ thuật để phân biệt</h3>
+
+          <div class="code">
+            <div class="code__file">core/config/feature-flags.ts</div>
+            <pre><code>@Injectable({ providedIn: 'root' })
+export class FeatureFlags {
+  private readonly config = inject(AppConfigStore).config;
+
+  isEnabled(flag: FeatureFlag): boolean {
+    return this.config().features[flag];
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Bốn dòng, nhưng chú thích của nó dài gấp năm lần, và đoạn quan trọng nhất là
+            đoạn giải thích vì sao <strong>build-time flag cố ý không đọc được ở đây</strong>:
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao build-time flag phải đọc như hằng số</span>
+            <p>
+              Một build-time flag tồn tại để <em>code không được lên production</em>. Điều
+              đó chỉ xảy ra nếu bundler nhìn thấy nhánh đó là chết và xoá đi. Viết
+              <code>if (environment.buildFlags.enableDevTools)</code> thì nó thấy. Viết
+              <code>if (this.flags.isEnabled('devTools'))</code> thì nó
+              <strong>không thể</strong> biết giá trị, nên nó giữ lại cả nhánh — và code
+              bạn muốn loại bỏ vẫn nằm trong bundle gửi tới người dùng. Đó là
+              <em>đúng một</em> tính chất mà build-time flag tồn tại vì nó.
+            </p>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Runtime flag</th>
+                  <th>Build-time flag</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Đọc ở đâu</td>
+                  <td><code>FeatureFlags.isEnabled()</code></td>
+                  <td>Hằng số trong <code>environments/</code></td>
+                </tr>
+                <tr>
+                  <td>Đổi được bằng cách</td>
+                  <td>Sửa <code>config.json</code>, nạp lại trang</td>
+                  <td>Build lại</td>
+                </tr>
+                <tr>
+                  <td>Code có trong bundle không</td>
+                  <td>Có</td>
+                  <td><strong>Không</strong> — đó là lý do tồn tại</td>
+                </tr>
+                <tr>
+                  <td>Dùng cho</td>
+                  <td>
+                    Một <em>quyết định</em>: môi trường này có mở nhập liệu hàng loạt
+                    không
+                  </td>
+                  <td>
+                    Code <em>không được ship</em>: công cụ cho lập trình viên
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Flag áp vào route: cả nhánh biến mất</h4>
+
+          <div class="code">
+            <div class="code__file">app/app.routes.ts và customers/customers.routes.ts</div>
+            <pre><code>{
+  path: 'technical-labs',
+  // A disabled flag makes the branch stop matching, so the request falls
+  // through to the wildcard below and the chunk is never loaded.
+  canMatch: [featureEnabled('technicalLabs')],
+  loadChildren: () =&gt; import('./technical-labs/technical-labs.routes')…,
+},
+
+{
+  path: 'import',
+  canMatch: [featureEnabled('customerImport')],
+  …
+}</code></pre>
+          </div>
+
+          <p>
+            <code>canMatch</code> chứ không phải <code>canActivate</code>, và khác biệt
+            quan trọng: <code>canActivate</code> nói "route này tồn tại nhưng bạn không được
+            vào" — nó đã nạp chunk rồi mới từ chối. <code>canMatch</code> nói "route này
+            <strong>không khớp</strong>", nên router đi tiếp xuống wildcard và
+            <strong>chunk không bao giờ được tải</strong>. Với một tính năng bị tắt, đó là
+            hành vi đúng cả về trải nghiệm lẫn về dung lượng tải.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/platform/platform.tokens.ts</code></td>
+                  <td>
+                    <strong>Bắt đầu từ đây.</strong> Tám token, mỗi cái một bài học nhỏ về
+                    seam: thu hẹp API, null object, factory để test được
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/core.providers.ts</code></td>
+                  <td>Khuôn <code>provideX()</code>, và ràng buộc thứ tự viết thành chú thích</td>
+                </tr>
+                <tr>
+                  <td><code>core/config/app-config.ts</code></td>
+                  <td>Cấu hình runtime, schema Zod, và một sự cố production được ghi lại</td>
+                </tr>
+                <tr>
+                  <td><code>core/config/runtime-config.provider.ts</code></td>
+                  <td><code>provideAppInitializer</code>, và bốn quyết định ở mục 3.6</td>
+                </tr>
+                <tr>
+                  <td><code>core/config/feature-flag.guard.ts</code></td>
+                  <td><code>canMatch</code> làm một nhánh route biến mất</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customers.routes.ts</code></td>
+                  <td>Route cha không path, tồn tại chỉ để mang <code>providers</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Cấu hình đi từ file tới màn hình</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant B as Trình duyệt
+    participant I as provideAppInitializer
+    participant H as HttpClient
+    participant S as AppConfigStore
+    participant A as Ứng dụng
+    B->>I: bootstrap, trước khi render
+    I->>I: IS_BROWSER? không thì bỏ qua
+    I->>H: GET /config.json
+    alt file có và hợp lệ
+        H-->>I: JSON
+        I->>I: Zod strictObject parse
+        I->>S: apply(overrides)
+    else thiếu, hỏng, hoặc sai schema
+        I->>I: logger.warn / logger.error
+        Note over S: giữ nguyên DEFAULT_APP_CONFIG
+    end
+    I->>I: await language.restore(defaultLanguage)
+    I-->>A: xong - bây giờ mới render
+    A->>S: config() là signal
+    Note over A: apiBaseUrl, flags, logLevel<br/>đọc được ở mọi nơi
+            </pre>
+            <figcaption>
+              Nhánh <code>else</code> là phần đáng chú ý: ứng dụng vẫn khởi động được. Một
+              deployment quên file cấu hình sẽ chạy ở trạng thái an toàn và nói ra điều đó
+              trong log, thay vì không chạy.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Cấu hình runtime thay vì biên dịch vào bundle — ADR-0005</h4>
+          <p>
+            Phương án bị loại: <code>environment.prod.ts</code> với URL API ghi cứng, build
+            riêng cho từng môi trường. Bị loại vì khi đó thứ chạy ở production
+            <em>không phải</em> thứ đã test ở staging — nó là một bản build khác. Giá phải
+            trả: một request nữa lúc khởi động, và một file phải nhớ đặt đúng chỗ khi
+            deploy.
+          </p>
+
+          <h4><code>KeyValueStorage</code> thay vì <code>Storage</code></h4>
+          <p>
+            Phương án bị loại: cung cấp thẳng <code>Storage</code> của DOM. Bị loại vì nó
+            kèm <code>clear()</code> và <code>key()</code> — những hàm mời gọi code đụng vào
+            dữ liệu của thứ khác trên cùng origin. Giá phải trả: ba phương thức phải tự
+            viết, và hai lớp cài đặt.
+          </p>
+
+          <h4>Không dùng một nền tảng feature flag</h4>
+          <p>
+            Phương án bị loại: LaunchDarkly, Unleash, hoặc một endpoint riêng. Chú thích
+            ghi rõ repo <em>cố ý</em> không có targeting, không phần trăm, không đánh giá
+            từ xa — và nói luôn điều kiện để đổi ý: khi một flag cần một trong những thứ
+            đó, class này trở thành adapter cho dịch vụ kia.
+          </p>
+
+          <h4>Một flag không có kế hoạch gỡ thì không phải flag</h4>
+          <p>
+            Luật trong <code>app-config.ts</code>: thêm một flag thì phải thêm một dòng
+            trong <code>docs/feature-flags.md</code> kèm <strong>chủ sở hữu và điều kiện
+            gỡ bỏ</strong>. "Một flag không ai định gỡ là cấu hình, và nó thuộc về
+            <code>AppConfig</code> dưới dạng một thiết lập có tên."
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>inject()</code> trong một method</span>
+            <p>
+              <code>NG0203: inject() must be called from an injection context</code>. Lỗi
+              lúc chạy, và thường chỉ xuất hiện khi người dùng bấm vào đúng nút đó. Inject
+              ở field, dùng ở method.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Để state của feature ở <code>providedIn: 'root'</code></span>
+            <p>
+              Cache và lịch sử duyệt của một người sống bằng tuổi của tab — kể cả sau khi
+              đăng xuất và người khác đăng nhập vào. Đây không chỉ là chuyện bộ nhớ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>useClass</code> ở chỗ cần <code>useExisting</code></span>
+            <p>
+              <code>{ provide: HttpBackend, useClass: UploadAwareBackend }</code> tạo ra
+              <em>hai</em> instance. Mọi state bên trong chúng lệch nhau, và triệu chứng
+              thường là "lúc được lúc không" tuỳ ai gọi qua token nào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Đọc build-time flag qua một service</span>
+            <p>
+              Bundler không còn thấy nhánh chết, nên code lẽ ra không được ship vẫn nằm
+              trong bundle. Flag vẫn "hoạt động" — tính năng vẫn tắt — nên không ai phát
+              hiện, cho tới khi ai đó đọc bundle.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Tin <code>config.json</code> mà không validate</span>
+            <p>
+              <code>"customerImport": "false"</code> là chuỗi, và chuỗi thì truthy — tính
+              năng bạn vừa tắt vẫn bật. Khoá viết sai thì im lặng bị bỏ qua. Cả hai lỗi đều
+              do người không đọc code này gây ra, ở một môi trường bạn không mở được.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            DI là thứ làm test khả thi: thay một provider là thay cả một tầng, mà không file
+            nào trong ứng dụng phải biết.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/platform/platform.tokens.spec.ts</code></td>
+                  <td>
+                    Storage bị chặn thì trả về bản null object thay vì ném lỗi; trên server
+                    <code>WINDOW</code> là <code>null</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/config/runtime-config.provider.spec.ts</code></td>
+                  <td>
+                    File thiếu → mặc định + cảnh báo; file sai schema → mặc định + lỗi,
+                    <strong>không</strong> áp một phần
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/config/app-config.spec.ts</code>, <code>deploy-configs.spec.ts</code></td>
+                  <td>
+                    Schema chặn đúng những thứ nó phải chặn — và các file cấu hình thật
+                    trong repo đều hợp lệ
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/config/feature-flag.guard.spec.ts</code></td>
+                  <td>Flag tắt thì route không khớp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý <code>deploy-configs.spec.ts</code>: nó kiểm chính các file
+            <code>config.json</code> được commit trong repo. Một cái cổng chặn đúng lỗi mà
+            bạn chỉ phát hiện ra sau khi deploy.
+          </p>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Thứ tôi cần là gì?"}
+    Q0 -->|"một service tôi viết"| Q1{"Nó giữ state không?"}
+    Q0 -->|"một khả năng của trình duyệt"| TOK["InjectionToken + factory<br/>null object khi vắng mặt"]
+    Q0 -->|"một giá trị khác nhau theo môi trường"| CFG
+    Q0 -->|"thay một mảnh của Angular"| UC["provide: X, useClass: CuaToi"]
+
+    Q1 -->|"không"| ROOT["providedIn: 'root'"]
+    Q1 -->|"có, của một feature"| RTE["providers trên route cha<br/>chết khi rời feature"]
+    Q1 -->|"có, của một màn hình"| CMP["providers trên component"]
+
+    CFG{"Code có được<br/>phép lên production?"}
+    CFG -->|"có, chỉ bật tắt hành vi"| RT["runtime: config.json<br/>FeatureFlags.isEnabled()"]
+    CFG -->|"không, phải bị xoá khỏi bundle"| BT["build-time: hằng số trong environments/"]
+
+    RT --> GUARD["route: canMatch(featureEnabled)<br/>nhánh biến mất, chunk không tải"]
+    TOK --> SEAM["thu hẹp API xuống đúng thứ cần dùng"]
+            </pre>
+            <figcaption>
+              Nhánh trái trả lời "đặt provider ở đâu" — và câu trả lời luôn là một câu trả
+              lời về <em>tuổi thọ</em>. Nhánh phải trả lời "flag loại nào", và tiêu chí
+              không phải sở thích mà là: bundler có được phép xoá code này đi không.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh tuổi thọ của provider</h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Thêm vào constructor của <code>CustomerStore</code>:
+                <code>console.log('store mới', Math.random());</code>
+              </li>
+              <li>
+                Chạy app. Vào <code>/customers</code>, mở một khách hàng, bấm Back, mở
+                người khác. Đếm số lần log.
+              </li>
+              <li>Bây giờ đi sang <code>/technical-labs</code> rồi quay lại. Đếm tiếp.</li>
+              <li>
+                Trong <code>customers.routes.ts</code>, bỏ <code>CustomerStore</code> khỏi
+                <code>providers</code> của route cha và đổi class thành
+                <code>@Injectable({ providedIn: 'root' })</code>. Lặp lại bước 2–3.
+              </li>
+              <li><code>git checkout</code> cả hai file.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Bản gốc: <strong>một</strong> log khi vào <code>/customers</code>, không
+                thêm log nào khi đi lại giữa danh sách và chi tiết — cùng một instance phục
+                vụ cả ba trang. Rời khỏi <code>/customers</code> rồi quay lại thì có log
+                mới: nhánh route đã bị huỷ và dựng lại.
+              </p>
+              <p>
+                Bản <code>'root'</code>: đúng một log cho cả phiên, không bao giờ nữa. Nghe
+                có vẻ tốt hơn — cho tới khi bạn nhận ra cache khách hàng của người dùng cũ
+                vẫn còn nguyên sau khi người khác đăng nhập vào cùng tab đó.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá cấu hình bằng ba cách</h3>
+            <p class="task__meta">~30 phút · sửa file public, không sửa code</p>
+            <p>
+              Tìm <code>apps/web/public/config.json</code>. Thử lần lượt ba thứ, mỗi lần nạp
+              lại trang và đọc console:
+            </p>
+            <ol>
+              <li>Đổi một flag thành chuỗi: <code>"customerImport": "false"</code></li>
+              <li>Viết sai một khoá: <code>"customerImprot": false</code></li>
+              <li>
+                Đổi <code>apiBaseUrl</code> thành một URL tuyệt đối:
+                <code>"https://example.test/api"</code>
+              </li>
+            </ol>
+            <p>Với mỗi trường hợp, ghi lại: ứng dụng có chạy không, và nó nói gì?</p>
+            <details>
+              <summary>Bạn phải thấy gì, và bài học</summary>
+              <p>
+                Cả ba đều bị schema chặn, log <code>error</code>, và ứng dụng chạy bằng
+                <strong>toàn bộ</strong> cấu hình mặc định. Đó là luật "tất cả hoặc không
+                gì" ở mục 3.6.
+              </p>
+              <p>
+                Bây giờ hình dung nếu không có schema: trường hợp 1 làm tính năng bạn vừa
+                tắt vẫn bật; trường hợp 2 im lặng hoàn toàn; trường hợp 3 làm
+                <em>mọi</em> lệnh ghi trả 403 vì cookie first-party không đi theo và CSRF
+                không được đóng dấu — đúng sự cố mà chú thích trong
+                <code>app-config.ts</code> ghi lại.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Viết một token cho một khả năng của trình duyệt</h3>
+            <p class="task__meta">~45 phút · branch <code>learning/*</code></p>
+            <p>
+              Viết <code>VIBRATION</code>: một token cho <code>navigator.vibrate</code>, để
+              code gọi rung được mà không bao giờ chạm vào global và không phải kiểm tra
+              môi trường.
+            </p>
+            <ul>
+              <li>Đặt trong <code>core/platform/platform.tokens.ts</code>, theo đúng khuôn.</li>
+              <li>
+                Thiết kế interface <strong>hẹp</strong>: chỉ thứ ứng dụng cần, không bọc cả
+                API.
+              </li>
+              <li>
+                Trên server, và trong trình duyệt không hỗ trợ: trả về một bản null object.
+                Code gọi không được có <code>if</code> nào.
+              </li>
+              <li>Viết spec khẳng định cả hai trường hợp.</li>
+            </ul>
+            <details>
+              <summary>Ba câu để tự chấm</summary>
+              <ol>
+                <li>
+                  Code gọi có dòng nào kiểm tra <code>IS_BROWSER</code> không? Có thì seam
+                  chưa đạt — so với <code>ThemeService</code> gọi
+                  <code>storage.read()</code> thẳng.
+                </li>
+                <li>
+                  Token của bạn có dùng <code>inject(NAVIGATOR)</code> trong factory không?
+                  Nên có — token dựng trên token khác là bình thường và đúng.
+                </li>
+                <li>
+                  Bạn có bọc cả <code>Navigator</code> không? Đừng. Đọc lại chú thích của
+                  <code>NAVIGATOR</code>: repo cố ý <em>không</em> bọc từng khả năng một,
+                  vì mỗi cái đã là một object có feature test riêng, và bọc thêm là một
+                  trừu tượng chỉ có một người gọi — rule 8 trong <code>CLAUDE.md</code>.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Thêm một runtime feature flag, đầu đến cuối</h3>
+            <p class="task__meta">~45 phút · branch <code>learning/*</code> · bài chính</p>
+            <p>
+              Thêm flag <code>customerExport</code>: khi tắt, nút Export trên trang danh
+              sách biến mất.
+            </p>
+            <ol>
+              <li>Thêm vào <code>FEATURE_FLAGS</code> và vào <code>DEFAULT_APP_CONFIG</code>.</li>
+              <li>Dùng nó trong <code>customer-list-page.ts</code>.</li>
+              <li>
+                Thêm một dòng vào <code>docs/feature-flags.md</code> kèm chủ sở hữu và
+                <strong>điều kiện gỡ bỏ</strong>.
+              </li>
+              <li>Tắt nó trong <code>config.json</code> và xác nhận nút biến mất.</li>
+              <li><code>npm run lint</code>, <code>npm run typecheck</code>, <code>npm test</code> sạch.</li>
+            </ol>
+            <details>
+              <summary>Hai câu hỏi thiết kế, và một cái bẫy</summary>
+              <p>
+                <strong>Câu 1: runtime hay build-time?</strong> Runtime — đây là một
+                <em>quyết định</em> theo môi trường, không phải code cần bị xoá khỏi bundle.
+              </p>
+              <p>
+                <strong>Câu 2: flag này đặt ở nút hay ở route?</strong> Nút, vì không có
+                route riêng cho export. So sánh với <code>customerImport</code>: nó có
+                route <code>/customers/import</code>, nên nó dùng
+                <code>canMatch</code> để cả nhánh biến mất <em>và</em> ẩn nút. Hai lớp cho
+                hai lý do khác nhau.
+              </p>
+              <p>
+                <strong>Cái bẫy:</strong> ẩn nút <strong>không phải</strong> là tắt tính
+                năng. Người dùng vẫn gọi được endpoint export bằng curl. Nếu đây là một
+                giới hạn thật thì mock API cũng phải từ chối. Quy tắc 10: frontend là UX,
+                không phải biên bảo mật — và bài 20 nói đủ về chuyện này.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. <code>inject()</code> gọi được ở đâu?</summary>
+            <p>
+              Field initializer, thân constructor, factory của provider, và hàm được gọi từ
+              những chỗ đó. Ngoài ra ném <code>NG0203</code> lúc chạy. Cần inject muộn thì
+              giữ một <code>Injector</code> và dùng
+              <code>runInInjectionContext</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>CustomerApi</code> ở <code>'root'</code> còn <code>CustomerStore</code> thì ở route?</summary>
+            <p>
+              <code>CustomerApi</code> không giữ state — một instance chung vô hại.
+              <code>CustomerStore</code> giữ cache và lịch sử duyệt của một người; ở
+              <code>'root'</code> nó sẽ sống qua một lần đăng xuất.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Khi nào cần <code>InjectionToken</code> thay vì dùng chính class làm token?</summary>
+            <p>
+              Khi không có class nào để trỏ tới: một giá trị
+              (<code>IS_BROWSER</code>), một đối tượng của trình duyệt
+              (<code>WINDOW</code>, <code>NAVIGATOR</code>), một hàm factory
+              (<code>EVENT_SOURCE_FACTORY</code>), hoặc một interface — interface biến mất
+              sau khi biên dịch nên không làm token được.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. <code>useExisting</code> khác <code>useClass</code> ở đâu, và khi nào sai lầm đó đau?</summary>
+            <p>
+              <code>useExisting</code> trỏ sang một instance <strong>đã có</strong>;
+              <code>useClass</code> tạo một instance mới. Dùng <code>useClass</code> cho
+              <code>HttpBackend</code> → hai backend tồn tại song song, state lệch, lỗi
+              "lúc được lúc không".
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao <code>config.json</code> phải validate bằng schema?</summary>
+            <p>
+              Vì nó do người sửa tay, theo môi trường, bởi người không đọc code.
+              <code>"false"</code> là chuỗi truthy; khoá viết sai thì im lặng;
+              <code>apiBaseUrl</code> tuyệt đối làm mọi lệnh ghi 403.
+              <code>strictObject</code> biến cả ba thành lỗi tự nói tên nó.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao build-time flag không được đọc qua một service?</summary>
+            <p>
+              Vì bundler phải <em>nhìn thấy</em> nhánh là chết mới xoá được code đi. Đọc qua
+              một lời gọi hàm thì nó không biết giá trị và giữ lại cả nhánh — mất đúng tính
+              chất duy nhất mà build-time flag tồn tại vì nó.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. <code>canMatch</code> khác <code>canActivate</code> thế nào với một flag?</summary>
+            <p>
+              <code>canActivate</code>: route tồn tại, chunk được tải, rồi mới từ chối.
+              <code>canMatch</code>: route <em>không khớp</em>, router đi tiếp xuống
+              wildcard, chunk không bao giờ được tải. Với một tính năng bị tắt,
+              <code>canMatch</code> là đúng.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Khi nào một "flag" thật ra là cấu hình?</summary>
+            <p>
+              Khi không ai có kế hoạch gỡ nó. Luật trong repo: mỗi flag phải có chủ sở hữu
+              và điều kiện gỡ bỏ ghi trong <code>docs/feature-flags.md</code>; không có thì
+              nó thuộc về <code>AppConfig</code> dưới dạng một thiết lập có tên.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 06 là bài cuối của chặng 1: CSS trong Angular — cô lập style, hai tầng
+              design token, đổi theme bằng một thuộc tính, và vì sao
+              <code>margin-left</code> bị lint chặn. Sau đó là
+              <strong>Mốc 1</strong>.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="04-component-noi-chuyen-voi-nhau.html">← Bài 04</a></span>
+            <span><a href="06-css-trong-angular.html">Bài 06 — CSS trong Angular →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

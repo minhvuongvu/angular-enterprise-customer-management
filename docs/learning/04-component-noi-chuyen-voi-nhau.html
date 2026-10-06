@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 04 — Component nói chuyện với nhau</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 1 — Viết được UI → Bài 04</p>
+        <h1>Component nói chuyện với nhau</h1>
+        <p class="lede">
+          Một màn hình là hàng chục component lồng nhau. Bài này là về hợp đồng giữa
+          chúng: dữ liệu đi xuống bằng gì, ý định đi lên bằng gì, khi nào truyền cả một
+          mảnh giao diện, và khi nào — hiếm — một component được phép thò tay xuống DOM.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 1 · hướng tới Mốc 1</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>output&lt;T&gt;()</code></td>
+                  <td>
+                    Kênh con → cha. Con gọi <code>.emit(value)</code>; cha nghe bằng
+                    <code>(tenKenh)="handler($event)"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>$event</code></td>
+                  <td>
+                    Biến có sẵn trong biểu thức event binding, mang giá trị con vừa phát
+                    (hoặc object sự kiện DOM).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>#ten</code></td>
+                  <td>
+                    <em>Template reference variable</em>: đặt tên cho một thẻ hoặc một
+                    <code>ng-template</code> để chỗ khác trong cùng template trỏ tới.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;ng-template&gt;</code></td>
+                  <td>
+                    Một mảnh template <strong>chưa</strong> được vẽ. Chỉ hiện ra khi có ai
+                    đó yêu cầu vẽ nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[ngTemplateOutlet]</code></td>
+                  <td>Chỗ nói "vẽ cái <code>ng-template</code> kia vào đây".</td>
+                </tr>
+                <tr>
+                  <td><code>&lt;ng-container&gt;</code></td>
+                  <td>
+                    Thẻ nhóm <strong>không</strong> sinh ra phần tử DOM nào. Dùng khi cần
+                    một chỗ gắn directive mà không muốn thêm một <code>&lt;div&gt;</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@if (x; as y)</code></td>
+                  <td>
+                    Vừa kiểm tra vừa đặt tên cho kết quả: trong khối,
+                    <code>y</code> là giá trị đã chắc chắn khác null.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>viewChild()</code></td>
+                  <td>
+                    Lấy một phần tử hoặc component <em>trong template của chính mình</em>,
+                    dưới dạng signal. Dùng khi phải gọi API của DOM, như
+                    <code>focus()</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>host: { … }</code></td>
+                  <td>
+                    Binding gắn lên <em>chính thẻ</em> của component, khai trong metadata
+                    thay vì trong template.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>model()</code></td>
+                  <td>
+                    Input hai chiều (con ghi được, cha thấy). Tồn tại trong Angular nhưng
+                    <strong>repo này không dùng lần nào</strong> — mục 6 nói vì sao.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Thiết kế hợp đồng input/output cho một component mới, và đặt tên đúng.</li>
+            <li>
+              Biết khi nào một component cần <code>ng-template</code> thay vì thêm một
+              <code>&lt;ng-content&gt;</code> thứ hai — và vì sao thêm cái thứ hai là bẫy.
+            </li>
+            <li>
+              Dùng <code>viewChild</code> đúng chỗ: để gọi <code>focus()</code>, không phải
+              để lấy dữ liệu.
+            </li>
+            <li>
+              Nhìn hai component và nói được chúng có <em>cùng một hợp đồng</em> hay không
+              — tính chất khiến trang hoán đổi được bảng và danh sách thẻ.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Gần nhất ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tham số của hàm</td>
+                  <td><code>input()</code></td>
+                  <td>
+                    Tham số được truyền một lần khi gọi. Input là một
+                    <em>mối nối sống</em>: cha đổi giá trị thì con cập nhật mà không ai
+                    gọi lại gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Giá trị trả về</td>
+                  <td><code>output()</code></td>
+                  <td>
+                    Return đi kèm lời gọi. Output đi
+                    <em>bất cứ lúc nào</em>, bao nhiêu lần cũng được, và không ai đang chờ
+                    nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Callback / listener interface</td>
+                  <td><code>output()</code></td>
+                  <td>
+                    Gần nhất. Khác ở chỗ không phải đăng ký và không phải gỡ: Angular nối
+                    và tháo theo vòng đời component.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tham số kiểu <code>out</code> / tham chiếu sửa được</td>
+                  <td>Không có, và cố ý</td>
+                  <td>
+                    Con <strong>không được</strong> sửa dữ liệu cha đưa xuống. Repo khai
+                    <code>readonly Customer[]</code> và <code>ReadonlySet</code> để trình
+                    biên dịch cưỡng chế điều đó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Quy tắc một chiều, và vì sao nó đáng giá</span>
+            <p>
+              Dữ liệu chảy xuống, ý định chảy lên. Không có đường tắt. Nghe như một ràng
+              buộc, nhưng cái nó mua được rất cụ thể: khi một giá trị trên màn hình sai,
+              bạn chỉ phải đi ngược <em>một</em> đường để tìm nguồn. Trong một hệ hai chiều,
+              giá trị đó có thể bị đổi từ bất kỳ đâu trong cây, và việc truy nguồn trở
+              thành đoán.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 <code>input()</code> — ba dạng</h3>
+
+          <div class="code">
+            <div class="code__file">tổng hợp từ nhiều file trong repo</div>
+            <pre><code>readonly variant = input&lt;ButtonVariant&gt;('secondary');   // có mặc định
+readonly rows = input.required&lt;readonly Customer[]&gt;();  // bắt buộc
+readonly description = input('');                        // kiểu suy ra từ mặc định</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dạng</th>
+                  <th>Khi nào dùng</th>
+                  <th>Điều gì xảy ra nếu cha không truyền</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>input(defaultValue)</code></td>
+                  <td>Có một giá trị mặc định hợp lý</td>
+                  <td>Dùng mặc định, chạy bình thường</td>
+                </tr>
+                <tr>
+                  <td><code>input.required&lt;T&gt;()</code></td>
+                  <td>Không có mặc định nào đúng</td>
+                  <td>
+                    <strong>Lỗi biên dịch</strong>. Không phải lỗi lúc chạy, không phải
+                    <code>undefined</code> lặng lẽ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>input&lt;T&gt;()</code> không mặc định</td>
+                  <td>Giá trị có thể thật sự vắng mặt</td>
+                  <td>
+                    Giá trị là <code>undefined</code>, và kiểu nói rõ điều đó. Tám input
+                    query param của trang danh sách thuộc dạng này.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba điều nữa về input, và cả ba đều là hệ quả của việc nó là signal:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Đọc phải gọi:</strong> <code>this.variant()</code>, kể cả trong
+              TypeScript.
+            </li>
+            <li>
+              <strong>Con không ghi được:</strong> không có <code>.set()</code>. Trình biên
+              dịch chặn, chứ không phải quy ước.
+            </li>
+            <li>
+              <strong>Dùng được trong <code>computed</code>:</strong> đó là cách
+              <code>Button</code> tính <code>isDisabled</code> —
+              <code>computed(() =&gt; this.disabled() || this.loading())</code>. Không cần
+              <code>ngOnChanges</code>, vốn là cách Angular cũ phải làm.
+            </li>
+          </ul>
+
+          <h3>3.2 <code>output()</code> — và cách đặt tên</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts</div>
+            <pre><code>readonly sortChange = output&lt;string&gt;();
+readonly rowToggled = output&lt;CustomerId&gt;();
+readonly allToggled = output&lt;boolean&gt;();
+
+// phát đi:
+this.sortChange.emit(`${field},${direction === 'asc' ? 'desc' : 'asc'}`);</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">bên cha nghe</div>
+            <pre><code>&lt;app-customer-table
+  [rows]="rows()"
+  (sortChange)="applySort($event)"
+  (rowToggled)="toggleRow($event)"
+/&gt;</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Đặt tên output theo <em>ý định</em>, không theo thao tác</span>
+            <p>
+              <code>sortChange</code>, không phải <code>onSortHeaderClick</code>. Khác biệt
+              không phải thẩm mỹ: cái tên thứ hai khoá component vào một cách tương tác cụ
+              thể. Trên điện thoại, cùng ý định đó đến từ một
+              <code>&lt;select&gt;</code> chứ không phải một cú bấm tiêu đề —
+              <code>CustomerCardList</code> phát <strong>đúng cái tên
+              <code>sortChange</code></strong>, nên trang không phải biết người dùng đang
+              nhìn cái nào.
+            </p>
+            <p>
+              Thử lại tên của bạn bằng câu này: "nếu ngày mai thao tác đổi, tên này còn
+              đúng không?"
+            </p>
+          </div>
+
+          <h3>3.3 Hợp đồng, chứ không phải component</h3>
+
+          <p>
+            Hai component, một hợp đồng. Trang danh sách khai báo đúng cùng một bộ binding
+            cho cả hai:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — rút gọn</div>
+            <pre><code>@if (compact()) {
+  &lt;app-customer-card-list
+    [rows]="rows()"
+    [sort]="criteria().sort"
+    [selectable]="canBulkEdit()"
+    [selectedIds]="selected()"
+    (sortChange)="applySort($event)"
+    (rowToggled)="toggleRow($event)"
+    (allToggled)="toggleAll($event)"
+  /&gt;
+} @else {
+  &lt;app-customer-table
+    [rows]="rows()"
+    [sort]="criteria().sort"
+    [selectable]="canBulkEdit()"
+    [selectedIds]="selected()"
+    (sortChange)="applySort($event)"
+    (rowToggled)="toggleRow($event)"
+    (allToggled)="toggleAll($event)"
+  /&gt;
+}</code></pre>
+          </div>
+
+          <p>
+            Bốn input, ba output, giống hệt. Đó là lý do chú thích của
+            <code>CustomerCardList</code> viết: <em>"It is the same component contract as
+            <code>CustomerTable</code> — the same rows, sort and selection in, the same
+            three intentions out — so the page swaps one for the other without changing
+            anything it does."</em>
+          </p>
+
+          <p>
+            Bài học mang đi được: khi hai cách trình bày cùng một dữ liệu, hãy làm chúng
+            <strong>cùng hợp đồng</strong>. Khi đó việc chọn cái nào là một
+            <code>@if</code>, không phải một đợt refactor.
+          </p>
+
+          <h3>3.4 Khi một slot là không đủ: <code>ng-template</code> + <code>ngTemplateOutlet</code></h3>
+
+          <p>
+            Đây là mục tinh tế nhất của bài, và nó đến từ một bài toán thật trong
+            <code>Button</code>: component này render một <code>&lt;button&gt;</code> hoặc
+            một <code>&lt;a&gt;</code> tuỳ có <code>link</code> hay không. Nội dung người
+            gọi truyền vào phải xuất hiện ở <em>cả hai</em> nhánh.
+          </p>
+
+          <p>Cách ngây thơ — và nó hỏng:</p>
+
+          <div class="code">
+            <div class="code__file">SAI — không có trong repo</div>
+            <pre><code>@if (link(); as target) {
+  &lt;a [routerLink]="target"&gt;&lt;ng-content /&gt;&lt;/a&gt;
+} @else {
+  &lt;button&gt;&lt;ng-content /&gt;&lt;/button&gt;   &lt;!-- slot thứ hai --&gt;
+}</code></pre>
+          </div>
+
+          <p>
+            Nội dung được chiếu (projected content) <strong>chỉ tồn tại một lần</strong>.
+            Nó không phải một bản sao mà mỗi slot nhận một cái — nó là
+            <em>chính</em> những thẻ người gọi viết ra, được chuyển chỗ. Có hai
+            <code>&lt;ng-content /&gt;</code> thì nội dung chỉ rơi vào một trong hai, và
+            nhánh còn lại rỗng. Không có lỗi nào được báo.
+          </p>
+
+          <p>Cách repo làm:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/shared/ui/button/button.ts</div>
+            <pre><code>&lt;!-- Projected content is declared once and rendered into whichever
+     element is used. Two ng-content slots would silently send the
+     caller's content to only one of them. --&gt;
+&lt;ng-template #content&gt;
+  @if (loading()) {
+    &lt;app-spinner [size]="size() === 'sm' ? 'sm' : 'md'" /&gt;
+  }
+  &lt;span class="btn__label"&gt;&lt;ng-content /&gt;&lt;/span&gt;
+&lt;/ng-template&gt;
+
+@if (link(); as target) {
+  &lt;a class="btn" [routerLink]="target" [attr.data-variant]="variant()"&gt;
+    &lt;ng-container [ngTemplateOutlet]="content" /&gt;
+  &lt;/a&gt;
+} @else {
+  &lt;button
+    class="btn"
+    [attr.type]="type()"
+    [disabled]="isDisabled()"
+    [attr.aria-busy]="loading() ? 'true' : null"
+  &gt;
+    &lt;ng-container [ngTemplateOutlet]="content" /&gt;
+  &lt;/button&gt;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>&lt;ng-template #content&gt;</code></td>
+                  <td>
+                    Khai báo một mảnh template và đặt tên <code>content</code>.
+                    <strong>Nó không được vẽ ra</strong> — chỉ nằm đó chờ ai gọi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;ng-content /&gt;</code> bên trong</td>
+                  <td>
+                    Slot duy nhất, khai đúng một lần. Nội dung người gọi đi vào đây.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@if (link(); as target)</code></td>
+                  <td>
+                    Vừa kiểm tra <code>link()</code> khác null, vừa đặt tên
+                    <code>target</code> cho giá trị đó trong khối — nên
+                    <code>[routerLink]="target"</code> không còn kiểu
+                    <code>| null</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;ng-container [ngTemplateOutlet]="content" /&gt;</code></td>
+                  <td>
+                    "Vẽ <code>#content</code> vào đây." <code>ng-container</code> không tạo
+                    thẻ nào trong DOM, nên <code>&lt;a&gt;</code> và
+                    <code>&lt;button&gt;</code> không bị bọc thêm một lớp vô nghĩa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[attr.aria-busy]="loading() ? 'true' : null"</code></td>
+                  <td>
+                    Gán <code>null</code> thì Angular <strong>xoá hẳn</strong> thuộc tính,
+                    không để lại <code>aria-busy="false"</code>. Khuôn mẫu này lặp lại
+                    khắp repo.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 <code>viewChild</code> — khi phải chạm vào DOM</h3>
+
+          <p>
+            Phần lớn thời gian bạn không cần. Nhưng có những việc không khai báo được, chỉ
+            ra lệnh được: đặt focus, cuộn tới một chỗ, đo kích thước. Repo dùng
+            <code>viewChild</code> đúng ba lần, và cả ba đều về focus:
+          </p>
+
+          <div class="code">
+            <div class="code__file">layout/app-shell.ts và layout/notification-center.ts</div>
+            <pre><code>private readonly mainContent = viewChild.required&lt;ElementRef&lt;HTMLElement&gt;&gt;('mainContent');
+
+private readonly trigger = viewChild.required&lt;ElementRef&lt;HTMLButtonElement&gt;&gt;('trigger');
+private readonly panel = viewChild&lt;ElementRef&lt;HTMLElement&gt;&gt;('panel');</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>'mainContent'</code></td>
+                  <td>
+                    Khớp với <code>#mainContent</code> trong template của chính component
+                    đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>ElementRef&lt;HTMLElement&gt;</code></td>
+                  <td>
+                    Cái bọc quanh phần tử DOM thật. Lấy ra bằng
+                    <code>.nativeElement</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>viewChild.required</code> vs <code>viewChild</code></td>
+                  <td>
+                    <code>required</code> khi phần tử luôn có mặt;
+                    bản thường trả về <code>undefined</code> khi phần tử nằm trong một
+                    <code>@if</code> đang tắt — như <code>panel</code>, chỉ tồn tại khi
+                    bảng thông báo đang mở.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nó là một <strong>signal</strong></td>
+                  <td>
+                    Nên đọc là <code>this.panel()?.nativeElement</code>, và nó tự cập nhật
+                    khi phần tử xuất hiện hay biến mất.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Dùng <code>viewChild</code> để <em>lấy dữ liệu</em> là sai</span>
+            <p>
+              Nếu bạn định <code>viewChild</code> một component con rồi đọc state của nó,
+              dừng lại: dữ liệu phải đi xuống qua input và đi lên qua output. Thò tay
+              xuống đọc là tạo ra một đường thứ hai, và đường đó không ai thấy khi đọc
+              template.
+            </p>
+            <p>
+              <code>viewChild</code> hợp lệ khi bạn cần <em>ra lệnh</em> cho DOM —
+              <code>focus()</code>, <code>scrollIntoView()</code>,
+              <code>getBoundingClientRect()</code> — chứ không phải khi cần biết một giá
+              trị.
+            </p>
+          </div>
+
+          <h3>3.6 <code>host</code>: binding lên chính thẻ của mình</h3>
+
+          <div class="code">
+            <div class="code__file">shared/ui/button/button.ts và badge.ts</div>
+            <pre><code>host: { '[attr.data-full]': "fullWidth() ? '' : null" },   // Button
+host: { '[attr.data-tone]': 'tone()' },                    // Badge</code></pre>
+          </div>
+
+          <p>
+            Template của một component mô tả thứ <em>bên trong</em> nó.
+            <code>host</code> là cách gắn thuộc tính, class hay listener lên
+            <em>chính</em> thẻ <code>&lt;app-button&gt;</code>. Cặp với
+            <code>:host([data-full])</code> trong CSS, nó cho ta một cách truyền một lựa
+            chọn từ TypeScript sang CSS mà không cần class động.
+          </p>
+
+          <p>
+            Chú ý <code>fullWidth() ? '' : null</code>: chuỗi rỗng tạo ra thuộc tính không
+            giá trị (<code>data-full</code>), còn <code>null</code> xoá nó hẳn — đúng cách
+            một thuộc tính boolean của HTML hoạt động.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: <code>Button</code> đọc hết</h2>
+
+          <p>
+            <code>button.ts</code> dài 170 dòng và chứa gần hết bài này. Chú thích đầu file
+            là một bài học về thiết kế component dùng chung, đáng đọc nguyên văn. Ba câu
+            quan trọng:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do, theo chính file</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Bọc một <code>&lt;button&gt;</code> hoặc <code>&lt;a&gt;</code> thật,
+                    không style một <code>&lt;div&gt;</code>
+                  </td>
+                  <td>
+                    Kích hoạt bằng bàn phím, submit form, trạng thái disabled, "mở trong
+                    tab mới" và role cho screen reader đều đến từ nền tảng — thay vì được
+                    viết lại, và viết hỏng, ở đây.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>loading</code> vừa disable vừa đặt <code>aria-busy</code>
+                  </td>
+                  <td>
+                    Một nút còn trông bấm được trong lúc request đang bay thì sẽ bị bấm
+                    lần nữa.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nhận <code>[link]</code> nhưng <strong>không bao giờ</strong> có route
+                    của riêng mình
+                  </td>
+                  <td>
+                    "Hiển thị một đích đến do <em>người gọi</em> cung cấp không biến
+                    component này thành kẻ điều hướng: nó vẫn không quyết định gì."
+                    Ranh giới này là cả bài 02 mục 3.7 cô đọng vào một câu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có input <code>icon</code></td>
+                  <td>
+                    "Nó không biết nó làm gì." Người gọi muốn nút chỉ có icon thì chiếu vào
+                    một icon kèm một nhãn <code>.visually-hidden</code> — vì nhãn đó thuộc
+                    namespace dịch của người gọi, không phải của một component chung.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một vòng tương tác đầy đủ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant T as CustomerTable (con)
+    participant P as CustomerListPage (cha)
+    participant R as Router
+    U->>T: bấm tiêu đề cột "Email"
+    T->>T: toggleSort('email')<br/>đọc parsedSort()
+    T->>P: sortChange.emit('email,asc')
+    Note over T: con dừng ở đây - nó không biết<br/>"sắp xếp" nghĩa là gì
+    P->>P: applySort($event)
+    P->>R: navigate(queryParams)
+    R->>P: input sort đổi
+    P->>T: [sort]="criteria().sort"
+    T->>U: mũi tên sắp xếp đổi chỗ
+            </pre>
+            <figcaption>
+              Vòng tròn đi <em>qua</em> cha và qua URL, không bao giờ khép lại bên trong
+              con. Đó là lý do cùng cái bảng dùng được ở một trang khác nơi sắp xếp nghĩa
+              là chuyện khác.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Cơ chế <code>ng-template</code> trong <code>Button</code></h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    CALLER["Người gọi viết:<br/>&lt;app-button&gt;Lưu&lt;/app-button&gt;"] -->|"nội dung tồn tại MỘT lần"| SLOT
+    SLOT["ng-content<br/><i>bên trong ng-template #content</i>"] --> TPL
+    TPL["ng-template #content<br/><i>khai báo, chưa vẽ</i>"]
+    TPL -.->|"ngTemplateOutlet"| A["nhánh &lt;a&gt;<br/>khi có [link]"]
+    TPL -.->|"ngTemplateOutlet"| B["nhánh &lt;button&gt;<br/>khi không"]
+    A --> OUT(["DOM"])
+    B --> OUT
+            </pre>
+            <figcaption>
+              Một khai báo, hai chỗ dùng. Nếu thay bằng hai
+              <code>&lt;ng-content /&gt;</code>, nội dung chỉ rơi vào một nhánh và nhánh
+              kia rỗng — im lặng.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Repo không dùng <code>model()</code> — binding hai chiều</h4>
+          <p>
+            Angular có <code>model()</code>: input mà con cũng ghi được, cha tự thấy
+            (<code>[(value)]</code>). Nó tiện cho một ô nhập liệu. Repo
+            <strong>không dùng lần nào</strong>, và lý do nhất quán với mọi thứ bạn đã đọc:
+            nguồn sự thật của trang danh sách là <strong>URL</strong>, của form là
+            <strong>form model</strong>. Một con ghi ngược lên state của cha sẽ tạo ra
+            nguồn thứ hai, và hai nguồn sẽ lệch. Khi mọi thay đổi đều đi qua output, luôn
+            có đúng một chỗ quyết định.
+          </p>
+
+          <h4><code>[link]</code> trên một component trình bày</h4>
+          <p>
+            Phương án bị loại: để người gọi tự bọc <code>&lt;a&gt;</code> quanh nút. Bị
+            loại vì khi đó mỗi chỗ gọi phải tự lo style cho link trông giống nút, và sẽ
+            lệch. Rủi ro của cách đang dùng được chặn bằng một luật viết thẳng trong file:
+            component này không bao giờ được có route của riêng nó — nó chỉ hiển thị đích
+            đến mà người khác đưa.
+          </p>
+
+          <h4>Đặt tên output theo ý định</h4>
+          <p>
+            Phương án bị loại: <code>onSortHeaderClick</code>. Bị loại vì bản mobile không
+            có tiêu đề cột nào để bấm; cái tên sẽ nói dối ngay ở component thứ hai cài cùng
+            hợp đồng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Hai <code>&lt;ng-content /&gt;</code> trong hai nhánh</span>
+            <p>
+              Nội dung chỉ xuất hiện ở một nhánh; nhánh kia rỗng. Không lỗi, không cảnh
+              báo. Triệu chứng: "nút có link thì mất chữ". Mục 3.4.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Con sửa dữ liệu cha đưa xuống</span>
+            <p>
+              <code>this.rows().sort(...)</code> — <code>Array.sort</code> sửa tại chỗ, nên
+              nó vừa sửa mảng của cha vừa không báo cho signal nào (bài 03 mục 3.5). Kiểu
+              <code>readonly Customer[]</code> trong repo chặn đúng việc này ở mức biên
+              dịch.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>viewChild</code> để đọc state của con</span>
+            <p>
+              Tạo ra một đường dữ liệu thứ hai mà người đọc template không nhìn thấy. Và nó
+              hỏng ngay khi con nằm trong một <code>@if</code>: signal trả về
+              <code>undefined</code>, thường ở đúng lần chạy đầu tiên.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Component chung mọc dần thành component nghiệp vụ</span>
+            <p>
+              Thêm <code>[icon]</code>, rồi <code>[permission]</code>, rồi
+              <code>[confirmMessage]</code>. Mỗi cái một mảnh kiến thức nghiệp vụ nhét vào
+              <code>shared/ui</code>. Phép thử trong
+              <code>shared/ui/README.md</code>: component này có hiểu gì về
+              <em>khách hàng</em> không? Có thì nó không thuộc về đó.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Gán <code>false</code> cho một thuộc tính ARIA</span>
+            <p>
+              <code>aria-busy="false"</code> và không có <code>aria-busy</code> là hai
+              chuyện khác nhau với vài trình đọc màn hình. Khuôn trong repo:
+              <code>[attr.aria-busy]="loading() ? 'true' : null"</code> —
+              <code>null</code> xoá hẳn thuộc tính.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Hợp đồng input/output test được mà không cần store, router hay HTTP — đó chính
+            là phần thưởng của việc giữ ranh giới. Khuôn trong repo (đã gặp ở bài 02): một
+            <strong>host component</strong> dùng component cần test đúng như người gọi
+            thật, và bắt output bằng cách đẩy vào mảng.
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-card-list.spec.ts — rút gọn</div>
+            <pre><code>class CardListHost {
+  readonly rows = signal&lt;readonly Customer[]&gt;([aCustomer(), anotherCustomer()]);
+  readonly sort = signal('updatedAt,desc');
+  readonly sorts: string[] = [];      // nhận sortChange
+  readonly toggled: CustomerId[] = []; // nhận rowToggled
+}</code></pre>
+          </div>
+
+          <p>
+            Vì host dùng binding thật, test sẽ đổ nếu bạn đổi tên một input — đúng chỗ đáng
+            đổ. Và vì <code>rows</code> là signal trong host, test đổi dữ liệu rồi khẳng
+            định giao diện cập nhật, giống hệt cách cha thật làm.
+          </p>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>Bốn con đường để hai component trao đổi, và khi nào dùng con đường nào.</p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TB
+    subgraph CHA["Cha"]
+      S["state / handler"]
+    end
+    subgraph CON["Con"]
+      I["input()"]
+      O["output()"]
+      NC["ng-content"]
+      VC["viewChild → DOM"]
+    end
+
+    S -->|"1. DỮ LIỆU xuống — khi truyền một giá trị<br/>[rows]=rows()"| I
+    O -->|"2. Ý ĐỊNH lên — khi con muốn báo điều gì đó<br/>(sortChange)=applySort($event)"| S
+    S -->|"3. GIAO DIỆN xuống — khi con không nên biết nội dung<br/>&lt;div pageActions&gt;…"| NC
+    VC -->|"4. RA LỆNH cho DOM — khi không khai báo được<br/>focus() · scrollIntoView()"| DOM(["phần tử thật"])
+            </pre>
+            <figcaption>
+              Ba con đường đầu là hợp đồng công khai, đọc template là thấy. Con đường thứ
+              tư không xuất hiện trong template của cha, nên nó phải hiếm — và chỉ dùng
+              cho mệnh lệnh với DOM, không bao giờ để lấy dữ liệu.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh bẫy hai <code>ng-content</code></h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>button.ts</code>, bỏ <code>ng-template</code> đi: đặt thẳng
+                <code>&lt;span class="btn__label"&gt;&lt;ng-content /&gt;&lt;/span&gt;</code>
+                vào <em>cả hai</em> nhánh <code>&lt;a&gt;</code> và
+                <code>&lt;button&gt;</code>.
+              </li>
+              <li>
+                Chạy app, vào <code>/customers</code>. Nhìn nút "New customer" (có
+                <code>link</code>) và nút "Refresh" (không có).
+              </li>
+              <li><code>git checkout</code> để hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Một trong hai loại nút mất chữ. Nội dung được chiếu không được nhân bản —
+                nó là chính những thẻ người gọi viết, và chúng chỉ nằm được ở một chỗ.
+                Angular không báo lỗi vì về mặt cú pháp không có gì sai.
+              </p>
+              <p>
+                Đây cũng là lời giải thích cho một câu hỏi hay gặp: vì sao không chỉ việc
+                viết <code>&lt;ng-content /&gt;</code> ở mọi chỗ cần? Vì nó không phải một
+                biến, nó là một chỗ đặt.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Thiết kế hợp đồng trước khi viết code</h3>
+            <p class="task__meta">~25 phút · giấy, không code</p>
+            <p>
+              Bạn phải làm một component <code>app-tag-input</code>: người dùng gõ chữ,
+              nhấn Enter thì thêm một thẻ; bấm dấu × trên một thẻ thì xoá nó. Danh sách thẻ
+              do trang sở hữu.
+            </p>
+            <p>Viết ra hợp đồng trước:</p>
+            <ol>
+              <li>Những input nào? Kiểu gì? Cái nào <code>required</code>?</li>
+              <li>Những output nào? Đặt tên theo ý định — kiểm lại bằng câu hỏi ở mục 3.2.</li>
+              <li>Có cần projection không? Có cần <code>viewChild</code> không?</li>
+              <li>
+                Component này có được tự sửa danh sách thẻ không? Trả lời kèm lý do.
+              </li>
+            </ol>
+            <details>
+              <summary>Một hợp đồng hợp lý, và vì sao</summary>
+              <div class="code">
+                <pre><code>readonly tags = input.required&lt;readonly string[]&gt;();  // chỉ đọc!
+readonly label = input.required&lt;string&gt;();          // đã dịch sẵn
+readonly maxTags = input(10);
+readonly disabled = input(false);
+
+readonly tagAdded = output&lt;string&gt;();
+readonly tagRemoved = output&lt;string&gt;();</code></pre>
+              </div>
+              <ul>
+                <li>
+                  <strong>Không</strong> có output <code>tagsChange</code> mang cả mảng
+                  mới. Phát ra ý định cụ thể (thêm cái này, xoá cái kia) cho phép trang
+                  quyết định — ví dụ chặn một thẻ trùng, hoặc hỏi xác nhận trước khi xoá.
+                  Mảng mới thì trang chỉ còn biết chấp nhận.
+                </li>
+                <li>
+                  <strong>Không</strong> được tự sửa <code>tags</code>. Nó là
+                  <code>readonly</code>, và trang là nguồn sự thật. Component chỉ hiển thị
+                  và báo.
+                </li>
+                <li>
+                  <strong>Không</strong> cần projection: nội dung ở đây là dữ liệu (các
+                  chuỗi), không phải giao diện.
+                </li>
+                <li>
+                  <strong>Có thể</strong> cần <code>viewChild</code> cho ô input — để sau
+                  khi thêm thẻ thì trả focus về đó. Đây là mệnh lệnh với DOM, đúng loại
+                  việc của <code>viewChild</code>.
+                </li>
+                <li>
+                  <code>label</code> đã dịch sẵn, giống <code>PageHeader</code> và
+                  <code>EmptyState</code>: component dùng chung không mang khoá dịch của
+                  người gọi.
+                </li>
+              </ul>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Viết <code>app-tag-input</code></h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>Hiện thực hợp đồng bạn vừa thiết kế. Yêu cầu bắt buộc:</p>
+            <ul>
+              <li>
+                Mỗi thẻ có một nút xoá là <code>&lt;button type="button"&gt;</code> thật,
+                với <code>aria-label</code> nói rõ xoá thẻ nào — qua binding, không phải
+                chuỗi cứng.
+              </li>
+              <li>
+                Danh sách thẻ dùng <code>@for</code> với <code>track</code> hợp lý. Thẻ là
+                chuỗi — <code>track</code> bằng gì? Giải thích lựa chọn.
+              </li>
+              <li>
+                Sau khi thêm một thẻ, focus quay lại ô nhập.
+              </li>
+              <li>
+                Khi đã đủ <code>maxTags</code>, ô nhập bị disable.
+              </li>
+              <li>Chỉ dùng semantic token. <code>npm run lint</code> sạch.</li>
+            </ul>
+            <details>
+              <summary>Ba chỗ dễ sai</summary>
+              <ol>
+                <li>
+                  <strong><code>track</code>:</strong> thẻ là chuỗi và không trùng nhau, nên
+                  <code>track tag</code> là đúng — chính chuỗi đó là khoá ổn định. Dùng
+                  <code>$index</code> sẽ làm nút xoá nhảy thẻ sau khi xoá một thẻ ở giữa.
+                </li>
+                <li>
+                  <strong>Focus:</strong> phải đợi DOM vẽ xong mới focus được. Xem
+                  <code>customer-list-page.ts</code> dùng
+                  <code>afterNextRender</code> thế nào, và chú ý nó còn kiểm tra rằng focus
+                  <em>thật sự đã mất</em> trước khi cướp lại — người dùng có thể đã chuyển
+                  đi chỗ khác.
+                </li>
+                <li>
+                  <strong>Enter trong một form:</strong> nếu component nằm trong
+                  <code>&lt;form&gt;</code>, Enter sẽ submit form. Bạn cần
+                  <code>$event.preventDefault()</code>. Thử cả hai cách để thấy sự khác
+                  biệt.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Tìm đường dữ liệu thứ hai</h3>
+            <p class="task__meta">~20 phút · đọc code</p>
+            <p>
+              Trong <code>layout/notification-center.ts</code>, tìm
+              <code>trigger</code> và <code>panel</code> (hai <code>viewChild</code>). Trả
+              lời:
+            </p>
+            <ol>
+              <li>Mỗi cái được dùng để làm gì?</li>
+              <li>
+                Vì sao <code>panel</code> không phải <code>viewChild.required</code> còn
+                <code>trigger</code> thì phải?
+              </li>
+              <li>
+                Có chỗ nào dùng <code>viewChild</code> để <em>đọc dữ liệu</em> không? Nếu
+                không có, đó là tình cờ hay có kỷ luật?
+              </li>
+            </ol>
+            <details>
+              <summary>Gợi ý chấm</summary>
+              <p>
+                Cả hai đều phục vụ quản lý focus — mở bảng thì focus vào bảng, đóng thì trả
+                focus về nút đã mở nó. Đó là hành vi bắt buộc của một menu theo chuẩn
+                WAI-ARIA, và nó không khai báo được bằng template.
+              </p>
+              <p>
+                <code>panel</code> nằm trong một <code>@if</code> (chỉ tồn tại khi bảng
+                mở), nên <code>required</code> sẽ ném lỗi khi bảng đóng.
+                <code>trigger</code> thì luôn có mặt.
+              </p>
+              <p>
+                Không có chỗ nào đọc dữ liệu qua <code>viewChild</code> — và đó là kỷ luật,
+                không phải tình cờ: ba lần dùng trong cả repo, cả ba đều là lệnh với DOM.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao <code>Button</code> dùng <code>ng-template</code> thay vì hai <code>&lt;ng-content /&gt;</code>?</summary>
+            <p>
+              Vì nội dung được chiếu tồn tại một lần duy nhất — nó là chính các thẻ người
+              gọi viết, không phải bản sao. Hai slot thì nội dung chỉ rơi vào một, nhánh kia
+              rỗng, và không có lỗi nào. <code>ng-template</code> khai báo một lần,
+              <code>ngTemplateOutlet</code> vẽ nó vào nhánh đang hoạt động.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>@if (link(); as target)</code> làm thêm việc gì so với <code>@if (link())</code>?</summary>
+            <p>
+              Nó đặt tên <code>target</code> cho giá trị đã kiểm, nên trong khối giá trị đó
+              không còn kiểu <code>| null</code> và không phải gọi <code>link()</code> lần
+              nữa. Vừa gọn vừa làm trình biên dịch thu hẹp kiểu giúp bạn.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Đặt tên output thế nào, và phép thử là gì?</summary>
+            <p>
+              Theo <em>ý định</em>, không theo thao tác: <code>sortChange</code>, không
+              <code>onSortHeaderClick</code>. Phép thử: "nếu ngày mai thao tác đổi, tên này
+              còn đúng không?" Bản mobile chứng minh điều đó — cùng
+              <code>sortChange</code>, nhưng đến từ một <code>&lt;select&gt;</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Khi nào <code>viewChild</code> là đúng, khi nào là sai?</summary>
+            <p>
+              Đúng khi cần <em>ra lệnh</em> cho DOM: <code>focus()</code>,
+              <code>scrollIntoView()</code>, đo kích thước. Sai khi dùng để
+              <em>lấy dữ liệu</em> từ con — dữ liệu phải đi qua input/output, nếu không bạn
+              tạo ra một đường mà người đọc template không thấy.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao repo không dùng <code>model()</code>?</summary>
+            <p>
+              Vì nó cho con ghi ngược lên state của cha, tạo nguồn sự thật thứ hai. Ở đây
+              nguồn sự thật là URL (danh sách) hoặc form model (form), và mọi thay đổi đi
+              qua output để luôn có đúng một chỗ quyết định.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Hai component "cùng hợp đồng" nghĩa là gì, và nó mua được gì?</summary>
+            <p>
+              Cùng bộ input và output, cùng tên cùng kiểu.
+              <code>CustomerTable</code> và <code>CustomerCardList</code> như vậy, nên trang
+              hoán đổi chúng bằng một <code>@if</code> theo bề rộng màn hình mà không phải
+              đổi bất cứ thứ gì nó làm.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. <code>[attr.aria-busy]="loading() ? 'true' : null"</code> — vì sao <code>null</code>?</summary>
+            <p>
+              Vì <code>null</code> làm Angular xoá hẳn thuộc tính, thay vì để lại
+              <code>aria-busy="false"</code>. Với một số trình đọc màn hình, "không có
+              thuộc tính" và "thuộc tính bằng false" không giống nhau.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 05 trả lời câu hỏi còn lại về nguồn dữ liệu của một component: ngoài cha
+              truyền xuống, nó còn <em>xin</em> được từ đâu. Đó là dependency injection, và
+              kèm theo là cấu hình runtime và feature flag — hai thứ quyết định một bản
+              build chạy được ở mọi môi trường.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="03-signals-va-zoneless.html">← Bài 03</a></span>
+            <span><a href="05-di-config-feature-flag.html">Bài 05 — DI, config &amp; feature flag →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Button đọc hết</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
