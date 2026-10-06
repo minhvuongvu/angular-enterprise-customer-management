@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 07 — RxJS tối thiểu</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 07
+        </p>
+        <h1>RxJS tối thiểu</h1>
+        <p class="lede">
+          RxJS có hơn một trăm toán tử. Repo này dùng khoảng mười lăm, và bạn chỉ cần bảy
+          để đọc được mọi thứ trong chặng 2. Bài này dạy đúng chừng đó, cộng một ý quan
+          trọng hơn mọi toán tử: <strong>vì sao frontend cần một thứ như RxJS trong khi đã
+          có signal</strong>.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · hướng tới Mốc 2</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Observable</strong></td>
+                  <td>
+                    Mô tả một nguồn giá trị theo thời gian. Chưa chạy gì cho tới khi có
+                    người subscribe.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>subscribe</strong></td>
+                  <td>
+                    Khởi động nó, và đăng ký ba callback:
+                    <code>next</code> (có giá trị), <code>error</code>,
+                    <code>complete</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Subscription</strong></td>
+                  <td>
+                    Cái <code>subscribe()</code> trả về. Gọi
+                    <code>.unsubscribe()</code> để huỷ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Operator</strong></td>
+                  <td>
+                    Một hàm nhận Observable và trả Observable mới. Nối bằng
+                    <code>.pipe(a, b, c)</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Cold</strong></td>
+                  <td>
+                    Mỗi lần subscribe là một lần chạy <em>mới</em>. HTTP của Angular là
+                    cold — subscribe hai lần là hai request.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Hot / multicast</strong></td>
+                  <td>
+                    Một nguồn chung cho mọi người nghe. <code>Subject</code> và
+                    <code>shareReplay</code> tạo ra điều này.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>Subject</code></td>
+                  <td>
+                    Vừa là Observable vừa là chỗ đẩy giá trị vào:
+                    <code>subject.next(x)</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Hoàn tất / lỗi</strong></td>
+                  <td>
+                    Hai cách một luồng <em>kết thúc</em>. Sau một trong hai, nó
+                    <strong>không bao giờ phát nữa</strong>. Đây là nguồn gốc của nhiều
+                    bug.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>takeUntilDestroyed()</code></td>
+                  <td>
+                    Tiện ích của Angular: tự huỷ đăng ký khi đối tượng chứa nó bị huỷ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>firstValueFrom</code></td>
+                  <td>Biến Observable thành Promise, lấy giá trị đầu tiên.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Đọc một pipeline bốn toán tử và nói được nó làm gì ở ba tình huống: có giá trị, có lỗi, bị huỷ.</li>
+            <li>
+              Chọn đúng một trong bốn toán tử làm phẳng — <code>switchMap</code>,
+              <code>mergeMap</code>, <code>concatMap</code>, <code>exhaustMap</code> — và
+              nói rõ hậu quả của việc chọn sai.
+            </li>
+            <li>Biết vì sao subscribe hai lần vào cùng một Observable HTTP là hai request.</li>
+            <li>Giải thích được ranh giới: cái gì dùng signal, cái gì dùng Observable.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Gần nhất</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Stream&lt;T&gt;</code> của Java</td>
+                  <td><code>Observable&lt;T&gt;</code></td>
+                  <td>
+                    Stream xử lý một tập <em>đã có</em>. Observable xử lý những giá trị
+                    <em>sẽ tới</em>, rải theo thời gian — và "theo thời gian" là lý do có
+                    <code>debounceTime</code>, <code>timeout</code>,
+                    <code>switchMap</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>CompletableFuture</code> / <code>Promise</code></td>
+                  <td>Observable phát đúng một lần</td>
+                  <td>
+                    Future chạy ngay khi tạo và không huỷ được. Observable
+                    <strong>lười</strong> và <strong>huỷ được</strong>. Hai khác biệt đó là
+                    cả bài này.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lazy stream (<code>Stream</code> chưa gọi terminal operation)</td>
+                  <td>Observable chưa subscribe</td>
+                  <td>
+                    Rất gần. <code>.subscribe()</code> chính là terminal operation; thiếu
+                    nó thì cả pipeline chỉ là mô tả.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Reactive Streams / Project Reactor</td>
+                  <td>Chính nó, cùng họ</td>
+                  <td>
+                    Nếu bạn đã dùng Reactor thì <code>Mono</code>/<code>Flux</code> ánh xạ
+                    gần như một-một. Khác chủ yếu ở tên toán tử.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Câu hỏi đúng: đã có signal rồi, cần RxJS làm gì?</span>
+            <p>
+              Signal trả lời "giá trị <em>hiện tại</em> là gì". Nó không có khái niệm thứ
+              tự, không có khái niệm "đang chạy", và không huỷ được.
+            </p>
+            <p>
+              Ba việc của chặng 2 cần đúng những thứ signal không có:
+              <strong>huỷ</strong> một request khi có request mới;
+              <strong>chờ</strong> người dùng gõ xong; <strong>thử lại</strong> hai lần với
+              khoảng cách tăng dần. Đó là lý do tầng dữ liệu viết bằng RxJS còn tầng hiển
+              thị viết bằng signal — và <code>toSignal</code> là cây cầu giữa hai bên.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Lười: không subscribe thì không có gì xảy ra</h3>
+
+          <div class="code">
+            <div class="code__file">ví dụ tối giản</div>
+            <pre><code>const request$ = this.http.get&lt;unknown&gt;('/api/customers');
+// Tới đây: KHÔNG có request nào rời khỏi máy. Chỉ có một mô tả.
+
+request$.subscribe((body) =&gt; console.log(body));
+// Bây giờ mới gửi.</code></pre>
+          </div>
+
+          <p>
+            Quy ước đặt tên: biến chứa Observable có hậu tố <code>$</code>
+            (<code>request$</code>, <code>ownChanges$</code>). Không bắt buộc, nhưng nó
+            nhắc bạn rằng đây là một mô tả chứ không phải một giá trị.
+          </p>
+
+          <p>
+            Tính lười là lý do tầng API của repo trả về Observable mà không gửi gì:
+            <code>CustomerApi.list()</code> mô tả một request, và chính
+            <code>switchMap</code> trong store mới subscribe — nên chính
+            <code>switchMap</code> mới huỷ được nó.
+          </p>
+
+          <h3>3.2 Cold: mỗi subscribe là một lần chạy mới</h3>
+
+          <div class="code">
+            <div class="code__file">bẫy — không có trong repo</div>
+            <pre><code>const customers$ = this.api.list(criteria);
+
+customers$.subscribe((page) =&gt; this.rows.set(page.items));
+customers$.subscribe((page) =&gt; this.total.set(page.totalItems));
+// HAI request lên server, cho cùng một câu hỏi.</code></pre>
+          </div>
+
+          <p>
+            Observable của <code>HttpClient</code> là <strong>cold</strong>: nó không phải
+            một kết quả mà là một công thức để lấy kết quả. Subscribe hai lần là chạy công
+            thức hai lần.
+          </p>
+
+          <p>
+            Đây là khác biệt lớn nhất so với <code>Promise</code>, vốn chạy một lần rồi mọi
+            người cùng nhận. Muốn hành vi đó thì phải nói ra — bằng
+            <code>shareReplay</code>, mục 3.6.
+          </p>
+
+          <h3>3.3 Bảy toán tử, chia bốn nhóm</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nhóm</th>
+                  <th>Toán tử</th>
+                  <th>Làm gì</th>
+                  <th>Trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td rowspan="2">Biến đổi</td>
+                  <td><code>map</code></td>
+                  <td>Đổi từng giá trị</td>
+                  <td><code>map(parseWith(schema))</code> trong <code>CustomerApi</code></td>
+                </tr>
+                <tr>
+                  <td><code>switchMap</code></td>
+                  <td>Đổi giá trị thành một Observable khác, huỷ cái trước</td>
+                  <td>Trái tim của <code>CustomerStore</code></td>
+                </tr>
+                <tr>
+                  <td rowspan="2">Lọc</td>
+                  <td><code>distinctUntilChanged</code></td>
+                  <td>Bỏ qua giá trị giống hệt cái trước</td>
+                  <td>Ô tìm kiếm, để không navigate khi không có gì đổi</td>
+                </tr>
+                <tr>
+                  <td><code>debounceTime</code></td>
+                  <td>Chờ im lặng rồi mới phát giá trị cuối</td>
+                  <td>Ô tìm kiếm, cạnh bàn phím</td>
+                </tr>
+                <tr>
+                  <td>Tác dụng phụ</td>
+                  <td><code>tap</code></td>
+                  <td>Làm gì đó mà không đổi giá trị</td>
+                  <td>Lưu cache, gán signal, ghi log</td>
+                </tr>
+                <tr>
+                  <td rowspan="2">Lỗi</td>
+                  <td><code>catchError</code></td>
+                  <td>Bắt lỗi, trả về một luồng thay thế</td>
+                  <td>Mọi chỗ lỗi phải thành một trạng thái</td>
+                </tr>
+                <tr>
+                  <td><code>retry</code></td>
+                  <td>Thử lại theo luật</td>
+                  <td><code>withReadPolicy()</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Thêm bốn thứ hay gặp, không phải toán tử nhưng cùng họ:</p>
+
+          <ul>
+            <li><code>of(x)</code> — luồng phát đúng <code>x</code> rồi kết thúc.</li>
+            <li><code>EMPTY</code> — luồng kết thúc ngay, không phát gì.</li>
+            <li><code>throwError(() =&gt; e)</code> — luồng lỗi ngay.</li>
+            <li>
+              <code>timer(ms)</code> — phát một giá trị sau <code>ms</code>; dùng làm độ trễ
+              cho <code>retry</code>.
+            </li>
+          </ul>
+
+          <h3>3.4 Bốn toán tử làm phẳng — chọn sai là một loại bug</h3>
+
+          <p>
+            Tình huống chung: mỗi giá trị vào sinh ra một Observable mới (thường là một
+            request). Bốn toán tử khác nhau ở chỗ <em>làm gì với cái đang chạy</em>.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Toán tử</th>
+                  <th>Với cái đang chạy</th>
+                  <th>Dùng khi</th>
+                  <th>Ví dụ hỏng nếu chọn sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>switchMap</code></td>
+                  <td><strong>Huỷ</strong></td>
+                  <td>Chỉ kết quả mới nhất có nghĩa: tìm kiếm, đổi trang</td>
+                  <td>—</td>
+                </tr>
+                <tr>
+                  <td><code>mergeMap</code></td>
+                  <td>Chạy song song</td>
+                  <td>Mỗi việc đều phải xong, thứ tự không quan trọng</td>
+                  <td>
+                    Dùng cho tìm kiếm → response cũ về muộn đè lên response mới
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>concatMap</code></td>
+                  <td>Xếp hàng, chờ xong mới tới lượt</td>
+                  <td>Thứ tự bắt buộc: ghi lần lượt</td>
+                  <td>
+                    Dùng cho tìm kiếm → mọi ký tự đều gọi API, lần lượt, rất chậm
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>exhaustMap</code></td>
+                  <td><strong>Bỏ qua</strong> giá trị mới</td>
+                  <td>Chống bấm hai lần: nút Lưu, nút Đăng nhập</td>
+                  <td>
+                    Dùng cho tìm kiếm → chỉ ký tự đầu được tìm, phần còn lại bị nuốt
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Người gõ
+    participant S as switchMap
+    participant A as API
+    U->>S: "ngu"
+    S->>A: request A
+    U->>S: "nguye"
+    S--xA: huỷ request A
+    S->>A: request B
+    U->>S: "nguyen"
+    S--xA: huỷ request B
+    S->>A: request C
+    A-->>S: kết quả C
+    Note over S: chỉ một kết quả tới được store
+            </pre>
+            <figcaption>
+              Với <code>mergeMap</code>, cả ba request đều sống và cả ba kết quả đều tới —
+              <strong>theo thứ tự server trả lời</strong>, không theo thứ tự gửi. Kết quả
+              của "ngu" về sau cùng sẽ là thứ người dùng nhìn thấy.
+            </figcaption>
+          </figure>
+
+          <h3>3.5 Lỗi là một <em>kết thúc</em>, không phải một sự kiện</h3>
+
+          <p>
+            Đây là ý khó nhất của RxJS với người mới, và là nguồn gốc của bug tệ nhất ở bài
+            01 mục 7.
+          </p>
+
+          <p>
+            Một Observable kết thúc theo đúng hai cách: <strong>complete</strong> hoặc
+            <strong>error</strong>. Sau cả hai, nó không bao giờ phát nữa. Nếu lỗi lan tới
+            một <code>Subject</code> đang được subscribe lâu dài, subscription đó
+            <em>chết</em> — và mọi giá trị đẩy vào sau đó rơi vào hư không.
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts — vì sao catchError nằm ở TRONG</div>
+            <pre><code>// Pipeline sống lâu dài:
+this.listRequests
+  .pipe(
+    switchMap((criteria) =&gt; this.fetchList(criteria)),  // ← lỗi được bắt BÊN TRONG
+    takeUntilDestroyed(),
+  )
+  .subscribe();
+
+// Bên trong fetchList:
+return this.api.list(criteria).pipe(
+  tap((page) =&gt; { … }),
+  catchError((error: unknown) =&gt; {
+    this.listState.set(failed(toAppError(error), cached));
+    return EMPTY;        // ← lỗi dừng tại đây, không lan ra ngoài
+  }),
+);</code></pre>
+          </div>
+
+          <p>
+            <code>catchError</code> trả <code>EMPTY</code> nghĩa là: "luồng con này kết thúc
+            bình thường, không có giá trị". <code>switchMap</code> thấy một luồng con kết
+            thúc — hoàn toàn bình thường — và pipeline ngoài vẫn sống, chờ tiêu chí tiếp
+            theo.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Nếu <code>catchError</code> nằm ở ngoài</span>
+            <p>
+              Lỗi lan lên pipeline ngoài, <code>subscribe()</code> nhận error, và
+              subscription chết. Từ đó trở đi <code>listRequests.next(...)</code> không còn
+              ai nghe: bấm gì cũng không có request nào nữa, và không có thông báo lỗi nào.
+              Người dùng báo "phải F5 mới dùng tiếp được".
+            </p>
+            <p>
+              Quy tắc: <strong>bắt lỗi ở luồng con, càng gần nguồn càng tốt.</strong> Một
+              pipeline sống lâu dài không được phép nhận lỗi.
+            </p>
+          </div>
+
+          <h3>3.6 Chia sẻ một lần chạy: <code>shareReplay</code> và single-flight</h3>
+
+          <p>
+            Mười request nhận 401 cùng lúc. Nếu mỗi cái tự gọi
+            <code>POST /auth/refresh</code> thì có mười lần làm mới — và vì refresh token
+            bị xoay vòng sau mỗi lần dùng, chín cái sau sẽ trình một token đã tiêu rồi.
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>private refreshing: Observable&lt;void&gt; | null = null;
+
+refresh(): Observable&lt;void&gt; {
+  this.refreshing ??= this.oneTabAtATime(REFRESH_LOCK, () =&gt; this.api.refresh()).pipe(
+    tap((response) =&gt; this.establish(response)),
+    map(() =&gt; undefined),
+    catchError((error: unknown) =&gt; {
+      this.end('expired');
+      return throwError(() =&gt; error);
+    }),
+    finalize(() =&gt; (this.refreshing = null)),
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+  return this.refreshing;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>this.refreshing ??= …</code></td>
+                  <td>
+                    Gán chỉ khi đang là <code>null</code>. Người gọi thứ hai nhận lại
+                    <em>cùng một</em> Observable, không tạo cái mới.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>shareReplay({ bufferSize: 1 })</code></td>
+                  <td>
+                    Biến luồng cold thành multicast: một lần chạy, mọi người nghe chung, và
+                    ai subscribe muộn vẫn nhận được giá trị đã phát.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>refCount: false</code></td>
+                  <td>
+                    <strong>Chi tiết quan trọng nhất.</strong> Nếu request đã kích hoạt
+                    refresh bị huỷ — người dùng điều hướng đi — refresh
+                    <em>vẫn phải chạy xong</em>: server đã xoay token ngay khi nhận request,
+                    nên bỏ dở sẽ để trình duyệt giữ một token đã tiêu.
+                    <code>refCount: true</code> sẽ huỷ khi người nghe cuối rời đi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>finalize(() =&gt; (this.refreshing = null))</code></td>
+                  <td>
+                    Chạy khi luồng kết thúc dù thành công hay lỗi — dọn chỗ cho lần refresh
+                    sau.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.7 Debounce đặt cạnh bàn phím</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-filters.ts</div>
+            <pre><code>this.searchControl.valueChanges
+  .pipe(
+    debounceTime(SEARCH_DEBOUNCE_MS),
+    // Without this, blurring a field or an external write that happens to
+    // match would emit a change that changes nothing - and push a history
+    // entry for it.
+    distinctUntilChanged(),
+    takeUntilDestroyed(),
+  )
+  .subscribe((value) =&gt; this.emit({ search: value.trim() }));</code></pre>
+          </div>
+
+          <p>Ba toán tử, ba lý do khác nhau:</p>
+
+          <ul>
+            <li>
+              <code>debounceTime</code> — chờ người dùng ngừng gõ. Giảm số request
+              <em>được tạo ra</em>.
+            </li>
+            <li>
+              <code>distinctUntilChanged</code> — bỏ qua giá trị không đổi. Không có nó,
+              rời khỏi ô input sẽ đẩy một mục vào lịch sử trình duyệt mà không đổi gì —
+              và nút Back sẽ có một nấc vô nghĩa.
+            </li>
+            <li>
+              <code>takeUntilDestroyed</code> — huỷ đăng ký khi component chết. Thiếu nó là
+              rò rỉ.
+            </li>
+          </ul>
+
+          <div class="box box--note">
+            <span class="box__label">Hai cơ chế, hai chỗ</span>
+            <p>
+              Debounce ở đây, <code>switchMap</code> ở store. Chúng
+              <strong>không</strong> thay thế nhau: debounce giảm số request được tạo ra,
+              <code>switchMap</code> huỷ cái đã tạo. Request vẫn có thể chồng nhau khi mạng
+              chậm hơn khoảng debounce — đó là lúc <code>switchMap</code> làm việc.
+            </p>
+            <p>
+              Và vì sao debounce không nằm trong store: tới lúc một request đến được store
+              thì nó đã đại diện cho một <em>quyết định</em> của người dùng. Hoãn thêm lần
+              nữa là độ trễ không ai yêu cầu.
+            </p>
+          </div>
+
+          <h3>3.8 <code>retry</code> có luật, không phải <code>retry(3)</code></h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/request-policy.ts</div>
+            <pre><code>export function withReadPolicy&lt;T&gt;(): MonoTypeOperatorFunction&lt;T&gt; {
+  return (source) =&gt;
+    source.pipe(
+      timeout(READ_TIMEOUT_MS),
+      catchError((error: unknown) =&gt; throwError(() =&gt; toAppError(error))),
+      retry({
+        count: READ_RETRY_ATTEMPTS,
+        delay: (error: unknown, attempt) =&gt;
+          isTransient(error)
+            ? timer(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1))
+            : // Rethrowing from `delay` is how RxJS is told to stop retrying.
+              throwError(() =&gt; error),
+      }),
+    );
+}
+
+/** A timeout, and nothing else. A write is never retried automatically. */
+export function withWritePolicy&lt;T&gt;(): MonoTypeOperatorFunction&lt;T&gt; {
+  return (source) =&gt; source.pipe(timeout(WRITE_TIMEOUT_MS), catchError(…));
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>timeout</code> nằm <em>trong</em> <code>retry</code></td>
+                  <td>
+                    Mỗi lần thử có ngân sách thời gian riêng, thay vì cả ba lần chia nhau
+                    một ngân sách.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ném lỗi từ trong <code>delay</code></td>
+                  <td>
+                    Đây là cách nói với RxJS "đừng thử nữa". Lỗi người dùng sửa được —
+                    validation, conflict, permission — phải tới họ
+                    <em>ngay</em>, không phải sau ba giây và hai lần hỏi lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>2 ** (attempt - 1)</code></td>
+                  <td>Backoff mũ: 200ms, rồi 400ms.</td>
+                </tr>
+                <tr>
+                  <td><strong>Ghi không bao giờ retry</strong></td>
+                  <td>
+                    "Mất kết nối" và "server xử lý xong nhưng response mất" trông giống hệt
+                    nhau từ phía client. Một lệnh tạo được thử lại là một khách hàng bị tạo
+                    hai lần.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chỉ <code>network</code> và <code>timeout</code> là tạm thời</td>
+                  <td>
+                    Không có 4xx nào trong danh sách: 409 sẽ lại xung đột, 422 sẽ lại sai,
+                    403 sẽ vẫn bị cấm.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.9 Ba cây cầu sang thế giới khác</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cầu</th>
+                  <th>Từ → sang</th>
+                  <th>Trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>toSignal(obs$, { initialValue })</code></td>
+                  <td>Observable → signal</td>
+                  <td>
+                    <code>ThemeService</code>, <code>LayoutBreakpoints</code>,
+                    <code>LanguageService</code>. Cây cầu dùng nhiều nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>toObservable(sig)</code></td>
+                  <td>signal → Observable</td>
+                  <td>Một lần, trong <code>translated-title.strategy.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>firstValueFrom(obs$)</code></td>
+                  <td>Observable → Promise</td>
+                  <td>
+                    <code>runtime-config.provider.ts</code>, vì
+                    <code>provideAppInitializer</code> nhận một Promise
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: RxJS xuất hiện ở đâu</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chỗ</th>
+                  <th>Vì sao cần RxJS chứ không phải signal</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-store.ts</code></td>
+                  <td>Cần <strong>huỷ</strong> request cũ, và cần chạy ngay lập tức</td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/request-policy.ts</code></td>
+                  <td>Cần <strong>thời gian</strong>: timeout, backoff, số lần thử</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-filters.ts</code></td>
+                  <td>Cần <strong>chờ</strong>: debounce theo nhịp gõ</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/session.service.ts</code></td>
+                  <td>Cần <strong>chia sẻ một lần chạy</strong> giữa nhiều người gọi</td>
+                </tr>
+                <tr>
+                  <td><code>core/http/*.interceptor.ts</code></td>
+                  <td>Interceptor nhận và trả Observable — đó là API của Angular</td>
+                </tr>
+                <tr>
+                  <td><code>core/realtime/realtime-client.ts</code></td>
+                  <td>Một luồng sự kiện thật sự vô hạn từ server (bài tra cứu)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và chỗ RxJS <strong>không</strong> xuất hiện: mọi state hiển thị. Không có
+            <code>BehaviorSubject</code> nào trong repo làm state cho component — đó là việc
+            của signal.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một giá trị đi qua pipeline, ba kết cục</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    SRC["api.list(criteria)<br/><i>cold, chưa chạy</i>"] --> T1["timeout(10s)"]
+    T1 --> C1["catchError → AppError"]
+    C1 --> R["retry: tạm thời? backoff : ném tiếp"]
+    R --> M["map(parseWith(schema))"]
+    M --> OK["tap: cache + listState = success"]
+    M --> ERR["catchError: listState = failed<br/>return EMPTY"]
+    SUB["switchMap subscribe"] -.->|"khởi động cả chuỗi"| SRC
+    SUB -.->|"giá trị mới tới → unsubscribe"| CAN["huỷ: fetch bị abort"]
+            </pre>
+            <figcaption>
+              Ba kết cục: giá trị (nhánh <code>tap</code>), lỗi đã xử lý thành trạng thái
+              (nhánh <code>catchError</code>), hoặc bị huỷ (nhánh nét đứt) — và nhánh thứ
+              ba không chạy callback nào cả.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>RxJS cho dữ liệu, signal cho hiển thị</h4>
+          <p>
+            Phương án bị loại: dùng signal cho tất cả, với
+            <code>toObservable()</code> khi cần. Chú thích trong
+            <code>customer-store.ts</code> nói vì sao bị loại: pipeline phải chạy
+            <em>ngay lúc</em> được yêu cầu, không phải ở lần flush effect kế tiếp — để "gõ
+            tiếp thì huỷ tìm kiếm trước" là tính chất của code chứ không phải của bộ lịch
+            Angular.
+          </p>
+
+          <h4>Policy theo endpoint, không theo interceptor</h4>
+          <p>
+            Phương án bị loại: một interceptor retry mọi thứ. Bị loại vì chính sách đúng là
+            thuộc tính của <em>việc request làm</em>, không phải của việc nó là một request.
+            Giá phải trả: mỗi lời gọi API phải nhớ gắn một policy — và repo chấp nhận bằng
+            cách đặt tên theo ý định, nên <code>withWritePolicy</code> trên một GET là một
+            câu nói sai rõ ràng.
+          </p>
+
+          <h4><code>refCount: false</code> cho refresh</h4>
+          <p>
+            Phương án bị loại: <code>refCount: true</code>, mặc định tự nhiên hơn. Bị loại
+            vì server xoay refresh token ngay khi nhận request — bỏ dở response để lại một
+            token đã tiêu trong trình duyệt. "Một lần refresh, đã bắt đầu thì phải kết
+            thúc."
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Quên <code>subscribe()</code></span>
+            <p>
+              Không có gì xảy ra, và không có lỗi nào. Bạn gọi
+              <code>this.api.remove(id)</code> rồi điều hướng đi — bản ghi không bao giờ bị
+              xoá. Đây là lỗi đầu tiên gần như ai cũng mắc khi chuyển từ Promise sang
+              Observable.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Subscribe nhiều lần vào cùng một Observable HTTP</span>
+            <p>
+              Hai subscribe là hai request. Trong template, hai
+              <code>| async</code> trên cùng một biểu thức cũng vậy. Cách sửa trong repo:
+              dữ liệu vào store một lần, rồi đọc ra bằng <code>computed</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>subscribe</code> lồng trong <code>subscribe</code></span>
+            <div class="code">
+              <pre><code>this.api.getById(id).subscribe((customer) =&gt; {
+  this.api.auditTrail(customer.id).subscribe((entries) =&gt; { … });  // SAI
+});</code></pre>
+            </div>
+            <p>
+              Mất khả năng huỷ (huỷ cái ngoài không huỷ cái trong), mất khả năng xử lý lỗi
+              tập trung, và thành kim tự tháp khi có ba tầng. Đúng ra là
+              <code>switchMap</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. <code>catchError</code> đặt sai chỗ</span>
+            <p>
+              Ngoài <code>switchMap</code> thay vì trong: một lỗi giết pipeline sống lâu
+              dài, và store im lặng vĩnh viễn. Mục 3.5.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. <code>catchError</code> nuốt lỗi</span>
+            <div class="code">
+              <pre><code>catchError(() =&gt; of(null))   // không gán state, không log</code></pre>
+            </div>
+            <p>
+              Luồng tiếp tục với <code>null</code>, màn hình hiện trống rỗng, và không ai
+              biết có gì đã hỏng. Bắt lỗi thì phải <em>làm</em> gì đó với nó: gán một trạng
+              thái lỗi, hoặc ném tiếp.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Quên huỷ đăng ký</span>
+            <p>
+              Subscription sống lâu hơn component. Với một luồng vô hạn
+              (<code>valueChanges</code>, sự kiện) đó là rò rỉ bộ nhớ, và callback vẫn chạy
+              sau khi component đã chết. Dùng <code>takeUntilDestroyed()</code>; với HTTP
+              một-lần-rồi-thôi thì ít nguy hiểm hơn nhưng vẫn nên.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            RxJS test được chính xác, vì <code>HttpTestingController</code> cho bạn quyền
+            quyết định <em>khi nào</em> một request trả lời — và đó là thứ mọi bug trong bài
+            này phụ thuộc vào.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>
+                    Request trước bị huỷ khi có tiêu chí mới — kiểm bằng
+                    <code>TestRequest.cancelled</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/customer.api.spec.ts</code></td>
+                  <td>
+                    Retry chỉ xảy ra với lỗi tạm thời; một 409 đi thẳng tới người gọi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/auth-refresh.interceptor.spec.ts</code></td>
+                  <td>
+                    Nhiều 401 đồng thời sinh ra <strong>một</strong>
+                    <code>POST /auth/refresh</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-filters.spec.ts</code></td>
+                  <td>Gõ nhanh chỉ phát một thay đổi sau khi lặng</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi đang xử lý cái gì?"}
+    Q0 -->|"state để hiển thị"| SIG["signal / computed<br/><i>không cần RxJS</i>"]
+    Q0 -->|"một việc theo thời gian"| Q1{"Mỗi giá trị mới sinh ra<br/>một việc mới?"}
+
+    Q1 -->|"không, chỉ biến đổi"| MAP["map · tap · filter"]
+    Q1 -->|"có"| Q2{"Việc đang chạy thì sao?"}
+
+    Q2 -->|"bỏ đi, chỉ cần cái mới nhất"| SW["switchMap<br/>tìm kiếm · đổi trang"]
+    Q2 -->|"cái nào cũng phải xong"| MG["mergeMap<br/>song song"]
+    Q2 -->|"phải đúng thứ tự"| CC["concatMap<br/>xếp hàng"]
+    Q2 -->|"bỏ qua cái mới"| EX["exhaustMap<br/>chống bấm hai lần"]
+
+    Q0 -->|"lỗi"| ERR{"Luồng này sống lâu dài?"}
+    ERR -->|"có"| IN["catchError Ở TRONG luồng con<br/>return EMPTY"]
+    ERR -->|"không"| OUT["catchError ở đâu cũng được"]
+
+    Q0 -->|"nhiều người cùng cần một lần chạy"| SH["shareReplay<br/>refCount: false nếu không được bỏ dở"]
+    Q0 -->|"chờ người dùng ngừng gõ"| DB["debounceTime + distinctUntilChanged<br/>đặt cạnh bàn phím"]
+            </pre>
+            <figcaption>
+              Nhánh đầu tiên là nhánh quan trọng nhất: phần lớn thứ bạn định viết bằng RxJS
+              thật ra là state, và state thuộc về signal. RxJS chỉ vào cuộc khi có
+              <em>thời gian</em> hoặc <em>huỷ bỏ</em> trong bài toán.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh Observable là cold</h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>customer-list-page.ts</code>, thêm vào <code>refresh()</code>:
+                <div class="code">
+                  <pre><code>const once$ = this.store.exportCsv(this.criteria());
+once$.subscribe();
+once$.subscribe();</code></pre>
+                </div>
+              </li>
+              <li>Mở Network tab, bấm Refresh, đếm số request tới <code>/export</code>.</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                <strong>Hai</strong> request. Observable không phải kết quả, nó là công
+                thức. Đây là lý do mọi chỗ trong repo chỉ subscribe một lần, và dữ liệu
+                được chia sẻ qua store chứ không qua việc subscribe lại.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đổi <code>switchMap</code> thành <code>mergeMap</code> và nhìn race</h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>customer-store.ts</code>, đổi
+                <code>switchMap((criteria) =&gt; this.fetchList(criteria))</code> thành
+                <code>mergeMap(...)</code> (nhớ import).
+              </li>
+              <li>
+                DevTools → Network → bật throttling "Slow 4G" để response về chậm và lệch
+                nhau.
+              </li>
+              <li>Gõ nhanh vào ô tìm kiếm một từ dài, rồi xoá hết.</li>
+              <li>So sánh chữ trong ô tìm kiếm với kết quả trong bảng.</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Có lúc bảng hiện kết quả <em>không khớp</em> với chữ đang có trong ô tìm
+                kiếm — kết quả của một truy vấn cũ về sau và ghi đè. Với
+                <code>switchMap</code>, điều này không xảy ra được vì request cũ đã bị
+                abort.
+              </p>
+              <p>
+                Lưu ý nó không xảy ra <em>mỗi lần</em>. Đó là đặc điểm của race condition,
+                và là lý do nó sống sót qua test thủ công rồi mới nổ trên production.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Đọc một pipeline và trả lời ba câu</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <p>Mở <code>customers/data/request-policy.ts</code>. Với <code>withReadPolicy</code>:</p>
+            <ol>
+              <li>
+                Server trả 500 ba lần liên tiếp. Có bao nhiêu request được gửi? Người gọi
+                nhận gì, sau bao lâu?
+              </li>
+              <li>
+                Server trả 409 ngay lần đầu. Có bao nhiêu request? Vì sao khác câu 1?
+              </li>
+              <li>
+                Mạng rớt, rồi phục hồi sau 300ms. Chuyện gì xảy ra?
+              </li>
+              <li>
+                Vì sao <code>timeout</code> được đặt <em>trước</em> <code>retry</code> trong
+                <code>pipe</code>, chứ không phải sau?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  Một request. 500 được map thành <code>kind: 'server'</code>, mà
+                  <code>isTransient</code> chỉ nhận <code>network</code> và
+                  <code>timeout</code> — nên <code>delay</code> ném lỗi và retry dừng ngay.
+                  Người gọi nhận <code>AppError</code> loại <code>server</code> gần như tức
+                  thì.
+                </li>
+                <li>
+                  Cũng một request, cùng lý do. Và đây là chủ ý: một xung đột sẽ lại xung
+                  đột, nên thử lại chỉ làm người dùng chờ lâu hơn để nhận cùng một câu trả
+                  lời.
+                </li>
+                <li>
+                  Request đầu lỗi <code>network</code> → tạm thời → chờ 200ms → thử lại.
+                  Nếu mạng đã phục hồi, lần hai thành công và người dùng không thấy gì cả.
+                  Nếu chưa, chờ 400ms rồi thử lần ba.
+                </li>
+                <li>
+                  Vì <code>pipe</code> áp từ trên xuống: <code>timeout</code> bọc
+                  <em>nguồn</em>, rồi <code>retry</code> bọc cả cụm đó. Nhờ vậy mỗi lần thử
+                  lại chạy <code>timeout</code> mới — ngân sách riêng, như chú thích nói.
+                  Đảo lại thì ba lần thử chia nhau một ngân sách 10 giây.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Viết một pipeline từ đầu</h3>
+            <p class="task__meta">~45 phút · branch <code>learning/*</code></p>
+            <p>
+              Viết một hàm nhận một <code>Observable&lt;string&gt;</code> (chuỗi người dùng
+              gõ) và trả về <code>Observable&lt;Customer[]&gt;</code>, với các yêu cầu:
+            </p>
+            <ul>
+              <li>Chờ 300ms im lặng mới gọi API.</li>
+              <li>Bỏ qua nếu chuỗi không đổi.</li>
+              <li>Bỏ qua chuỗi ngắn hơn 2 ký tự — trả về mảng rỗng.</li>
+              <li>Mỗi lần gõ mới huỷ request cũ.</li>
+              <li>Lỗi không được giết luồng: trả mảng rỗng và ghi log.</li>
+            </ul>
+            <p>Viết test cho hai tình huống: gõ nhanh ba lần, và API lỗi một lần rồi ổn.</p>
+            <details>
+              <summary>Khung đáp án, và chỗ dễ sai</summary>
+              <div class="code">
+                <pre><code>function searchCustomers(
+  terms$: Observable&lt;string&gt;,
+  api: CustomerApi,
+  logger: Logger,
+): Observable&lt;readonly Customer[]&gt; {
+  return terms$.pipe(
+    debounceTime(300),
+    distinctUntilChanged(),
+    switchMap((term) =&gt; {
+      if (term.trim().length &lt; 2) {
+        return of([]);          // không gọi API
+      }
+      return api.list(criteriaFor(term)).pipe(
+        map((page) =&gt; page.items),
+        catchError((error: unknown) =&gt; {   // ← BÊN TRONG switchMap
+          logger.error('Customer search failed', { … });
+          return of([]);
+        }),
+      );
+    }),
+  );
+}</code></pre>
+              </div>
+              <p>
+                <strong>Chỗ dễ sai nhất:</strong> đặt <code>catchError</code> sau
+                <code>switchMap</code> thay vì bên trong. Khi đó lỗi đầu tiên giết cả luồng
+                và ô tìm kiếm ngừng hoạt động vĩnh viễn — đúng cái bẫy ở mục 3.5.
+              </p>
+              <p>
+                <strong>Chỗ dễ sai thứ hai:</strong> lọc chuỗi ngắn bằng
+                <code>filter(t =&gt; t.length &gt;= 2)</code>. Nghe hợp lý, nhưng khi người
+                dùng xoá bớt chữ còn một ký tự, luồng không phát gì cả — kết quả của truy
+                vấn dài trước đó <em>ở lại trên màn hình</em>. <code>of([])</code> thì xoá
+                đi, đó mới là điều người dùng mong đợi.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Điều gì xảy ra khi bạn tạo một Observable HTTP nhưng không subscribe?</summary>
+            <p>
+              Không có gì. Không request nào được gửi, không lỗi nào được báo. Observable là
+              mô tả, <code>subscribe()</code> mới là lệnh chạy.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao subscribe hai lần là hai request?</summary>
+            <p>
+              Vì Observable của HttpClient là <strong>cold</strong>: mỗi subscribe chạy lại
+              công thức từ đầu. Muốn chia sẻ một lần chạy thì phải nói ra —
+              <code>shareReplay</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Bốn toán tử làm phẳng khác nhau ở đâu?</summary>
+            <p>
+              Ở việc làm gì với Observable <em>đang chạy</em> khi có giá trị mới:
+              <code>switchMap</code> huỷ nó, <code>mergeMap</code> để chạy song song,
+              <code>concatMap</code> xếp hàng chờ, <code>exhaustMap</code> bỏ qua giá trị
+              mới. Tìm kiếm cần <code>switchMap</code>; nút Lưu cần
+              <code>exhaustMap</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao <code>catchError</code> phải nằm bên trong <code>switchMap</code>?</summary>
+            <p>
+              Vì lỗi là một <em>kết thúc</em>. Để nó lan ra pipeline ngoài thì subscription
+              sống lâu dài chết, và từ đó mọi giá trị đẩy vào <code>Subject</code> rơi vào
+              hư không — store im lặng vĩnh viễn, không báo lỗi.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>refCount: false</code> trong <code>shareReplay</code> để làm gì?</summary>
+            <p>
+              Để luồng <strong>không bị huỷ</strong> khi người nghe cuối cùng rời đi. Cần
+              thiết cho refresh token: server xoay token ngay khi nhận request, nên bỏ dở
+              response sẽ để trình duyệt giữ một token đã tiêu.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao lệnh ghi không bao giờ được retry tự động?</summary>
+            <p>
+              Vì "mất kết nối" và "server đã xử lý nhưng response mất" trông giống hệt nhau
+              từ phía client. Thử lại một lệnh tạo là tạo hai bản ghi.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Debounce và <code>switchMap</code> có thay thế nhau được không?</summary>
+            <p>
+              Không. Debounce giảm số request <em>được tạo ra</em>;
+              <code>switchMap</code> huỷ cái <em>đã tạo</em>. Khi mạng chậm hơn khoảng
+              debounce, request vẫn chồng nhau — và lúc đó chỉ <code>switchMap</code> cứu
+              được.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Khi nào dùng signal, khi nào dùng Observable?</summary>
+            <p>
+              Signal cho state có "giá trị hiện tại" và cần hiển thị. Observable khi bài
+              toán có <strong>thời gian</strong> (chờ, timeout, backoff) hoặc
+              <strong>huỷ bỏ</strong> trong đó. Trong repo, ranh giới này rơi đúng vào biên
+              giữa store và tầng hiển thị.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 08 dùng ngay những thứ vừa học: <code>HttpClient</code> thật, và câu hỏi
+              "làm sao biết thứ server trả về đúng là thứ mình nghĩ" — câu trả lời là
+              contract Zod, và nó là một trong những phần đáng mang đi nhất của repo này.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="06-css-trong-angular.html">← Bài 06</a></span>
+            <span><a href="08-httpclient-va-contract.html">Bài 08 — HttpClient + contract Zod →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">RxJS ở đâu</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

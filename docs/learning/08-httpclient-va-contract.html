@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 08 — HttpClient + contract Zod</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 08
+        </p>
+        <h1>HttpClient + contract Zod</h1>
+        <p class="lede">
+          Gọi HTTP trong Angular mất năm phút để học. Bài này dành phần lớn thời gian cho
+          câu hỏi khó hơn: <strong>làm sao biết thứ server trả về đúng là thứ bạn nghĩ?</strong>
+          TypeScript không trả lời được câu đó — generic biến mất lúc chạy. Câu trả lời của
+          repo là một gói contract dùng chung, và nó là thứ đáng mang đi nhất chặng này.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · hướng tới Mốc 2</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Type erasure</strong></td>
+                  <td>
+                    Kiểu của TypeScript bị xoá khi biên dịch sang JavaScript. Lúc chạy
+                    không còn gì để kiểm tra.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Schema</strong></td>
+                  <td>
+                    Mô tả hình dạng dữ liệu <em>tồn tại lúc chạy</em>. Ở đây viết bằng Zod.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>parse</code> / <code>safeParse</code></td>
+                  <td>
+                    Kiểm tra một giá trị theo schema. <code>parse</code> ném lỗi;
+                    <code>safeParse</code> trả về <code>{ success, data | error }</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>z.infer</code></td>
+                  <td>
+                    Lấy kiểu TypeScript <em>ra từ</em> schema. Một nguồn sự thật, không
+                    phải hai.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Branded type</strong></td>
+                  <td>
+                    Một kiểu nguyên thuỷ được "đóng dấu" để trình biên dịch không cho lẫn
+                    nó với kiểu khác: <code>CustomerId</code> không gán được vào chỗ cần
+                    <code>UserId</code>, dù cả hai là string.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>strictObject</code></td>
+                  <td>Object schema <strong>từ chối</strong> field lạ, thay vì bỏ qua.</td>
+                </tr>
+                <tr>
+                  <td><strong>DTO</strong></td>
+                  <td>
+                    Hình dạng dữ liệu trên dây. Ở đây DTO không được viết tay — nó được suy
+                    ra từ schema.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpParams</code></td>
+                  <td>
+                    Cấu trúc bất biến để dựng query string, tự encode. Mỗi
+                    <code>.set()</code> trả về một đối tượng mới.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>observe: 'events'</code></td>
+                  <td>
+                    Yêu cầu HttpClient phát cả các sự kiện trung gian (tiến độ tải lên)
+                    chứ không chỉ body.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Contract package</strong></td>
+                  <td>
+                    <code>packages/contracts</code>: một thư viện riêng mà
+                    <em>cả</em> ứng dụng lẫn mock API cùng phụ thuộc vào.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Viết một lời gọi API mới theo đúng khuôn của repo.</li>
+            <li>
+              Giải thích được vì sao <code>http.get&lt;Customer&gt;()</code> là một lời hứa
+              không ai kiểm, và cái gì thay thế nó.
+            </li>
+            <li>Đọc một schema Zod và nói được nó cho phép gì, chặn gì.</li>
+            <li>
+              Biết vì sao <code>CustomerId</code> và <code>UserId</code> không thay nhau
+              được, dù cả hai là chuỗi.
+            </li>
+            <li>
+              Nói được một response 200 với body sai hợp đồng thì ai chịu trách nhiệm, và
+              người dùng thấy gì.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Jackson / Gson deserialize vào một class DTO</td>
+                  <td><code>schema.safeParse(body)</code></td>
+                  <td>
+                    Jackson <em>có</em> kiểm tra lúc chạy, vì JVM giữ thông tin kiểu.
+                    TypeScript thì không giữ gì cả — nên việc kiểm phải viết ra, và Zod là
+                    chỗ viết.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bean Validation (<code>@NotNull</code>, <code>@Email</code>)</td>
+                  <td>Ràng buộc trong schema (<code>z.email()</code>, <code>.max(254)</code>)</td>
+                  <td>
+                    Rất gần. Khác ở chỗ cùng một schema vừa validate vừa
+                    <em>sinh ra kiểu</em>, nên không có cách nào để chúng lệch nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Một module <code>*-api-contract</code> dùng chung giữa service</td>
+                  <td><code>packages/contracts</code></td>
+                  <td>
+                    Đúng ý tưởng đó. Khác ở chỗ ở đây một bên là
+                    <em>trình duyệt của người lạ</em>, nên contract là lời hứa chứ không
+                    phải đảm bảo — xem mục 3.8.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Generic của Java bị xoá kiểu</td>
+                  <td>Generic của TypeScript cũng vậy</td>
+                  <td>
+                    Bạn đã quen chuyện này với <code>List&lt;String&gt;</code>. Ở đây nó
+                    nghiêm trọng hơn: <code>http.get&lt;Customer&gt;()</code> trông như
+                    một bảo đảm nhưng không kiểm tra một byte nào.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 <code>HttpClient</code>: những gì bạn cần</h3>
+
+          <div class="code">
+            <div class="code__file">tổng hợp từ customer.api.ts</div>
+            <pre><code>// GET có query param
+this.http.get&lt;unknown&gt;(this.baseUrl, { params: toHttpParams(criteria) });
+
+// GET một bản ghi
+this.http.get&lt;unknown&gt;(`${this.baseUrl}/${encodeURIComponent(id)}`);
+
+// POST
+this.http.post&lt;unknown&gt;(this.baseUrl, input);
+
+// PATCH
+this.http.patch&lt;unknown&gt;(`${this.baseUrl}/${encodeURIComponent(id)}`, input);
+
+// DELETE
+this.http.delete&lt;unknown&gt;(`${this.baseUrl}/${encodeURIComponent(id)}`);
+
+// Tải file, kèm tiến độ
+this.http.get(`${this.baseUrl}/export`, {
+  params: toHttpParams(criteria),
+  observe: 'events',
+  reportProgress: true,
+  responseType: 'blob',
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>encodeURIComponent(id)</code></td>
+                  <td>
+                    Id đi vào <em>đường dẫn</em>, nên phải tự encode. Một id chứa
+                    <code>/</code> mà không encode sẽ gọi nhầm endpoint.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>{ params }</code></td>
+                  <td>
+                    Query string. HttpClient tự encode — không bao giờ tự nối chuỗi vào URL.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>observe: 'events'</code></td>
+                  <td>
+                    Mặc định HttpClient chỉ phát body. <code>'events'</code> phát cả tiến
+                    độ — cần cho upload và download lớn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>responseType: 'blob'</code></td>
+                  <td>Không parse JSON; trả về dữ liệu nhị phân.</td>
+                </tr>
+                <tr>
+                  <td>Không có <code>await</code></td>
+                  <td>
+                    Mọi hàm trả về Observable, chưa chạy. Bài 07.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4><code>HttpParams</code> là bất biến</h4>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer.api.ts</div>
+            <pre><code>function toHttpParams(criteria: CustomerListCriteria): HttpParams {
+  let params = new HttpParams()
+    .set('page', criteria.page)
+    .set('size', criteria.size)
+    .set('sort', criteria.sort);
+
+  const optional: Record&lt;string, string&gt; = {
+    search: criteria.search,
+    status: criteria.status,
+    // …
+  };
+
+  for (const [key, value] of Object.entries(optional)) {
+    if (value) {
+      params = params.set(key, value);
+    }
+  }
+
+  return params;
+}</code></pre>
+          </div>
+
+          <p>
+            Chú ý <code>params = params.set(...)</code>: mỗi <code>set</code> trả về một
+            <strong>đối tượng mới</strong>. Viết <code>params.set(...)</code> mà không gán
+            lại là một lỗi im lặng — tham số đơn giản không xuất hiện.
+          </p>
+
+          <p>
+            Và một quyết định nhỏ đáng đọc: <code>page</code> và <code>size</code> luôn
+            được gửi, kể cả khi trùng mặc định. Lý do trong chú thích: dựa vào mặc định của
+            server nghĩa là client và server mỗi bên có ý kiến riêng về cỡ trang — và chúng
+            sẽ đồng ý cho tới ngày một bên đổi.
+          </p>
+
+          <h3>3.2 Generic là lời hứa, không phải kiểm tra</h3>
+
+          <div class="code">
+            <div class="code__file">hai dòng này biên dịch ra JavaScript giống hệt nhau</div>
+            <pre><code>this.http.get&lt;Customer&gt;('/api/customers/1');
+this.http.get&lt;unknown&gt;('/api/customers/1');</code></pre>
+          </div>
+
+          <p>
+            Generic bị xoá. Lúc chạy, <code>HttpClient</code> nhận JSON, gọi
+            <code>JSON.parse</code>, và trả về <em>bất cứ thứ gì</em> có trong body. Nếu
+            server trả thiếu <code>email</code>, TypeScript vẫn tin rằng
+            <code>customer.email</code> là <code>string</code>, và lỗi sẽ nổ ở một template
+            ba tầng sau với thông báo chẳng liên quan gì tới nguyên nhân.
+          </p>
+
+          <p>
+            Vì vậy repo khai <code>&lt;unknown&gt;</code> — nói thật rằng chưa biết gì — rồi
+            dựng sự thật bằng một phép kiểm tra <em>thật</em>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer.api.ts</div>
+            <pre><code>function parseWith&lt;S extends z.ZodType&gt;(schema: S): (body: unknown) =&gt; z.output&lt;S&gt; {
+  return (body) =&gt; {
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      throw appError('server', { messageKey: 'errors.server', cause: parsed.error });
+    }
+    return parsed.data;
+  };
+}</code></pre>
+          </div>
+
+          <p>
+            Sau <code>parseWith</code>, kiểu <code>Customer</code> không còn là lời hứa — nó
+            là kết luận của một phép kiểm tra vừa chạy.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Một 200 sai hợp đồng là lỗi của <em>server</em></span>
+            <p>
+              Chú thích trong file nói rõ: người dùng không làm gì sai và không sửa được gì,
+              nên nó được phân loại <code>server</code> — cùng loại với 500. Hệ quả cụ thể:
+              nó được ghi log ở mức <code>error</code> (bài 09), nó
+              <em>được</em> retry như một lỗi tạm thời? Không — <code>server</code> không
+              nằm trong danh sách tạm thời (bài 07 mục 3.8), nên nó tới người dùng ngay dưới
+              dạng "đã có lỗi xảy ra", kèm correlation id để tra.
+            </p>
+          </div>
+
+          <h3>3.3 Schema là nguồn, kiểu là hệ quả</h3>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/customer.ts</div>
+            <pre><code>export const customerSchema = z.object({
+  id: customerIdSchema,
+  customerCode: customerCodeSchema,
+  fullName: z.string().min(1).max(150),
+  email: z.email().max(254),
+  phone: z.string().max(32).nullable(),
+  dateOfBirth: dateOnlySchema.nullable(),
+  gender: genderSchema,
+  status: customerStatusSchema,
+  address: addressSchema.nullable(),
+  avatarUrl: z.string().max(500).nullable(),
+  tags: z.array(z.string().min(1).max(40)).max(20),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  createdBy: userIdSchema,
+  updatedBy: userIdSchema,
+  /** Optimistic-concurrency token. See docs/mock-backend.md. */
+  version: versionSchema,
+});
+export type Customer = z.infer&lt;typeof customerSchema&gt;;</code></pre>
+          </div>
+
+          <p>
+            Dòng cuối là cả ý tưởng: kiểu <code>Customer</code>
+            <strong>không được viết tay</strong>. Nó được suy ra từ schema. Thêm một field
+            vào schema thì kiểu tự có; đổi <code>nullable</code> thành bắt buộc thì mọi chỗ
+            dùng sai sẽ không biên dịch được.
+          </p>
+
+          <p>
+            Hướng ngược lại — viết interface trước rồi viết validator riêng — là cách hai
+            thứ lệch nhau: validator cho phép <code>null</code> mà interface nói
+            <code>string</code>, và không ai phát hiện cho tới lúc chạy.
+          </p>
+
+          <h3>3.4 Branded type: khi hai chuỗi không được lẫn nhau</h3>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/primitives.ts</div>
+            <pre><code>export const instantSchema = z.iso.datetime({ offset: false }).brand&lt;'Instant'&gt;();
+export type Instant = z.infer&lt;typeof instantSchema&gt;;
+
+export const dateOnlySchema = z.iso.date().brand&lt;'DateOnly'&gt;();
+export type DateOnly = z.infer&lt;typeof dateOnlySchema&gt;;
+
+export const customerIdSchema = z.uuid().brand&lt;'CustomerId'&gt;();
+export const userIdSchema = z.uuid().brand&lt;'UserId'&gt;();</code></pre>
+          </div>
+
+          <p>
+            Cả bốn đều là <code>string</code> lúc chạy. <code>.brand&lt;'X'&gt;()</code>
+            thêm một dấu chỉ tồn tại trong hệ thống kiểu, nên:
+          </p>
+
+          <div class="code">
+            <pre><code>const id: CustomerId = someUserId;   // lỗi biên dịch
+const d: DateOnly = customer.createdAt;  // lỗi biên dịch: Instant ≠ DateOnly
+const raw: CustomerId = 'abc';       // lỗi biên dịch: chuỗi thường không phải CustomerId</code></pre>
+          </div>
+
+          <p>
+            Dòng thứ ba là điều quan trọng nhất: <strong>cách duy nhất để có một
+            <code>CustomerId</code> là đi qua schema</strong>. Kiểu trở thành bằng chứng
+            rằng giá trị đã được kiểm.
+          </p>
+
+          <div class="box box--backend">
+            <span class="box__label">Vì sao <code>Instant</code> và <code>DateOnly</code> phải tách</span>
+            <p>
+              Chú thích trong file: <em>"a birthday does not move when the viewer does."</em>
+              Một thời điểm (<code>createdAt</code>) là một điểm trên trục thời gian toàn
+              cầu và phải hiển thị theo giờ của người xem. Một ngày lịch
+              (<code>dateOfBirth</code>) <strong>không phải</strong> — nó là
+              <code>1990-01-01</code> ở mọi nơi trên trái đất.
+            </p>
+            <p>
+              Trộn hai thứ này là bug kinh điển: đưa <code>dateOfBirth</code> qua một
+              <code>new Date()</code> rồi format theo múi giờ, và với người dùng ở phía tây
+              UTC, sinh nhật lùi lại một ngày. Branded type làm trình biên dịch chặn trước
+              khi chuyện đó xảy ra.
+            </p>
+          </div>
+
+          <h3>3.5 Request và response là hai schema khác nhau</h3>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/customer.ts</div>
+            <pre><code>/**
+ * Create payload.
+ *
+ * Everything the server owns is absent: id, code, timestamps, actors, version.
+ * A client that could set `createdBy` could forge an audit trail.
+ */
+export const createCustomerRequestSchema = z.strictObject({
+  fullName: z.string().min(1).max(150),
+  email: z.email().max(254),
+  phone: z.string().max(32).nullable().default(null),
+  gender: genderSchema.default('UNSPECIFIED'),
+  status: customerStatusSchema.default('PROSPECT'),
+  tags: z.array(z.string().min(1).max(40)).max(20).default([]),
+  // … không có id, customerCode, createdAt, createdBy, version
+});
+
+/**
+ * Update payload - a partial, plus the version the client last saw.
+ */
+export const updateCustomerRequestSchema = z.strictObject({
+  fullName: z.string().min(1).max(150).optional(),
+  email: z.email().max(254).optional(),
+  // … mọi field đều optional
+  version: versionSchema,          // ← bắt buộc
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Create không có <code>id</code>, <code>createdBy</code>, <code>version</code></td>
+                  <td>
+                    "Một client đặt được <code>createdBy</code> là một client giả mạo được
+                    nhật ký kiểm toán." Server sở hữu những field đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Update có <strong>mọi</strong> field optional…</td>
+                  <td>Vì PATCH gửi phần đã đổi, không gửi cả bản ghi.</td>
+                </tr>
+                <tr>
+                  <td>…nhưng <code>version</code> bắt buộc</td>
+                  <td>
+                    "Một update không nói nó dựa trên gì thì không kiểm được độ cũ, và ghi
+                    đè âm thầm lên sửa đổi của đồng nghiệp chính là thứ cơ chế này tồn tại
+                    để ngăn." Bài 18.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>strictObject</code></td>
+                  <td>
+                    Field lạ bị <em>từ chối</em>. Gửi dư một field là một lỗi lập trình, và
+                    nó nên nổ ngay.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>.default(null)</code>, <code>.default('PROSPECT')</code></td>
+                  <td>
+                    Mặc định nằm trong hợp đồng, nên client và server không cần thoả thuận
+                    riêng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.6 Một gói, hai người dùng</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    C["packages/contracts<br/>customerSchema · primitives · pagination · errors"]
+    W["apps/web<br/>CustomerApi: safeParse response"] --> C
+    A["apps/mock-api<br/>validate request + dựng response"] --> C
+    T["testing/customers.ts<br/>aCustomer() · aPage()"] -.-> C
+    W -.->|"dùng fixture trong test"| T
+    A -.->|"dùng fixture để seed"| T
+            </pre>
+            <figcaption>
+              Cùng một schema kiểm cả hai đầu dây. Nếu mock API trả thiếu một field, ứng
+              dụng <em>không</em> lặng lẽ chấp nhận — và nếu ai đó đổi schema, cả hai bên
+              đều không biên dịch được cho tới khi sửa xong.
+            </figcaption>
+          </figure>
+
+          <p>
+            <code>packages/contracts</code> là một thư viện <strong>được biên dịch</strong>
+            (ADR-0008), và <code>dist/</code> không được track trong git. Hệ quả thực tế bạn
+            sẽ gặp: sau khi đổi branch hoặc sửa contract, phải chạy
+            <code>npm run build:contracts</code>, nếu không sẽ thấy
+            <code>does not provide an export named '…'</code>. Lệnh
+            <code>npm start</code> và <code>start:api</code>
+            <strong>không</strong> build nó.
+          </p>
+
+          <h3>3.7 Pagination: hợp đồng chung cho mọi danh sách</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer.api.ts</div>
+            <pre><code>/** Built once: constructing a schema per request is measurable at 50,000 rows. */
+const customerPageSchema = pageResponseSchema(customerSchema);
+
+list(criteria: CustomerListCriteria): Observable&lt;PageResponse&lt;Customer&gt;&gt; {
+  return this.http
+    .get&lt;unknown&gt;(this.baseUrl, { params: toHttpParams(criteria) })
+    .pipe(withReadPolicy(), map(parseWith(customerPageSchema)));
+}</code></pre>
+          </div>
+
+          <p>
+            <code>pageResponseSchema</code> là một <strong>hàm</strong> nhận schema của một
+            phần tử và trả về schema của một trang chứa nó. Nhờ vậy mọi danh sách trong hệ
+            thống có cùng hình dạng — <code>items</code>, <code>totalItems</code>,
+            <code>totalPages</code> — và cùng một kiểu generic
+            <code>PageResponse&lt;T&gt;</code>.
+          </p>
+
+          <p>
+            Dòng chú thích phía trên cũng đáng chú ý: schema được dựng
+            <strong>một lần ở cấp module</strong>, không phải mỗi request. Với 50.000 dòng
+            thì chênh lệch đo được. Đây là loại tối ưu chỉ nên làm khi có số đo — và repo có.
+          </p>
+
+          <h3>3.8 Một hợp đồng chỉ là lời hứa, không phải đảm bảo</h3>
+
+          <p>
+            Contract dùng chung khiến client và server khó lệch nhau. Nó
+            <strong>không</strong> khiến client trở thành đáng tin. Người dùng sửa được
+            JavaScript, gọi API bằng curl, gửi bất cứ body nào họ muốn.
+          </p>
+
+          <p>
+            Vì vậy mock API validate <strong>độc lập</strong> bằng chính schema đó, ở phía
+            nó. Hai lần validate cho hai mục đích khác nhau:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phía</th>
+                  <th>Validate để làm gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Client (<code>parseWith</code> trên response)</td>
+                  <td>
+                    Phát hiện <em>server</em> sai hợp đồng, sớm và ở đúng chỗ. Đây là
+                    chuyện chất lượng, không phải bảo mật.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Server (validate request)</td>
+                  <td>
+                    Đây mới là <strong>biên bảo mật</strong>. Không có gì từ trình duyệt
+                    được tin.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: từ nhỏ tới lớn</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/api/health.api.ts</code></td>
+                  <td>
+                    <strong>Bản rút gọn, 16 dòng.</strong> Ba nguyên tắc: base URL từ cấu
+                    hình, validate response, lỗi rời đi dưới dạng <code>AppError</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/primitives.ts</code></td>
+                  <td>Branded type, và vì sao hai loại "ngày" phải tách</td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/customer.ts</code></td>
+                  <td>
+                    Schema đầy đủ, request khác response, <code>strictObject</code>, mặc
+                    định nằm trong hợp đồng
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/pagination.ts</code></td>
+                  <td>Schema nhận schema — hợp đồng chung cho mọi danh sách</td>
+                </tr>
+                <tr>
+                  <td><code>customers/data/customer.api.ts</code></td>
+                  <td>
+                    <strong>Bản đầy đủ.</strong> Mười một endpoint, policy theo nhóm, upload
+                    có tiến độ, và một endpoint "giả" đáng đọc — mục dưới
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một endpoint không tồn tại, và cách repo xử lý</span>
+            <p>
+              Form cần biết một email đã có người dùng chưa. Không có endpoint
+              <code>/customers/email-available</code>, và chú thích nói rõ vì sao không tạo:
+              <em>"inventing one for the mock would be inventing a backend feature to make a
+              frontend exercise easier."</em>
+            </p>
+            <p>
+              Giải pháp: dùng endpoint danh sách có sẵn, xin một dòng, rồi
+              <strong>so sánh chính xác</strong> ở client — vì tìm kiếm là so khớp chuỗi
+              con, nên <code>an@example.test</code> sẽ bị báo là đã dùng bởi
+              <code>an@example.test.vn</code>. Đó là loại chi tiết phân biệt code chạy được
+              với code đúng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant S as Store
+    participant A as CustomerApi
+    participant P as request-policy
+    participant H as HttpClient
+    participant Z as Zod schema
+    S->>A: list(criteria)
+    A->>A: toHttpParams(criteria)
+    A->>P: withReadPolicy()
+    P->>H: GET /api/customers?page=2
+    H-->>P: body: unknown
+    P-->>A: body: unknown
+    A->>Z: safeParse(body)
+    alt hợp lệ
+        Z-->>A: data: PageResponse&lt;Customer&gt;
+        A-->>S: giá trị đã kiểm
+    else sai hợp đồng
+        Z-->>A: error
+        A->>A: throw appError('server')
+        A-->>S: AppError
+    end
+            </pre>
+            <figcaption>
+              Kiểu <code>PageResponse&lt;Customer&gt;</code> chỉ xuất hiện
+              <strong>sau</strong> bước 8. Trước đó mọi thứ là <code>unknown</code>, và đó
+              là sự thật — không phải sự thận trọng thừa.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Không ánh xạ DTO sang model riêng — ADR-0014</h4>
+          <p>
+            Phương án bị loại: một lớp "domain model" riêng, với mapper từ DTO sang nó. Bị
+            loại vì ở quy mô này mapper chỉ sao chép field, và mỗi field mới phải sửa bốn
+            chỗ. Giá phải trả, và repo nhận nó công khai: kiểu của tầng hiển thị
+            <em>chính là</em> hình dạng trên dây, nên một thay đổi của API lan tới template.
+            ADR ghi điều kiện đổi ý: khi DTO và thứ UI cần thật sự khác nhau.
+          </p>
+
+          <h4>Contract là package biên dịch, không phải file copy — ADR-0008</h4>
+          <p>
+            Phương án bị loại: mỗi bên tự khai type của mình. Bị loại vì hai bản định nghĩa
+            sẽ lệch, và lệch âm thầm. Giá phải trả: một bước build mà người mới clone luôn
+            quên.
+          </p>
+
+          <h4>Validate response ở client, dù đã validate ở server</h4>
+          <p>
+            Phương án bị loại: tin server. Bị loại vì "tin" ở đây nghĩa là một lỗi của
+            server biểu hiện thành <code>undefined is not an object</code> trong một
+            template — xa nguyên nhân ba tầng. Giá phải trả: một lần parse mỗi response, và
+            một schema phải giữ đúng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Tin <code>http.get&lt;Customer&gt;()</code></span>
+            <p>
+              Không có gì kiểm tra. Server trả thiếu một field thì lỗi nổ ở template, với
+              thông báo không liên quan tới nguyên nhân, và stack trace trỏ vào code
+              Angular chứ không vào API.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Viết interface tay rồi viết validator riêng</span>
+            <p>
+              Hai nguồn sự thật. Chúng sẽ lệch ở lần sửa thứ ba, và bên lệch là bên không có
+              test. Luôn <code>z.infer</code> kiểu <em>ra từ</em> schema.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Quên gán lại <code>HttpParams</code></span>
+            <div class="code">
+              <pre><code>params.set('search', term);        // SAI - kết quả bị vứt
+params = params.set('search', term); // đúng</code></pre>
+            </div>
+            <p>Tham số không xuất hiện, không lỗi nào được báo, và server trả về cả danh sách.</p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Nối chuỗi vào URL thay vì dùng <code>params</code></span>
+            <p>
+              <code>`${url}?search=${term}`</code> — một dấu <code>&amp;</code> hay một dấu
+              cách trong tên khách hàng sẽ phá query string. HttpClient encode đúng; bạn thì
+              sẽ quên một trường hợp.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Dùng <code>Date</code> cho <code>dateOfBirth</code></span>
+            <p>
+              <code>new Date('1990-01-01')</code> tạo một thời điểm UTC; format theo giờ địa
+              phương ở phía tây UTC cho ra <code>1989-12-31</code>. Sinh nhật lùi một ngày
+              cho một phần người dùng. Branded type <code>DateOnly</code> tồn tại để trình
+              biên dịch chặn bạn.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Quên <code>npm run build:contracts</code></span>
+            <p>
+              <code>does not provide an export named '…'</code> sau khi đổi branch hoặc sửa
+              contract. <code>dist/</code> không được track, và
+              <code>npm start</code> không build nó.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="code">
+            <div class="code__file">khuôn test một API client</div>
+            <pre><code>const http = TestBed.inject(HttpTestingController);
+const api = TestBed.inject(CustomerApi);
+
+api.list(criteria).subscribe((page) =&gt; { /* khẳng định ở đây */ });
+
+const req = http.expectOne((r) =&gt; r.url === '/api/customers');
+expect(req.request.params.get('page')).toBe('2');
+req.flush({ items: [], totalItems: 0 /* thiếu totalPages */ });
+// → người gọi nhận AppError kind 'server'</code></pre>
+          </div>
+
+          <p>
+            <code>HttpTestingController</code> chặn mọi request và để bạn quyết định server
+            trả lời gì, <strong>và khi nào</strong>. Đó là thứ làm test được cả những thứ
+            khó: body sai hợp đồng, lỗi tạm thời rồi thành công, và request bị huỷ
+            (<code>TestRequest.cancelled</code>).
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/data/customer.api.spec.ts</code></td>
+                  <td>Query param dựng đúng; body sai hợp đồng thành <code>AppError</code></td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts</code> — các spec của nó</td>
+                  <td>Schema chấp nhận đúng những gì nó phải chấp nhận, từ chối phần còn lại</td>
+                </tr>
+                <tr>
+                  <td><code>apps/mock-api</code> — spec phía server</td>
+                  <td>Cùng schema đó chặn request sai ở phía server</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    subgraph CON["packages/contracts - MỘT nguồn sự thật"]
+      SCH["schema Zod"] -->|"z.infer"| TYP["type TypeScript"]
+      SCH --> BRAND["branded: CustomerId · Instant · DateOnly"]
+    end
+
+    subgraph APP["apps/web"]
+      API["CustomerApi"] -->|"&lt;unknown&gt;"| HC["HttpClient"]
+      HC -->|"body: unknown"| PARSE["safeParse"]
+      PARSE -->|"hợp lệ"| VAL["giá trị ĐÃ KIỂM<br/>kiểu là kết luận, không phải lời hứa"]
+      PARSE -->|"sai"| ERRK["appError('server')"]
+    end
+
+    subgraph SRV["apps/mock-api"]
+      REQV["validate request<br/><b>đây mới là biên bảo mật</b>"]
+    end
+
+    SCH -.-> PARSE
+    SCH -.-> REQV
+    TYP -.-> API
+            </pre>
+            <figcaption>
+              Một schema, ba vai trò: sinh ra kiểu cho cả hai bên, kiểm response ở client
+              (chất lượng), kiểm request ở server (bảo mật). Mũi tên nét đứt là lý do hai
+              đầu dây không thể lệch nhau mà không ai biết.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh generic không kiểm tra gì</h3>
+            <p class="task__meta">~20 phút · không sửa code ứng dụng</p>
+            <ol>
+              <li>Chạy app và mock API. Vào trang danh sách.</li>
+              <li>
+                DevTools → Network → chuột phải một request
+                <code>customers?page=…</code> → "Block request URL". Nạp lại trang và quan
+                sát lỗi hiện ra.
+              </li>
+              <li>
+                Bỏ chặn. Bây giờ mở <code>apps/mock-api/src/routes/customers.routes.ts</code>,
+                tìm chỗ dựng response của danh sách, và xoá đi field
+                <code>totalPages</code> trước khi trả về.
+              </li>
+              <li>Nạp lại trang. Người dùng thấy gì? Console nói gì?</li>
+              <li><code>git checkout</code> file mock API.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và vì sao bước 3 mới là bài học</summary>
+              <p>
+                Bước 2 là một lỗi mạng bình thường — app hiện trạng thái lỗi, có nút thử
+                lại. Đó là phần dễ.
+              </p>
+              <p>
+                Bước 3 là một <strong>200 với body sai hợp đồng</strong>. Nhờ
+                <code>parseWith</code>, nó bị bắt ngay tại biên và hiện ra như một lỗi
+                server, có log mức <code>error</code>. Thử tưởng tượng nếu không có bước
+                parse: <code>totalPages</code> là <code>undefined</code>, phân trang hiện
+                "trang 2 / undefined", và bạn sẽ đi tìm bug trong component phân trang.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đọc schema và trả lời</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <p>Mở <code>packages/contracts/src/customer.ts</code>:</p>
+            <ol>
+              <li>
+                Một response có <code>"phone": null</code> — hợp lệ không? Còn
+                <code>"phone": ""</code>? Còn thiếu hẳn field <code>phone</code>?
+              </li>
+              <li>
+                <code>createCustomerRequestSchema</code> là <code>strictObject</code>. Gửi
+                thêm <code>{ "version": 3 }</code> thì sao, và vì sao thiết kế như vậy?
+              </li>
+              <li>
+                <code>tags</code> cho phép tối đa bao nhiêu phần tử, mỗi phần tử dài tối đa
+                bao nhiêu? Vì sao có giới hạn?
+              </li>
+              <li>
+                <code>customerCode</code> dùng regex <code>/^C-\d{6}$/</code> trong khi
+                <code>id</code> là uuid. Vì sao cần cả hai?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  <code>null</code> hợp lệ (<code>.nullable()</code>);
+                  <code>""</code> cũng hợp lệ (chỉ có <code>.max(32)</code>, không có
+                  <code>.min(1)</code>); <strong>thiếu hẳn</strong> thì
+                  <em>không</em> — <code>nullable</code> khác <code>optional</code>. Đây là
+                  phân biệt hay bị nhầm nhất khi đọc Zod.
+                </li>
+                <li>
+                  Bị từ chối. Thiết kế vậy vì một client gửi
+                  <code>version</code> khi tạo là một client hiểu sai hợp đồng, và im lặng
+                  bỏ qua sẽ che giấu hiểu lầm đó cho tới khi nó gây hại ở chỗ khác.
+                </li>
+                <li>
+                  Tối đa 20 tag, mỗi tag 1–40 ký tự. Giới hạn tồn tại vì không có giới hạn
+                  nghĩa là một client có thể gửi một mảng một triệu phần tử — đó là một
+                  vector từ chối dịch vụ, và nó phải được chặn trong hợp đồng chứ không
+                  phải bằng niềm tin.
+                </li>
+                <li>
+                  Chú thích trả lời: <code>id</code> là tay cầm của hệ thống,
+                  <code>customerCode</code> là thứ người ta đọc cho nhau qua điện thoại. Hệ
+                  thống enterprise gần như luôn có cả hai, và gộp chúng là một cuộc di
+                  trú người ta phải hối tiếc.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một endpoint, đầu đến cuối</h3>
+            <p class="task__meta">
+              ~75 phút · branch <code>learning/*</code> · <strong>đây chính là Mốc 2</strong>,
+              đạt sớm hơn lịch
+            </p>
+            <p>
+              Thêm <code>GET /api/customers/stats</code>: trả về số khách hàng theo từng
+              trạng thái.
+            </p>
+            <ol>
+              <li>
+                <strong>Contract trước.</strong> Thêm
+                <code>customerStatsSchema</code> vào
+                <code>packages/contracts/src/customer.ts</code> và export kiểu bằng
+                <code>z.infer</code>. Nghĩ kỹ hình dạng: một object với ba số, hay một mảng
+                <code>{ status, count }</code>? Chọn một và viết lý do.
+              </li>
+              <li><code>npm run build:contracts</code>.</li>
+              <li>
+                <strong>Server.</strong> Thêm handler trong
+                <code>apps/mock-api/src/routes/customers.routes.ts</code>, dựng response
+                theo đúng schema.
+              </li>
+              <li>
+                <strong>Client.</strong> Thêm <code>stats()</code> vào
+                <code>CustomerApi</code> theo đúng khuôn: <code>&lt;unknown&gt;</code>,
+                <code>withReadPolicy()</code>, <code>parseWith</code>.
+              </li>
+              <li>
+                <strong>Test.</strong> Một spec với <code>HttpTestingController</code>:
+                đường dẫn đúng, và body sai hợp đồng thành <code>AppError</code> loại
+                <code>server</code>.
+              </li>
+              <li><code>npm run lint</code>, <code>typecheck</code>, <code>test</code> sạch.</li>
+            </ol>
+            <details>
+              <summary>Bốn câu hỏi để tự chấm, và một gợi ý</summary>
+              <ol>
+                <li>
+                  Bạn có viết <code>interface CustomerStats</code> bằng tay không? Nếu có —
+                  sửa lại thành <code>z.infer</code>. Một nguồn sự thật.
+                </li>
+                <li>
+                  Bạn có khai <code>http.get&lt;CustomerStats&gt;</code> không? Phải là
+                  <code>&lt;unknown&gt;</code>.
+                </li>
+                <li>
+                  Bạn chọn <code>withReadPolicy</code> hay <code>withWritePolicy</code>?
+                  Đây là GET, nên read — và nếu bạn phải dừng lại nghĩ, đó chính là tác
+                  dụng của việc đặt tên theo ý định.
+                </li>
+                <li>
+                  Test của bạn có kiểm trường hợp body <em>sai</em> không? Chỉ kiểm trường
+                  hợp đúng là bỏ qua đúng phần mà <code>parseWith</code> tồn tại vì nó.
+                </li>
+              </ol>
+              <p>
+                <strong>Gợi ý về hình dạng:</strong> mảng
+                <code>{ status, count }</code> mở rộng được khi thêm một trạng thái mới mà
+                không đổi kiểu; object ba field thì đọc dễ hơn nhưng mỗi trạng thái mới là
+                một thay đổi phá vỡ. Cả hai đều chấp nhận được — điều quan trọng là bạn
+                <em>biết</em> mình đang đánh đổi gì.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Branded type cứu bạn</h3>
+            <p class="task__meta">~20 phút · thử rồi xoá</p>
+            <ol>
+              <li>
+                Ở một chỗ bất kỳ trong <code>apps/web</code>, viết:
+                <div class="code">
+                  <pre><code>const id: CustomerId = 'abc-123';
+const when: DateOnly = someCustomer.createdAt;</code></pre>
+                </div>
+              </li>
+              <li>Chạy <code>npm run typecheck</code>. Đọc kỹ hai thông báo lỗi.</li>
+              <li>
+                Bây giờ thử lấy một <code>CustomerId</code> hợp lệ. Có mấy cách? Xoá code
+                thử nghiệm.
+              </li>
+            </ol>
+            <details>
+              <summary>Có đúng hai cách, và đó là chủ ý</summary>
+              <p>
+                Một: đi qua schema — <code>customerIdSchema.parse(raw)</code>, thường là
+                gián tiếp qua <code>parseWith</code> trên cả response. Hai: lấy từ một giá
+                trị đã được kiểm, ví dụ <code>customer.id</code>.
+              </p>
+              <p>
+                Không có đường thứ ba, và đó chính là giá trị:
+                <strong>kiểu trở thành bằng chứng rằng giá trị đã đi qua kiểm tra</strong>.
+                Trong một hệ thống lớn, đó là khác biệt giữa "chắc là đã validate ở đâu đó"
+                và "trình biên dịch nói rằng rồi".
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao repo khai <code>http.get&lt;unknown&gt;</code> thay vì kiểu thật?</summary>
+            <p>
+              Vì generic bị xoá lúc chạy — khai kiểu thật là một lời hứa không ai kiểm.
+              <code>unknown</code> nói thật rằng chưa biết gì, rồi Zod biến nó thành kiểu đã
+              xác nhận.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>nullable</code> khác <code>optional</code> thế nào?</summary>
+            <p>
+              <code>nullable</code>: field <strong>phải có mặt</strong>, giá trị được phép
+              là <code>null</code>. <code>optional</code>: field có thể
+              <strong>vắng mặt</strong>. <code>customerSchema.phone</code> là nullable —
+              thiếu hẳn field đó là sai hợp đồng.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao kiểu phải suy ra từ schema chứ không viết tay?</summary>
+            <p>
+              Vì hai bản khai sẽ lệch nhau, và lệch âm thầm.
+              <code>z.infer&lt;typeof schema&gt;</code> cho một nguồn sự thật duy nhất: đổi
+              schema thì mọi chỗ dùng sai lập tức không biên dịch được.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Branded type giải quyết vấn đề gì?</summary>
+            <p>
+              Ngăn lẫn lộn giữa các chuỗi có ý nghĩa khác nhau
+              (<code>CustomerId</code> vs <code>UserId</code>, <code>Instant</code> vs
+              <code>DateOnly</code>), và biến kiểu thành bằng chứng rằng giá trị đã đi qua
+              schema — chuỗi thường không gán vào đó được.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Một response 200 với body sai hợp đồng: ai sai, người dùng thấy gì?</summary>
+            <p>
+              Server sai. Người dùng không làm gì sai và không sửa được, nên nó được phân
+              loại <code>server</code> — hiện ra như một lỗi chung kèm correlation id, và
+              được ghi log ở mức <code>error</code>. Nó <em>không</em> được retry.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao schema request khác schema response?</summary>
+            <p>
+              Vì client không sở hữu mọi field. Create không có <code>id</code>,
+              <code>createdBy</code>, <code>version</code> — một client đặt được
+              <code>createdBy</code> là giả mạo được nhật ký kiểm toán. Update thì mọi field
+              optional (vì là PATCH) nhưng <code>version</code> bắt buộc.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Validate ở client có phải là bảo mật không?</summary>
+            <p>
+              Không. Nó phát hiện server sai hợp đồng — chuyện chất lượng. Biên bảo mật nằm
+              ở server, nơi cùng schema đó kiểm mọi request đến, vì không gì từ trình duyệt
+              được tin.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 09 nói về năm interceptor — tầng mà <em>mọi</em> request đi qua, và nơi
+              thứ tự không phải chi tiết mà là một hợp đồng. Sau đó bài 10 về lỗi, rồi hai
+              bài về server state, và chặng 2 đóng lại ở Mốc 2.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="07-rxjs-toi-thieu.html">← Bài 07</a></span>
+            <span><a href="09-interceptor.html">Bài 09 — Interceptor →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Từ nhỏ tới lớn</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

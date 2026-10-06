@@ -1,0 +1,1290 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 09 — Interceptor</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 2 — Nói chuyện với server → Bài 09
+        </p>
+        <h1>Interceptor</h1>
+        <p class="lede">
+          Năm hàm, mỗi hàm chưa tới sáu mươi dòng, và <em>mọi</em> request HTTP trong ứng
+          dụng đi qua cả năm. Bài này đọc từng cái — nhưng phần đáng giá nhất không phải
+          từng cái, mà là <strong>thứ tự</strong>: ở đây nó không phải chi tiết cài đặt mà
+          là một hợp đồng, và mỗi vị trí có một lập luận viết sẵn trong code.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 2 · hướng tới Mốc 2</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>HttpInterceptorFn</code></td>
+                  <td>
+                    Một <strong>hàm</strong> <code>(req, next) =&gt; Observable&lt;HttpEvent&gt;</code>.
+                    Angular hiện đại dùng hàm, không phải class.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>next(req)</code></td>
+                  <td>
+                    Chuyển request cho mắt kế tiếp trong chuỗi, và trả về luồng response
+                    của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>req.clone({ … })</code></td>
+                  <td>
+                    Request là <strong>bất biến</strong>. Sửa nghĩa là tạo bản sao có sửa
+                    đổi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpContext</code></td>
+                  <td>
+                    Túi dữ liệu <em>có kiểu</em> đi theo một request, không gửi lên server.
+                    Cách các interceptor nói chuyện với nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpContextToken</code></td>
+                  <td>Khoá có kiểu cho túi đó, kèm giá trị mặc định.</td>
+                </tr>
+                <tr>
+                  <td><code>HttpEvent</code></td>
+                  <td>
+                    Mọi thứ phát ra trên đường về: tiến độ tải lên, header đã nhận, và cuối
+                    cùng là <code>HttpResponse</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpBackend</code></td>
+                  <td>
+                    Mắt cuối cùng — thứ thực sự gửi request đi (fetch hoặc XHR).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Double-submit CSRF</strong></td>
+                  <td>
+                    Một token vừa nằm trong cookie đọc được, vừa phải được echo lên header;
+                    server so hai cái.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Single-flight</strong></td>
+                  <td>
+                    Nhiều người cùng cần một việc thì chỉ chạy một lần, mọi người chờ chung
+                    kết quả.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Viết một interceptor mới và biết đặt nó ở đâu trong chuỗi.</li>
+            <li>
+              Giải thích được <em>từng</em> vị trí trong chuỗi năm cái của repo — không
+              phải "theo thói quen" mà bằng chuyện gì hỏng nếu đổi chỗ.
+            </li>
+            <li>Dùng <code>HttpContext</code> để truyền một cờ cho một request cụ thể.</li>
+            <li>
+              Nói được ba thứ <strong>không</strong> thuộc về interceptor, và chúng ở đâu.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Servlet <code>Filter</code> chain</td>
+                  <td>Interceptor chain</td>
+                  <td>
+                    Gần như y hệt về cơ chế: xuống rồi lên,
+                    <code>chain.doFilter</code> ↔ <code>next(req)</code>. Khác hẳn về
+                    <strong>thẩm quyền</strong>: filter của bạn là biên bảo mật, cái này
+                    chạy trong máy người dùng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HandlerInterceptor</code> của Spring</td>
+                  <td>Cùng ý tưởng</td>
+                  <td>
+                    Spring có <code>preHandle</code>/<code>postHandle</code> tách rời. Ở đây
+                    một hàm lo cả hai chiều, vì chiều về là một Observable bạn
+                    <code>pipe</code> vào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Request có thể sửa tại chỗ</td>
+                  <td><code>req.clone()</code></td>
+                  <td>
+                    Request ở đây bất biến. Quên <code>clone</code> và gán thẳng là một lỗi
+                    im lặng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>ThreadLocal / request attributes</td>
+                  <td><code>HttpContext</code></td>
+                  <td>
+                    Cùng mục đích — mang dữ liệu theo một request mà không gửi lên server —
+                    nhưng <strong>có kiểu</strong>, nên không ai đọc nhầm khoá.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Một câu để nhớ cả bài</span>
+            <p>
+              Filter của bạn <em>bảo vệ</em>. Interceptor ở đây <em>chăm sóc</em>: nó đóng
+              dấu id để tra cứu được, ghi log, làm mới phiên hết hạn, đính kèm token CSRF,
+              và dịch lỗi sang ngôn ngữ của ứng dụng. Không cái nào trong năm việc đó là
+              một phòng tuyến — phòng tuyến nằm ở server.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Một interceptor là một hàm</h3>
+
+          <div class="code">
+            <div class="code__file">hình dạng nhỏ nhất</div>
+            <pre><code>export const myInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  // 1. trước khi gửi: sửa request (phải clone)
+  const changed = req.clone({ setHeaders: { 'X-Thing': 'value' } });
+
+  // 2. chuyển cho mắt kế tiếp
+  return next(changed).pipe(
+    // 3. trên đường về: quan sát hoặc biến đổi response
+    tap({ next: (event) =&gt; { … } }),
+  );
+};</code></pre>
+          </div>
+
+          <p>
+            Đăng ký bằng <code>withInterceptors([...])</code> trong
+            <code>provideHttpClient</code>. Thứ tự trong mảng
+            <strong>là</strong> thứ tự chạy.
+          </p>
+
+          <p>
+            Interceptor chạy trong injection context, nên gọi
+            <code>inject()</code> trong thân hàm được — đó là cách
+            <code>requestLoggingInterceptor</code> lấy <code>Logger</code>.
+          </p>
+
+          <h3>3.2 Chuỗi: xuống rồi lên</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    CALL["CustomerApi.list()"] --> I1
+    I1["1. correlationId<br/>sinh id, đóng dấu header + context"] --> I2
+    I2["2. requestLogging<br/>bấm giờ bắt đầu"] --> I3
+    I3["3. authRefresh<br/>ghi lại generation"] --> I4
+    I4["4. csrf<br/>đọc cookie, gắn header"] --> I5
+    I5["5. errorMapping"] --> BE["UploadAwareBackend → fetch hoặc XHR"]
+    BE --> R5["5. HttpErrorResponse → AppError"]
+    R5 --> R4["4. không làm gì trên đường về"]
+    R4 --> R3["3. nếu kind='authentication':<br/>refresh rồi thử lại MỘT lần"]
+    R3 --> R2["2. ghi một dòng log, kèm tổng thời gian"]
+    R2 --> R1["1. không làm gì trên đường về"]
+    R1 --> OUT["người gọi"]
+            </pre>
+            <figcaption>
+              Mỗi interceptor nhìn thấy <em>mọi thứ bên dưới nó</em>, ở cả hai chiều. Đó là
+              toàn bộ cơ sở để lập luận về thứ tự ở mục 3.4.
+            </figcaption>
+          </figure>
+
+          <h3>3.3 Năm cái, đọc từng cái</h3>
+
+          <h4>1 · <code>correlationIdInterceptor</code> — đóng dấu để tra cứu được</h4>
+
+          <div class="code">
+            <div class="code__file">core/http/correlation-id.interceptor.ts — toàn bộ</div>
+            <pre><code>export const CORRELATION_ID_HEADER = 'X-Correlation-Id';
+
+export const CORRELATION_ID = new HttpContextToken&lt;CorrelationId | null&gt;(() =&gt; null);
+
+export const correlationIdInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  const correlationId = newCorrelationId();
+
+  return next(
+    req.clone({
+      setHeaders: { [CORRELATION_ID_HEADER]: correlationId },
+      context: req.context.set(CORRELATION_ID, correlationId),
+    }),
+  );
+};</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>setHeaders</code></td>
+                  <td>Id đi lên server, nơi mock API ghi nó vào log của chính nó.</td>
+                </tr>
+                <tr>
+                  <td><code>context.set(CORRELATION_ID, …)</code></td>
+                  <td>
+                    Id cũng ở lại <em>phía client</em>, dưới dạng một giá trị có kiểu. Chú
+                    thích nói vì sao cả hai: header cũng đi được, nhưng context sống như một
+                    giá trị mà phần còn lại của chuỗi đọc được
+                    <strong>không phải parse lại header</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đứng <strong>đầu</strong> chuỗi</td>
+                  <td>
+                    Để mọi interceptor khác đọc được id. Đứng thứ hai thì cái thứ nhất đã
+                    ghi log mà không có id.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>2 · <code>requestLoggingInterceptor</code> — quan sát, không can thiệp</h4>
+
+          <div class="code">
+            <div class="code__file">core/http/request-logging.interceptor.ts — rút gọn</div>
+            <pre><code>const UNEXPECTED_KINDS: ReadonlySet&lt;string&gt; = new Set(['server', 'network', 'timeout', 'unknown']);
+
+export const requestLoggingInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  const logger = inject(Logger);
+  const monitor = inject(PerformanceMonitor);
+  const started = performance.now();
+
+  const fields = () =&gt; ({
+    method: req.method,
+    url: withoutQuery(req.url),
+    durationMs: Math.round(performance.now() - started),
+    correlationId: req.context.get(CORRELATION_ID) ?? undefined,
+  });
+
+  return next(req).pipe(
+    tap({
+      next: (event) =&gt; {
+        if (event instanceof HttpResponse) {
+          logger.debug('HTTP request completed', { …fields(), status: event.status });
+          monitor.recordApiCall(…);
+        }
+      },
+      error: (error: unknown) =&gt; {
+        const kind = isAppError(error) ? error.kind : 'unknown';
+        const level = UNEXPECTED_KINDS.has(kind) ? 'error' : 'warn';
+        logger[level]('HTTP request failed', { …fields(), kind, status });
+      },
+      unsubscribe: () =&gt; logger.debug('HTTP request cancelled', fields()),
+    }),
+  );
+};
+
+function withoutQuery(url: string): string {
+  const query = url.indexOf('?');
+  return query === -1 ? url : url.slice(0, query);
+}</code></pre>
+          </div>
+
+          <p>Bốn quyết định trong file này đáng học, và không cái nào hiển nhiên:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ba kết cục, ba mức log</td>
+                  <td>
+                    Xong → <code>debug</code>; bị huỷ → <code>debug</code> (một tìm kiếm bị
+                    thay thế là store làm đúng việc, không phải lỗi); thất bại → tuỳ loại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>warn</code> cho 401/403/404/409/422/429,
+                    <code>error</code> cho phần còn lại
+                  </td>
+                  <td>
+                    "Một 404, một 409, một quyền bị từ chối là API trả lời đúng như thiết
+                    kế, và tính năng đã hỏi sẽ xử lý nó." Mức <code>error</code> được giữ
+                    cho thứ không ai xử lý tốt được —
+                    <strong>để một cảnh báo trên <code>error</code> có nghĩa</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>withoutQuery(req.url)</code></td>
+                  <td>
+                    <code>?search=nguyen%20van%20a</code> là tên một khách hàng, và tìm theo
+                    email là một địa chỉ email. Đường dẫn đủ để nhận ra endpoint — đó là thứ
+                    người vận hành cần.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không log body, không log header</td>
+                  <td>Đó là thứ giữ mật khẩu và token CSRF ra khỏi mọi dòng log.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label"><code>unsubscribe</code> trong <code>tap</code></span>
+            <p>
+              Ít người biết <code>tap</code> có callback này. Nó chạy khi ai đó huỷ đăng ký
+              — tức là khi <code>switchMap</code> trong store bỏ một request. Nhờ nó, một
+              request bị huỷ được ghi là "cancelled" chứ không im lặng biến mất, và
+              <em>không</em> được tính vào số đo độ trễ API: thời gian đó là thời gian người
+              dùng chờ trước khi đổi ý, không phải thời gian server xử lý.
+            </p>
+          </div>
+
+          <h4>3 · <code>authRefreshInterceptor</code> — làm mới phiên, một lần, thử lại một lần</h4>
+
+          <div class="code">
+            <div class="code__file">core/http/auth-refresh.interceptor.ts — toàn bộ phần thân</div>
+            <pre><code>export const authRefreshInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  if (req.context.get(SKIP_SESSION_REFRESH)) {
+    return next(req);
+  }
+
+  const session = inject(SessionService);
+  const sentAt = session.generation;
+
+  return next(req).pipe(
+    catchError((error: unknown) =&gt; {
+      if (!isAppError(error) || error.kind !== 'authentication') {
+        return throwError(() =&gt; error);
+      }
+
+      return session.renewAfter(sentAt).pipe(
+        catchError(() =&gt; throwError(() =&gt; error)),
+        switchMap(() =&gt; next(req)),
+      );
+    }),
+  );
+};</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>SKIP_SESSION_REFRESH</code></td>
+                  <td>
+                    Một cờ trong <code>HttpContext</code>: chính request
+                    <code>/auth/refresh</code> không được phép tự làm mới khi nó nhận 401 —
+                    đó là đệ quy vô hạn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>const sentAt = session.generation</code></td>
+                  <td>
+                    Ghi lại "thế hệ" của phiên <em>lúc request rời đi</em>. Đây là cách phát
+                    hiện một cuộc đua: nếu generation đã đổi khi 401 về, thì ai đó đã làm
+                    mới trong lúc request bay — chỉ cần thử lại, không làm mới lần nữa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>error.kind !== 'authentication'</code></td>
+                  <td>
+                    Nó đọc <strong>loại</strong>, không đọc status code — vì nó nằm
+                    <em>trên</em> <code>errorMapping</code> trong chuỗi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>catchError(() =&gt; throwError(() =&gt; error))</code></td>
+                  <td>
+                    Refresh hỏng thì người gọi nhận lỗi <strong>gốc</strong>. Nó hỏi về một
+                    khách hàng, không hỏi về refresh — và "phiên của bạn đã kết thúc" là
+                    bản tường thuật đúng về chuyện đã xảy ra với request của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>switchMap(() =&gt; next(req))</code></td>
+                  <td>
+                    Thử lại <strong>đúng một lần</strong>. 401 lần hai là câu trả lời, không
+                    phải triệu chứng — nếu không, một server từ chối token mới sẽ bị hỏi
+                    mãi mãi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao retry cả lệnh ghi ở đây là an toàn</span>
+            <p>
+              Bài 07 nói lệnh ghi không bao giờ được retry. Ở đây nó <em>được</em>, và chú
+              thích đưa ra lập luận cụ thể: một 401 do
+              <code>requireAuth</code> quyết định <strong>trước khi bất kỳ handler nào
+              chạy</strong>, nên request nhận 401 đã không thay đổi gì trên server. Thử lại
+              không thể áp dụng hai lần.
+            </p>
+            <p>
+              Đây là kiểu lập luận bạn nên tập: không phải "retry xấu" hay "retry tốt", mà
+              "ở <em>chỗ này</em>, với <em>lý do này</em>, nó an toàn".
+            </p>
+          </div>
+
+          <h4>4 · <code>csrfInterceptor</code> — nửa phía client của double-submit</h4>
+
+          <div class="code">
+            <div class="code__file">core/http/csrf.interceptor.ts — rút gọn</div>
+            <pre><code>const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export const csrfInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  const isBrowser = inject(IS_BROWSER);
+  const document = inject(DOCUMENT);
+
+  if (!isBrowser || SAFE_METHODS.has(req.method) || !isSameOrigin(req.url)) {
+    return next(req);
+  }
+
+  const token = readCookie(document.cookie, CSRF_COOKIE_NAME);
+  if (!token) {
+    // Not an error to raise here: the request goes out and the server answers
+    // 403, which the error taxonomy already maps.
+    return next(req);
+  }
+
+  return next(req.clone({ setHeaders: { [CSRF_HEADER_NAME]: token } }));
+};
+
+function isSameOrigin(url: string): boolean {
+  return url.startsWith('/') &amp;&amp; !url.startsWith('//');
+}</code></pre>
+          </div>
+
+          <p>
+            Cơ chế: cookie phiên là <code>HttpOnly</code> + <code>SameSite=Lax</code>, nên
+            một form từ site khác <em>không đọc được</em> nó nhưng vẫn khiến trình duyệt
+            <em>gửi</em> nó. Token thứ hai bịt chỗ đó: nó đọc được bởi script cùng origin và
+            phải được echo lên header — việc mà trang của kẻ tấn công không làm được. Server
+            so hai cái.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Chỉ phương thức không an toàn</td>
+                  <td>
+                    "Một GET cần bảo vệ sẽ là lỗi thiết kế của API, không phải thứ vá ở
+                    đây."
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chỉ request cùng origin</td>
+                  <td>
+                    Token là một credential; gửi nó tới bất kỳ host nào mà
+                    <code>apiBaseUrl</code> trỏ tới là trao nó cho host đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>!url.startsWith('//')</code></td>
+                  <td>
+                    <code>//evil.test/api</code> là URL khác origin
+                    <em>trông như</em> tương đối. Loại trừ tường minh, không dựa vào dấu
+                    gạch chéo đầu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có token thì vẫn gửi</td>
+                  <td>
+                    Để server trả 403 và lý do thật — là không có phiên — lộ ra. Thất bại
+                    tại chỗ sẽ che mất nguyên nhân.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Dưới <code>authRefresh</code></td>
+                  <td>
+                    Để request được thử lại <strong>được đóng dấu lại</strong> từ cookie như
+                    nó đang là <em>bây giờ</em> — sau khi refresh đã xoay token.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>5 · <code>errorMappingInterceptor</code> — biên của ngôn ngữ</h4>
+
+          <div class="code">
+            <div class="code__file">core/http/error-mapping.interceptor.ts — toàn bộ phần thân</div>
+            <pre><code>export const errorMappingInterceptor: HttpInterceptorFn = (req, next) =&gt; {
+  return next(req).pipe(
+    catchError((error: unknown) =&gt; {
+      const correlationId = req.context.get(CORRELATION_ID) ?? undefined;
+
+      const mapped =
+        error instanceof HttpErrorResponse
+          ? mapHttpError(error, correlationId)
+          : appError('unknown', { correlationId, cause: error });
+
+      return throwError(() =&gt; mapped);
+    }),
+  );
+};</code></pre>
+          </div>
+
+          <p>
+            Mười dòng, và nó là lý do <strong>không một feature nào trong repo biết 409
+            nghĩa là gì</strong> — chúng chỉ biết <code>conflict</code>. Nó cũng là nơi
+            correlation id được gắn vào lỗi, nên khi người dùng báo lỗi, màn hình có một mã
+            tra được trong log của cả hai phía.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Một trách nhiệm, và lịch sử của nó</span>
+            <p>
+              Chú thích ghi lại một thay đổi: tới phase 3, interceptor này
+              <em>còn ghi log</em> lỗi nữa. Việc đó được chuyển sang
+              <code>requestLoggingInterceptor</code>, vì một interceptor vừa phân loại
+              <em>vừa</em> báo cáo sẽ ghi một 401 — thứ mà refresh interceptor ngay sau đó
+              lặng lẽ khắc phục — như thể đó là lỗi người dùng đã thấy.
+            </p>
+            <p>
+              Đây là "một trách nhiệm cho một thứ" ở dạng cụ thể nhất: không phải nguyên tắc
+              trừu tượng, mà là một dòng log sai mà người ta đã phải sửa.
+            </p>
+          </div>
+
+          <h3>3.4 Thứ tự là một hợp đồng — từng cặp một</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cặp</th>
+                  <th>Nếu đảo lại thì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>correlationId</code> trước mọi thứ</td>
+                  <td>
+                    Interceptor nào chạy trước nó sẽ đọc context rỗng — log không có id, lỗi
+                    không có id để tra.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>requestLogging</code> <em>trên</em> <code>authRefresh</code></td>
+                  <td>
+                    Đảo lại: một request được làm mới phiên rồi thử lại sẽ thành
+                    <strong>hai</strong> dòng log — một 401 "lỗi" mà thật ra đã được khắc
+                    phục, và một request thành công. Thời lượng thật mà người dùng chờ biến
+                    mất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>authRefresh</code> <em>trên</em> <code>csrf</code></td>
+                  <td>
+                    Đảo lại: request thử lại mang token CSRF <em>cũ</em>, chụp từ trước khi
+                    refresh xoay cookie. Server từ chối 403, và triệu chứng là "thỉnh thoảng
+                    lưu không được sau khi để máy một lúc".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>errorMapping</code> <strong>cuối cùng</strong></td>
+                  <td>
+                    Đặt nó đầu chuỗi: mọi tầng trên phải suy luận theo status code.
+                    <code>authRefresh</code> sẽ phải biết 401, <code>requestLogging</code>
+                    sẽ phải tự phân loại, và mỗi feature sẽ học lại ý nghĩa của từng mã.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 <code>HttpContext</code>: nói chuyện với chính chuỗi</h3>
+
+          <div class="code">
+            <div class="code__file">khuôn, từ hai chỗ trong repo</div>
+            <pre><code>// khai một khoá có kiểu, kèm mặc định
+export const SKIP_SESSION_REFRESH = new HttpContextToken&lt;boolean&gt;(() =&gt; false);
+
+// người gọi bật nó cho đúng một request
+this.http.post('/auth/refresh', {}, {
+  context: new HttpContext().set(SKIP_SESSION_REFRESH, true),
+});
+
+// interceptor đọc
+if (req.context.get(SKIP_SESSION_REFRESH)) {
+  return next(req);
+}</code></pre>
+          </div>
+
+          <p>
+            Vì sao không dùng một header: header đi lên server, và đây là chuyện nội bộ của
+            client. Vì sao không dùng một biến toàn cục: nhiều request chạy song song, và
+            một cờ toàn cục sẽ áp nhầm cho request khác. Context đi
+            <em>theo từng request</em> và có kiểu.
+          </p>
+
+          <h3>3.6 Ba thứ không thuộc về interceptor</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thứ</th>
+                  <th>Ở đâu</th>
+                  <th>Vì sao không ở interceptor</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Timeout và retry</td>
+                  <td><code>customers/data/request-policy.ts</code></td>
+                  <td>
+                    "Một interceptor retry mọi thứ sẽ vui vẻ thử lại một lệnh thanh toán
+                    vừa thất bại." Chính sách đúng là thuộc tính của việc request làm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Header <code>Authorization</code></td>
+                  <td>Không tồn tại</td>
+                  <td>
+                    Credential là cookie <code>HttpOnly</code>, trình duyệt tự đính kèm, và
+                    JavaScript không đọc được nó (ADR-0016). Đây
+                    <strong>không phải thiếu sót</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Quyết định điều hướng khi phiên hết</td>
+                  <td><code>SessionService.ended$</code> + <code>session-expiry.ts</code></td>
+                  <td>
+                    Mười request hỏng cùng lúc thì người dùng phải được chuyển về trang đăng
+                    nhập <strong>một</strong> lần, không phải mười.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.7 Mắt cuối: backend thay được</h3>
+
+          <div class="code">
+            <div class="code__file">core/http/http.providers.ts</div>
+            <pre><code>provideHttpClient(withFetch(), withInterceptors([...])),
+// After provideHttpClient(), so it replaces the backend withFetch() chose.
+UploadAwareBackend,
+{ provide: HttpBackend, useExisting: UploadAwareBackend },</code></pre>
+          </div>
+
+          <p>
+            Mặc định mọi thứ đi qua <code>fetch</code>. Nhưng
+            <code>fetch</code> <strong>không báo tiến độ tải lên</strong>, nên một request
+            xin tiến độ được chuyển sang XHR. Đó là việc của
+            <code>UploadAwareBackend</code> (ADR-0021), cắm vào bằng
+            <code>useExisting</code> — nhớ bài 05: <code>useClass</code> ở đây sẽ tạo hai
+            instance.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Dài</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/http/http.providers.ts</code></td>
+                  <td>~67 dòng</td>
+                  <td>
+                    <strong>Đọc đầu tiên.</strong> Chú thích của nó là bản tóm tắt cả bài
+                    này, kèm lập luận cho từng vị trí
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>correlation-id.interceptor.ts</code></td>
+                  <td>~33 dòng</td>
+                  <td>Interceptor đơn giản nhất; <code>HttpContextToken</code></td>
+                </tr>
+                <tr>
+                  <td><code>error-mapping.interceptor.ts</code></td>
+                  <td>~31 dòng</td>
+                  <td>Một trách nhiệm, và lịch sử vì sao nó chỉ còn một</td>
+                </tr>
+                <tr>
+                  <td><code>csrf.interceptor.ts</code></td>
+                  <td>~75 dòng</td>
+                  <td>Ba điều kiện bảo vệ, và vì sao "không có token thì vẫn gửi"</td>
+                </tr>
+                <tr>
+                  <td><code>auth-refresh.interceptor.ts</code></td>
+                  <td>~68 dòng</td>
+                  <td>
+                    <strong>Khó nhất.</strong> Single-flight, cuộc đua generation, và lập
+                    luận vì sao retry an toàn ở đây
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>request-logging.interceptor.ts</code></td>
+                  <td>~88 dòng</td>
+                  <td>Ba kết cục ba mức log, và những gì cố ý không ghi</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một request hết phiên, từ đầu tới cuối</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant S as Store
+    participant L as 2.logging
+    participant R as 3.authRefresh
+    participant C as 4.csrf
+    participant E as 5.errorMapping
+    participant V as Server
+    S->>L: PATCH /customers/1
+    L->>L: bấm giờ
+    L->>R: ghi generation = 7
+    R->>C:
+    C->>V: + header CSRF (token cũ)
+    V-->>E: 401
+    E-->>R: AppError kind='authentication'
+    R->>R: generation vẫn 7 → cần refresh
+    R->>V: POST /auth/refresh<br/><i>single-flight, SKIP_SESSION_REFRESH</i>
+    V-->>R: cookie mới (token xoay)
+    R->>C: thử lại PATCH
+    C->>V: + header CSRF (token MỚI)
+    V-->>E: 200
+    E-->>L: response
+    L->>L: MỘT dòng log, tổng thời gian thật
+    L-->>S: Customer
+            </pre>
+            <figcaption>
+              Hai chỗ thứ tự làm việc, nhìn thấy được ở đây: bước 11 — CSRF chạy lại nên
+              token mới được đóng dấu; bước 14 — logging ở trên nên cả câu chuyện là một
+              dòng log với thời lượng người dùng thật sự chờ. Store không biết gì về chuyện
+              vừa xảy ra.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Thứ tự được viết thành tài liệu, không để ngầm hiểu — ADR-0017</h4>
+          <p>
+            Phương án bị loại: để thứ tự là chi tiết cài đặt. Bị loại vì nó không phải —
+            bốn cặp ở mục 3.4 cho thấy mỗi hoán vị đều hỏng một thứ cụ thể. Giá phải trả:
+            thêm một ràng buộc phải nhớ khi thêm interceptor mới. Repo trả nó bằng chú
+            thích dài trong <code>http.providers.ts</code> và bằng những test khẳng định
+            <em>hệ quả</em> của thứ tự — mục 8.
+          </p>
+
+          <h4>Retry <em>được</em> phép ở interceptor refresh</h4>
+          <p>
+            Ngoại lệ duy nhất với luật "không retry lệnh ghi", và lập luận an toàn được viết
+            ngay chỗ nó được đưa ra: 401 do <code>requireAuth</code> quyết định trước khi
+            handler chạy, nên không gì đã thay đổi. Đây là cách xử lý một ngoại lệ đúng —
+            không im lặng, mà kèm lý lẽ.
+          </p>
+
+          <h4>Không có interceptor nào gắn credential</h4>
+          <p>
+            Phương án bị loại: bearer token trong <code>localStorage</code>, gắn bằng
+            interceptor — cách gần như mọi tutorial dạy. Bị loại vì token trong
+            <code>localStorage</code> đọc được bằng bất kỳ script nào chạy trên trang, nên
+            một lỗ XSS thành một lần chiếm phiên. Cookie <code>HttpOnly</code> thì script
+            không đọc được. Giá phải trả: phải có CSRF, và phải cùng origin.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Sửa request thay vì <code>clone</code></span>
+            <p>
+              <code>req.headers.set(...)</code> trả về headers mới và vứt đi — request
+              không đổi. Không lỗi nào. Header đơn giản là không tới server, và bạn sẽ đi
+              tìm bug ở phía backend.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Quên <code>return next(req)</code> ở nhánh sớm</span>
+            <p>
+              Mọi nhánh của interceptor phải trả về một Observable. Thiếu một nhánh
+              <code>return</code> thì request đó không bao giờ được gửi, và người gọi chờ
+              mãi mãi — không lỗi, không timeout, chỉ là một spinner không bao giờ dừng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Interceptor refresh không chặn chính request refresh</span>
+            <p>
+              <code>/auth/refresh</code> trả 401 → interceptor gọi refresh → request đó trả
+              401 → gọi refresh… Đệ quy vô hạn, trình duyệt treo.
+              <code>SKIP_SESSION_REFRESH</code> tồn tại vì đúng chuyện này.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Mỗi 401 tự gọi refresh của riêng nó</span>
+            <p>
+              Mười request hết hạn cùng lúc là mười lần làm mới. Vì refresh token bị xoay
+              vòng sau mỗi lần dùng, chín cái sau trình một token đã tiêu — server coi là
+              tấn công replay và chấm dứt phiên. Người dùng bị đăng xuất đúng lúc hệ thống
+              đang cố giữ họ đăng nhập.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Log cả URL kèm query string</span>
+            <p>
+              Tên khách hàng và địa chỉ email vào log, rồi vào hệ thống thu thập log, rồi
+              được giữ ba tháng. Đây là một sự cố dữ liệu cá nhân, và nó bắt đầu bằng một
+              dòng <code>logger.debug(req.url)</code> trông vô hại.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Thêm interceptor mới vào cuối mảng cho tiện</span>
+            <p>
+              Cuối mảng nghĩa là <em>dưới</em> <code>errorMapping</code>, nơi lỗi vẫn còn là
+              <code>HttpErrorResponse</code>. Nếu interceptor của bạn đọc
+              <code>error.kind</code>, nó sẽ luôn thấy <code>undefined</code>. Vị trí phải
+              được chọn, không phải mặc định.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/http/http-interceptors.spec.ts</code></td>
+                  <td>
+                    Không khẳng định thứ tự trực tiếp, mà khẳng định
+                    <strong>hệ quả</strong> của nó: log mang đúng correlation id đã gửi
+                    (nên cái số 1 phải chạy trước), một thất bại được ghi
+                    <em>đúng một lần</em> (nên phân loại và báo cáo là hai việc tách rời),
+                    query string không bao giờ bị ghi, và một request bị thay thế được ghi
+                    là "cancelled" chứ không phải lỗi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/auth-refresh.interceptor.spec.ts</code></td>
+                  <td>
+                    Nhiều 401 đồng thời → <strong>một</strong> refresh; 401 lần hai đi tới
+                    người gọi; refresh hỏng → người gọi nhận lỗi <em>gốc</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/csrf.interceptor.spec.ts</code></td>
+                  <td>
+                    GET không bị đóng dấu; URL khác origin không bị đóng dấu;
+                    <code>//evil.test</code> bị coi là khác origin
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/errors/http-error-mapper.spec.ts</code></td>
+                  <td>Từng status code map sang đúng <code>kind</code></td>
+                </tr>
+                <tr>
+                  <td><code>e2e/api-wiring.spec.ts</code></td>
+                  <td>Cả chuỗi chạy thật, qua proxy, tới mock API</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q{"Tôi muốn thêm một hành vi<br/>cho request HTTP"}
+    Q -->|"áp cho MỌI request,<br/>không phụ thuộc endpoint"| INT["Interceptor"]
+    Q -->|"tuỳ từng endpoint làm gì"| POL["request-policy<br/>timeout · retry"]
+    Q -->|"chỉ một request cụ thể"| CTX["HttpContext token"]
+    Q -->|"đổi cách GỬI đi"| BE["HttpBackend<br/>UploadAwareBackend"]
+
+    INT --> POS{"Đặt ở đâu trong chuỗi?"}
+    POS -->|"cần id cho mọi thứ dưới"| P1["trên cùng"]
+    POS -->|"cần thấy toàn bộ vòng đời,<br/>kể cả retry"| P2["trên authRefresh"]
+    POS -->|"cần đọc AppError"| P3["TRÊN errorMapping"]
+    POS -->|"cần đọc status code"| P4["dưới errorMapping — nhưng<br/>hãy tự hỏi vì sao cần"]
+
+    INT -.->|"luôn luôn"| RULE["req.clone() · mọi nhánh return next()"]
+            </pre>
+            <figcaption>
+              Nhánh trái là câu hỏi hay bị bỏ qua: không phải mọi thứ liên quan tới HTTP đều
+              thuộc về interceptor. Ba nhánh còn lại là ba chỗ khác trong repo, mỗi chỗ có
+              lý do riêng.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Nhìn chuỗi làm việc</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>
+                Chạy app, đăng nhập, mở DevTools → Network và console. Đặt log level về
+                <code>debug</code> nếu cần (xem <code>config.json</code>).
+              </li>
+              <li>Bấm sang trang 2. Trong Network, xem header của request.</li>
+              <li>
+                Sửa một khách hàng rồi lưu. So sánh header của
+                <code>PATCH</code> với header của <code>GET</code> — khác nhau ở đâu?
+              </li>
+              <li>Trong console, tìm dòng log của mỗi request. Nó chứa những gì?</li>
+              <li>
+                Gõ nhanh vào ô tìm kiếm rồi dừng. Tìm dòng log
+                <code>HTTP request cancelled</code>.
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                <code>GET</code> có <code>X-Correlation-Id</code> nhưng không có header
+                CSRF. <code>PATCH</code> có cả hai — vì CSRF chỉ đóng dấu phương thức không
+                an toàn.
+              </p>
+              <p>
+                Dòng log chứa method, <strong>đường dẫn không có query string</strong>,
+                thời lượng, correlation id, và status. Không có body, không có header. Đó
+                chính là phần "cố ý không ghi" ở mục 3.3.
+              </p>
+              <p>
+                Và dòng <code>cancelled</code> đến từ callback
+                <code>unsubscribe</code> trong <code>tap</code> — bằng chứng rằng
+                <code>switchMap</code> đã huỷ thật.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đảo thứ tự và quan sát hậu quả</h3>
+            <p class="task__meta">~30 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>http.providers.ts</code>, chuyển
+                <code>errorMappingInterceptor</code> lên <strong>đầu</strong> mảng.
+              </li>
+              <li>
+                Chạy <code>npm test --workspace @ecm/web</code>. Ghi lại test nào đổ và
+                tên của nó.
+              </li>
+              <li>
+                Hoàn nguyên. Bây giờ đổi chỗ <code>authRefreshInterceptor</code> và
+                <code>csrfInterceptor</code>.
+              </li>
+              <li>
+                Chạy test lại. Suy luận: với thứ tự này, một request được thử lại sau
+                refresh sẽ mang token CSRF nào?
+              </li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Bước 2: điều cần suy luận quan trọng hơn danh sách test đổ.
+                <code>authRefresh</code> đọc <code>error.kind</code>; với thứ tự mới nó
+                nhận một <code>HttpErrorResponse</code> <em>chưa</em> được map, nên
+                <code>isAppError</code> trả <code>false</code> và nó
+                <strong>không bao giờ làm mới phiên</strong>. Triệu chứng trên production:
+                phiên hết hạn thì người dùng bị văng ra, thay vì được làm mới âm thầm.
+              </p>
+              <p>
+                Nếu có test nào đổ, đọc tên nó và đối chiếu với suy luận trên. Nếu
+                <em>không</em> test nào đổ, đó cũng là một phát hiện đáng giá — nó nói rằng
+                hệ quả này chưa được một cổng nào canh, và viết test đó là một đóng góp thật
+                cho repo.
+              </p>
+              <p>
+                Bước 4: token cũ — chụp trước khi refresh xoay cookie. Server trả 403. Và
+                đây là loại bug chỉ xuất hiện sau khi để máy một lúc, nên nó qua được mọi
+                lần test thủ công.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Viết một interceptor mới</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Viết <code>slowRequestInterceptor</code>: cảnh báo khi một request mất hơn 3
+              giây.
+            </p>
+            <ul>
+              <li>
+                Ghi <code>logger.warn</code> với method, đường dẫn (không query), thời
+                lượng, correlation id.
+              </li>
+              <li>Không cảnh báo cho request bị huỷ.</li>
+              <li>
+                Cho phép một request tự miễn bằng một <code>HttpContextToken</code> — ví dụ
+                export CSV, vốn chậm là bình thường.
+              </li>
+              <li>Đặt nó ở đúng vị trí trong chuỗi, và <strong>viết lý do</strong>.</li>
+              <li>Một spec: nhanh thì không cảnh báo, chậm thì có, bị huỷ thì không.</li>
+            </ul>
+            <details>
+              <summary>Vị trí đúng, và hai chỗ dễ sai</summary>
+              <p>
+                <strong>Vị trí:</strong> ngay cạnh <code>requestLogging</code>, tức là
+                <em>trên</em> <code>authRefresh</code>. Lý do giống hệt: bạn muốn đo thời
+                gian người dùng <em>thật sự</em> chờ, bao gồm cả lần refresh và thử lại. Đặt
+                dưới <code>authRefresh</code> thì một request chậm vì phải làm mới phiên sẽ
+                không bị phát hiện.
+              </p>
+              <p>
+                <strong>Dễ sai 1:</strong> dùng <code>setTimeout</code> để đếm. Không cần —
+                đo <code>performance.now()</code> ở đầu và trong
+                <code>tap</code>, giống <code>requestLogging</code>. Một timer còn phải nhớ
+                dọn.
+              </p>
+              <p>
+                <strong>Dễ sai 2:</strong> quên nhánh <code>unsubscribe</code>. Một request
+                bị <code>switchMap</code> huỷ sau 5 giây không phải request chậm — người
+                dùng đã đổi ý. Cảnh báo cho nó là tạo nhiễu.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Lần theo một lỗi 409 qua cả chuỗi</h3>
+            <p class="task__meta">~25 phút · đọc code</p>
+            <p>
+              Mock API có cơ chế gây lỗi theo yêu cầu qua header
+              <code>x-mock-scenario</code> (xem <code>docs/mock-backend.md</code>). Không
+              cần chạy — chỉ cần đọc và trả lời:
+            </p>
+            <ol>
+              <li>
+                Một <code>PATCH</code> nhận 409. Nó đi qua năm interceptor theo thứ tự nào
+                trên đường về, và mỗi cái làm gì?
+              </li>
+              <li>Nó có bị retry không? Ở đâu quyết định điều đó?</li>
+              <li>Nó được ghi log ở mức nào, và vì sao không phải mức kia?</li>
+              <li>Người dùng cuối cùng thấy gì, và ai quyết định câu chữ đó?</li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  <code>errorMapping</code> (5) biến <code>HttpErrorResponse</code> thành
+                  <code>AppError</code> kind <code>conflict</code>, gắn correlation id →
+                  <code>csrf</code> (4) không làm gì trên đường về →
+                  <code>authRefresh</code> (3) thấy kind khác
+                  <code>'authentication'</code> nên ném tiếp → <code>requestLogging</code>
+                  (2) ghi một dòng → <code>correlationId</code> (1) không làm gì.
+                </li>
+                <li>
+                  Không. <code>withWritePolicy</code> không có <code>retry</code> nào cả —
+                  và kể cả với <code>withReadPolicy</code> thì
+                  <code>isTransient</code> cũng loại <code>conflict</code> ra.
+                </li>
+                <li>
+                  <code>warn</code>. <code>conflict</code> không nằm trong
+                  <code>UNEXPECTED_KINDS</code> — đây là API trả lời đúng như thiết kế, và
+                  form sẽ xử lý nó. Mức <code>error</code> được giữ cho thứ không ai xử lý
+                  tốt được, để cảnh báo trên <code>error</code> còn có nghĩa.
+                </li>
+                <li>
+                  Một thông báo rằng ai đó đã sửa bản ghi này, kèm lựa chọn tải lại —
+                  do trang form quyết định, dựa trên <code>kind</code>. Câu chữ nằm trong
+                  file dịch, không nằm trong lỗi. Bài 10 và 18.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao phải <code>req.clone()</code>?</summary>
+            <p>
+              Request là bất biến. <code>req.headers.set(...)</code> trả về một headers mới
+              và không đổi request — một lỗi im lặng. <code>clone</code> tạo bản sao có sửa
+              đổi, và đó là thứ bạn truyền cho <code>next</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>errorMapping</code> ở cuối chuỗi?</summary>
+            <p>
+              Để mọi tầng trên nó chỉ suy luận theo <em>loại</em> lỗi.
+              <code>authRefresh</code> cần biết "phiên hết hạn", không cần biết "401"; mỗi
+              feature cần biết "conflict", không cần biết "409".
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao <code>requestLogging</code> ở trên <code>authRefresh</code>?</summary>
+            <p>
+              Để một request được làm mới phiên rồi thử lại là <strong>một</strong> dòng log
+              với thời lượng thật người dùng chờ — thay vì một "lỗi" 401 đã được khắc phục
+              cộng một request thành công.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. <code>HttpContext</code> dùng để làm gì, khác header ở đâu?</summary>
+            <p>
+              Mang dữ liệu có kiểu <em>theo một request</em>, phía client, không gửi lên
+              server. Header thì đi lên server. Biến toàn cục thì áp nhầm cho request song
+              song. <code>SKIP_SESSION_REFRESH</code> và <code>CORRELATION_ID</code> là hai
+              ví dụ.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao retry một lệnh ghi lại an toàn trong interceptor refresh?</summary>
+            <p>
+              Vì 401 được <code>requireAuth</code> quyết định <strong>trước khi handler
+              chạy</strong>, nên request đó không thay đổi gì trên server. Thử lại không thể
+              áp dụng hai lần. Lập luận này chỉ đúng cho 401 — không mở rộng ra lỗi khác.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao không có interceptor nào gắn <code>Authorization</code>?</summary>
+            <p>
+              Vì credential là cookie <code>HttpOnly</code> do trình duyệt tự đính kèm, và
+              JavaScript không đọc được nó. Đổi lại phải có CSRF và phải cùng origin. Đây là
+              lựa chọn, không phải thiếu sót.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Ba thứ không thuộc về interceptor là gì?</summary>
+            <p>
+              Timeout/retry (thuộc về <code>request-policy</code>, theo từng endpoint), gắn
+              credential (không tồn tại — cookie lo), và quyết định điều hướng khi phiên hết
+              (thuộc về <code>SessionService.ended$</code>, để mười request hỏng cùng lúc
+              chỉ chuyển trang một lần).
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 10 đi theo đúng cái <code>AppError</code> mà interceptor số 5 vừa tạo ra:
+              taxonomy lỗi, global error handler, và quy tắc 6 — người dùng không bao giờ
+              thấy thông báo thô của server.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="08-httpclient-va-contract.html">← Bài 08</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

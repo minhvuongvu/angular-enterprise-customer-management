@@ -1399,7 +1399,10 @@ flowchart LR
                 </tr>
                 <tr>
                   <td><code>core/http/http-interceptors.spec.ts</code></td>
-                  <td>Chuỗi interceptor chạy đúng thứ tự đã khai báo</td>
+                  <td>
+                    Hệ quả của thứ tự chuỗi: log mang đúng correlation id, một thất bại
+                    được ghi đúng một lần, query string không bị ghi
+                  </td>
                 </tr>
                 <tr>
                   <td><code>customers/customer-list/customer-list-page.spec.ts</code></td>
