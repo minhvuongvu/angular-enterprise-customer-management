@@ -1,0 +1,1284 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 03 — Signals &amp; zoneless</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 1 — Viết được UI → Bài 03</p>
+        <h1>Signals &amp; zoneless</h1>
+        <p class="lede">
+          Bài quan trọng nhất của chặng 1. Angular 22 không còn theo dõi thế giới nữa — nó
+          chỉ biết những gì signal nói cho nó. Hiểu chỗ này thì mọi thứ khác xếp vào đúng
+          vị trí; không hiểu thì bạn sẽ gặp một loại bug không báo lỗi: màn hình đơn giản
+          là không cập nhật.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 1 · hướng tới Mốc 1</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>signal(v)</code></td>
+                  <td>
+                    Ô chứa giá trị, <strong>ghi được</strong>. Đọc:
+                    <code>s()</code>. Ghi: <code>s.set(x)</code> hoặc
+                    <code>s.update(fn)</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>computed(fn)</code></td>
+                  <td>
+                    Signal <strong>chỉ đọc</strong>, giá trị là kết quả của
+                    <code>fn</code>. Tự tính lại khi thứ nó đọc đổi; nhớ kết quả giữa các
+                    lần.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>effect(fn)</code></td>
+                  <td>
+                    Chạy <code>fn</code> lại mỗi khi signal nó đọc đổi. Không trả giá trị
+                    — tồn tại để gây tác dụng phụ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>onCleanup</code></td>
+                  <td>
+                    Tham số của <code>effect</code>: đăng ký việc cần dọn
+                    <em>trước</em> lần chạy kế tiếp và khi effect bị huỷ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>asReadonly()</code></td>
+                  <td>
+                    Trả về một khung nhìn chỉ-đọc của signal ghi được. Dùng để lộ state ra
+                    ngoài mà không lộ quyền ghi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>toSignal(obs$)</code></td>
+                  <td>
+                    Cầu nối RxJS → signal. Tự subscribe và tự huỷ đăng ký khi context bị
+                    huỷ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>toObservable(sig)</code></td>
+                  <td>Cầu nối ngược: signal → Observable.</td>
+                </tr>
+                <tr>
+                  <td><strong>Dependency tracking</strong></td>
+                  <td>
+                    Việc signal ghi nhớ ai đã đọc nó. Tự động, và
+                    <em>động</em> — thay đổi theo từng lần chạy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Change detection</strong></td>
+                  <td>
+                    Quá trình Angular đồng bộ DOM với state. Ở app zoneless, nó được kích
+                    hoạt bởi signal đổi (và vài sự kiện khác).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>OnPush</code></td>
+                  <td>
+                    Chiến lược "chỉ kiểm tra tôi khi có lý do". Mọi component trong repo
+                    đều đặt.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Injection context</strong></td>
+                  <td>
+                    Khoảng thời gian Angular đang dựng một đối tượng — chỗ duy nhất gọi
+                    được <code>inject()</code> và tạo được <code>effect()</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chọn đúng giữa <code>signal</code>, <code>computed</code> và
+              <code>effect</code> — và biện minh được lựa chọn đó.
+            </li>
+            <li>
+              Giải thích được vì sao sửa một mảng tại chỗ rồi <code>set</code> lại thì màn
+              hình không đổi.
+            </li>
+            <li>Viết một service có state kiểu "ghi trong, đọc ngoài" đúng quy ước repo.</li>
+            <li>Nối một Observable vào thế giới signal và ngược lại.</li>
+            <li>
+              Nói được chính xác chuyện gì xảy ra giữa lúc bạn gọi <code>.set()</code> và
+              lúc pixel đổi.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <p>
+            Phép so sánh tốt nhất không đến từ backend mà từ <strong>bảng tính</strong>.
+            Ô <code>A1</code> chứa số 5. Ô <code>B1</code> chứa công thức
+            <code>=A1*2</code>. Bạn sửa <code>A1</code> thành 7 thì <code>B1</code> thành
+            14 — không ai phải gọi "cập nhật B1", và Excel không quét lại cả bảng, nó biết
+            chính xác ô nào phụ thuộc ô nào.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bảng tính</th>
+                  <th>Angular</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ô nhập tay (<code>A1 = 5</code>)</td>
+                  <td><code>signal(5)</code></td>
+                </tr>
+                <tr>
+                  <td>Ô công thức (<code>B1 = A1*2</code>)</td>
+                  <td><code>computed(() =&gt; a() * 2)</code></td>
+                </tr>
+                <tr>
+                  <td>Macro chạy khi ô đổi</td>
+                  <td><code>effect(() =&gt; …)</code></td>
+                </tr>
+                <tr>
+                  <td>Excel biết ô nào phụ thuộc ô nào</td>
+                  <td>Dependency tracking</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Chỗ phép so sánh sai, và chỗ nó khác backend</span>
+            <p>
+              <strong>Khác bảng tính:</strong> phụ thuộc trong Excel cố định theo công
+              thức. Ở đây nó <em>động</em>: một <code>computed</code> có nhánh
+              <code>if</code> sẽ phụ thuộc vào những signal khác nhau tuỳ lần chạy. Mục 3.3.
+            </p>
+            <p>
+              <strong>Khác observer pattern bạn quen:</strong> không có
+              <code>addListener</code>, không có <code>removeListener</code>, không có
+              danh sách subscriber phải tự quản. Chỉ cần <em>đọc</em> một signal là đã
+              đăng ký, và việc huỷ đăng ký xảy ra tự động khi thứ đang đọc bị huỷ. Toàn bộ
+              lớp bug "quên unsubscribe" biến mất — đây là lý do kỹ thuật chính khiến
+              Angular chuyển sang signal.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ba loại signal, và loại thứ tư bạn đã dùng</h3>
+
+          <div class="code">
+            <div class="code__file">ví dụ tối giản — không có trong repo</div>
+            <pre><code>const count = signal(0);                      // ghi được
+const double = computed(() =&gt; count() * 2);  // chỉ đọc, dẫn xuất
+const readonlyCount = count.asReadonly();    // chỉ đọc, cùng giá trị
+
+count.set(5);          // gán thẳng
+count.update(n =&gt; n + 1);   // gán theo giá trị cũ → 6
+count();               // 6
+double();              // 12
+readonlyCount();       // 6
+// readonlyCount.set(…) → lỗi biên dịch: không có hàm này</code></pre>
+          </div>
+
+          <p>
+            Loại thứ tư bạn đã dùng từ bài 00 mà chưa gọi tên:
+            <code>input()</code> cũng trả về một signal chỉ đọc. Cha ghi, con đọc. Đó là lý
+            do <code>input()</code> và <code>computed()</code> dùng giống hệt nhau trong
+            template.
+          </p>
+
+          <h3>3.2 Đọc tức là đăng ký</h3>
+
+          <p>
+            Đây là một câu, và nó là toàn bộ cơ chế. Khi bạn gọi <code>count()</code>,
+            signal nhìn xem "ai đang chạy?" — nếu lúc đó đang ở trong một
+            <code>computed</code>, một <code>effect</code>, hay quá trình vẽ một template,
+            nó ghi lại mối phụ thuộc đó.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    A["count = signal(0)"]
+    B["double = computed(() =&gt; count() * 2)"]
+    C["template: {{ double() }}"]
+    A -->|"double đã đọc count"| B
+    B -->|"template đã đọc double"| C
+    C -.->|"count.set(5) → báo ngược lên theo đúng đường này"| A
+            </pre>
+            <figcaption>
+              Đồ thị phụ thuộc được dựng lên bởi chính hành động đọc. Không ai khai báo nó,
+              và không ai phải bảo trì nó.
+            </figcaption>
+          </figure>
+
+          <p>
+            Hệ quả: <strong>đọc signal ở ngoài ba chỗ đó thì không đăng ký gì cả</strong>.
+            Đọc trong một hàm xử lý sự kiện, hay trong một
+            <code>setTimeout</code>, chỉ là lấy giá trị hiện tại.
+          </p>
+
+          <h3>3.3 Phụ thuộc là <em>động</em>, không cố định</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/theme/theme.service.ts</div>
+            <pre><code>readonly resolved = computed&lt;ResolvedTheme&gt;(() =&gt; {
+  const preference = this.current();
+  if (preference !== 'system') {
+    return preference;
+  }
+  return this.systemPrefersDark() ? 'dark' : 'light';
+});</code></pre>
+          </div>
+
+          <p>Đọc kỹ cái gì phụ thuộc cái gì ở đây:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Khi <code>current()</code> là</th>
+                  <th><code>resolved</code> phụ thuộc</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>'dark'</code></td>
+                  <td>Chỉ <code>current</code></td>
+                  <td>
+                    Hệ điều hành đổi theme lúc hoàng hôn →
+                    <strong>không tính lại gì cả</strong>, vì người dùng đã chọn cứng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>'system'</code></td>
+                  <td><code>current</code> <em>và</em> <code>systemPrefersDark</code></td>
+                  <td>
+                    Hệ điều hành đổi → tính lại → giao diện đổi theo. Không một dòng code
+                    nào phải kiểm tra điều kiện này.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Angular dựng lại danh sách phụ thuộc <em>sau mỗi lần chạy</em>. Nhánh
+            <code>if</code> nào không chạy thì signal trong đó không được đăng ký. Đây là
+            thứ một hệ thống observer viết tay rất khó làm đúng.
+          </p>
+
+          <h3>3.4 <code>computed</code> lười, có nhớ, và không "nháy"</h3>
+
+          <ul>
+            <li>
+              <strong>Lười:</strong> công thức chỉ chạy khi có người đọc kết quả. Một
+              <code>computed</code> không ai đọc thì không bao giờ chạy.
+            </li>
+            <li>
+              <strong>Có nhớ:</strong> đọc mười lần trong một template thì tính một lần.
+              Nhờ vậy viết <code>rows()</code> bốn chỗ trong template không tốn gì.
+            </li>
+            <li>
+              <strong>Không nháy (glitch-free):</strong> nếu hai signal cùng đổi trong một
+              nhịp, thứ phụ thuộc cả hai chỉ tính lại <em>một</em> lần, với cả hai giá trị
+              mới. Không có trạng thái trung gian nào lọt ra màn hình.
+            </li>
+          </ul>
+
+          <div class="box box--note">
+            <span class="box__label">Quy tắc thực hành rút ra từ ba tính chất trên</span>
+            <p>
+              <strong>Mọi giá trị suy ra được thì phải là <code>computed</code></strong>,
+              không bao giờ là một signal thứ hai mà bạn tự tay đồng bộ. Mở
+              <code>customer-table.ts</code>: <code>allSelected</code>,
+              <code>someSelected</code>, <code>parsedSort</code> — không cái nào phải cập
+              nhật bằng tay, nên không có cách nào để chúng sai.
+            </p>
+          </div>
+
+          <h3>3.5 So sánh bằng — cái bẫy tham chiếu</h3>
+
+          <p>
+            Khi bạn gọi <code>.set(x)</code>, signal so sánh <code>x</code> với giá trị cũ
+            bằng <code>Object.is</code>. <strong>Bằng nhau thì không báo cho ai cả.</strong>
+            Với số và chuỗi thì trực giác đúng. Với object, mảng, <code>Set</code> thì nó
+            là nguồn bug phổ biến nhất của người mới:
+          </p>
+
+          <div class="code">
+            <div class="code__file">sai — không có trong repo</div>
+            <pre><code>const selected = signal&lt;Set&lt;string&gt;&gt;(new Set());
+
+function toggle(id: string) {
+  const s = selected();
+  s.add(id);          // sửa tại chỗ
+  selected.set(s);    // cùng một tham chiếu → KHÔNG ai được báo
+}                     // màn hình không đổi</code></pre>
+          </div>
+
+          <p>Repo làm đúng, và đây là lý do bạn thấy <code>new Set(...)</code> khắp nơi:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>protected toggleRow(id: CustomerId): void {
+  const next = new Set(this.selectedIds());   // bản sao mới
+  if (!next.delete(id)) {
+    next.add(id);
+  }
+  this.selectedIds.set(next);                 // tham chiếu mới → có báo
+}</code></pre>
+          </div>
+
+          <p>
+            Để ý thêm một chi tiết đẹp: <code>next.delete(id)</code> trả về
+            <code>true</code> nếu phần tử có tồn tại và đã bị xoá. Nên "xoá được thì thôi,
+            không xoá được thì thêm vào" chính là toggle, trong hai dòng.
+          </p>
+
+          <div class="box box--warn">
+            <span class="box__label">Quy tắc: state trong signal là bất biến</span>
+            <p>
+              Không <code>push</code>, không <code>splice</code>, không gán thẳng vào
+              field của object trong signal. Luôn tạo giá trị mới:
+              <code>[...arr, x]</code>, <code>{ ...obj, field }</code>,
+              <code>new Set(old)</code>. Đổi lại, bạn được một thứ rất đáng giá: nhìn thấy
+              <code>.set()</code> là biết có thể có thay đổi, và không thấy thì chắc chắn
+              không.
+            </p>
+          </div>
+
+          <h3>3.6 <code>effect</code>: khi nào đúng, và ba luật</h3>
+
+          <p>
+            <code>effect</code> chạy lại khi signal nó đọc đổi, và không trả về gì. Nó tồn
+            tại để <strong>đẩy một thay đổi ra khỏi thế giới signal</strong>. Trong cả
+            <code>apps/web/src</code> — hơn 21.000 dòng TypeScript — chỉ có
+            <strong>15</strong> lần dùng <code>effect</code>, và chúng rơi vào đúng bốn
+            nhóm:
+          </p>
+
+          <h4>Nhóm 1 — Đẩy ra DOM hoặc ra ngoài trình duyệt</h4>
+          <div class="code">
+            <div class="code__file">core/theme/theme.service.ts</div>
+            <pre><code>constructor() {
+  this.current.set(this.readStoredPreference());
+  effect(() =&gt; this.applyPreference(this.current()));
+  this.followOtherTabs();
+}
+
+private applyPreference(preference: ThemePreference): void {
+  if (!this.isBrowser) {
+    return;
+  }
+  const root = this.document.documentElement;
+  if (preference === 'system') {
+    root.removeAttribute('data-theme');
+  } else {
+    root.setAttribute('data-theme', preference);
+  }
+}</code></pre>
+          </div>
+          <p>
+            Thuộc tính trên <code>&lt;html&gt;</code> không phải signal, nên phải có ai đó
+            đẩy giá trị sang. Chú ý: toàn bộ cơ chế đổi theme
+            <strong>là một thuộc tính</strong> — không component nào vẽ lại, trình duyệt
+            chỉ tính lại biến CSS và repaint. Đó là phần thưởng của việc mọi component viết
+            bằng token ngữ nghĩa (bài 06).
+          </p>
+
+          <h4>Nhóm 2 — Cầu nối sang thứ không phải signal</h4>
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>effect(() =&gt; {
+  const criteria = this.criteria();
+  this.selectedIds.set(new Set());
+  this.bulkResult.set(null);
+  this.store.setCriteria(criteria);
+});</code></pre>
+          </div>
+          <p>
+            <code>store.setCriteria()</code> là một lệnh, không phải một giá trị. Đây là
+            bài 01 chặng 4, nhìn lại từ góc độ signal.
+          </p>
+
+          <h4>Nhóm 3 — Đăng ký cần dọn dẹp</h4>
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>effect((onCleanup) =&gt; {
+  const subscription = this.form.events.subscribe(() =&gt;
+    this.formVersion.update((version) =&gt; version + 1),
+  );
+  onCleanup(() =&gt; subscription.unsubscribe());
+});</code></pre>
+          </div>
+          <p>
+            <code>onCleanup</code> chạy <strong>trước mỗi lần effect chạy lại</strong> và
+            một lần cuối khi effect bị huỷ. Không có nó, mỗi lần chạy lại là một
+            subscription chồng thêm — rò rỉ, và sự kiện bị xử lý nhiều lần.
+          </p>
+
+          <h4>Nhóm 4 — Đồng bộ một trạng thái bên ngoài theo điều kiện</h4>
+          <div class="code">
+            <div class="code__file">shared/ui/scroll-lock.ts — toàn bộ phần logic</div>
+            <pre><code>export function lockScrollWhile(active: Signal&lt;boolean&gt;): void {
+  const strategy = createBlockScrollStrategy(inject(Injector));
+  let locked = false;
+
+  const release = () =&gt; {
+    if (locked) {
+      strategy.disable();
+      locked = false;
+    }
+  };
+
+  effect(() =&gt; {
+    if (active() &amp;&amp; !locked) {
+      strategy.enable();
+      locked = true;
+    } else if (!active()) {
+      release();
+    }
+  });
+
+  inject(DestroyRef).onDestroy(release);
+}</code></pre>
+          </div>
+          <p>
+            Hàm này không phải component cũng không phải service — nó là một
+            <strong>hàm chạy trong injection context</strong>, gọi được
+            <code>inject()</code> và tạo được <code>effect()</code>. Hai component dùng nó:
+            dialog và ngăn kéo điều hướng trên điện thoại. Chú ý
+            <code>DestroyRef.onDestroy(release)</code>: một modal bị gỡ lúc đang mở sẽ
+            không bao giờ để trang đóng băng.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Ba luật của <code>effect</code></span>
+            <ol>
+              <li>
+                <strong>Cần một giá trị thì đó không phải effect.</strong> Viết
+                <code>effect</code> chỉ để gán vào một signal khác là gần như chắc chắn sai
+                — thứ bạn muốn là <code>computed</code>.
+              </li>
+              <li>
+                <strong>Tạo trong injection context.</strong> Trong constructor, trong field
+                initializer, hoặc truyền <code>{ injector }</code> cho nó. Gọi trong một
+                hàm xử lý sự kiện sẽ ném lỗi.
+              </li>
+              <li>
+                <strong>Đăng ký gì thì dọn nấy.</strong> Dùng
+                <code>onCleanup</code> cho subscription, timer, listener.
+              </li>
+            </ol>
+          </div>
+
+          <h3>3.7 Cầu nối hai chiều với RxJS</h3>
+
+          <div class="code">
+            <div class="code__file">core/theme/theme.service.ts</div>
+            <pre><code>private readonly systemPrefersDark = toSignal(
+  inject(BreakpointObserver)
+    .observe(DARK_QUERY)
+    .pipe(map((state) =&gt; state.matches)),
+  { initialValue: false },
+);</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>toSignal(obs$)</code></td>
+                  <td>
+                    Subscribe hộ bạn, bọc giá trị mới nhất thành signal, và tự huỷ đăng ký
+                    khi context bị huỷ. Không có <code>unsubscribe</code> nào phải nhớ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>{ initialValue: false }</code></td>
+                  <td>
+                    Giá trị trước khi Observable phát lần đầu. Bắt buộc phải có cái này
+                    hoặc <code>requireSync: true</code> — nếu không signal sẽ có kiểu
+                    <code>T | undefined</code> và mọi nơi đọc nó phải xử lý
+                    <code>undefined</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>BreakpointObserver</code> thay vì <code>window.matchMedia</code></td>
+                  <td>
+                    Chú thích trong file nói lý do: CDK đã xử lý sẵn trường hợp server
+                    không có media query, nên class này không cần nhánh riêng cho SSR. Đây
+                    là quy tắc 2 được tuân thủ bằng cách chọn công cụ đúng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Chiều ngược lại, <code>toObservable(signal)</code>, hiếm hơn nhiều — repo dùng
+            đúng một lần, trong <code>translated-title.strategy.ts</code>, vì nó cần nối
+            một signal vào một pipeline RxJS có sẵn.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Khi nào dùng signal, khi nào dùng Observable</span>
+            <p>
+              Ranh giới repo này dùng, và nó đáng mang đi:
+              <strong>signal cho state hiển thị được</strong> (có "giá trị hiện tại", đọc
+              lúc nào cũng được), <strong>Observable cho sự kiện cần thứ tự, thời điểm và
+              khả năng huỷ</strong> (HTTP, gõ phím, tin từ server). Bài 01 chặng 6 là ví dụ
+              của vế sau: store dùng <code>Subject</code> chứ không dùng signal, vì cần
+              huỷ request và cần chạy ngay lập tức.
+            </p>
+          </div>
+
+          <h3>3.8 Quy ước "ghi trong, đọc ngoài"</h3>
+
+          <div class="code">
+            <div class="code__file">core/theme/theme.service.ts — và mọi store trong repo</div>
+            <pre><code>private readonly current = signal&lt;ThemePreference&gt;('system');
+
+/** The stored choice, including `system`. */
+readonly preference = this.current.asReadonly();
+
+/** The theme actually in effect. Use this to label UI, not `preference`. */
+readonly resolved = computed&lt;ResolvedTheme&gt;(() =&gt; { … });
+
+set(preference: ThemePreference): void {
+  this.current.set(preference);
+  this.telemetry.track({ name: 'preferences.theme_changed', theme: preference });
+  …
+}</code></pre>
+          </div>
+
+          <p>Ba tầng, và đây là khuôn mẫu bạn nên chép lại ở mọi service có state:</p>
+
+          <ol>
+            <li>
+              <code>private</code> signal ghi được — chỉ class này gán.
+            </li>
+            <li>
+              <code>readonly</code> <code>asReadonly()</code> hoặc
+              <code>computed</code> — thế giới bên ngoài đọc.
+            </li>
+            <li>
+              Method công khai để <em>yêu cầu</em> thay đổi — và chỗ đó mới là nơi đặt
+              được những việc đi kèm, như ghi telemetry và lưu storage ở ví dụ trên.
+            </li>
+          </ol>
+
+          <p>
+            Nếu <code>current</code> là public, mọi component đều gán được, và không ai trả
+            lời được câu "ai đã đổi theme". Với khuôn này, câu trả lời luôn là: ai đó đã
+            gọi <code>set()</code>, và <code>set()</code> ghi lại điều đó.
+          </p>
+
+          <h3>3.9 Zoneless: chuyện gì xảy ra giữa <code>.set()</code> và pixel</h3>
+
+          <p>
+            Bài 00 nói "không có zone.js, signal là thứ duy nhất báo cho Angular". Đây là
+            chi tiết:
+          </p>
+
+          <ol>
+            <li>
+              Bạn gọi <code>listState.set(success(page))</code>. Signal so sánh giá trị
+              mới với cũ — khác nhau.
+            </li>
+            <li>
+              Signal báo cho những ai đã đọc nó: các <code>computed</code> phụ thuộc bị
+              đánh dấu <em>có thể đã cũ</em> (chưa tính lại — chúng lười), và các
+              component có template đọc nó bị đánh dấu <em>dirty</em>.
+            </li>
+            <li>
+              Angular lên lịch một lần đồng bộ ở microtask kế tiếp. Nhiều lần
+              <code>.set()</code> trong cùng một nhịp gộp thành một lần.
+            </li>
+            <li>
+              Lần đồng bộ chạy: đi qua các component <em>dirty</em>, chạy lại template của
+              chúng. Template đọc <code>computed</code> → lúc này computed mới thật sự tính
+              lại.
+            </li>
+            <li>Angular so sánh kết quả với DOM hiện tại và chỉ sửa chỗ khác.</li>
+          </ol>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as Code của bạn
+    participant S as signal
+    participant A as Angular
+    participant D as DOM
+    C->>S: .set(giá trị mới)
+    S->>S: Object.is(cũ, mới)?
+    Note over S: bằng nhau → dừng ở đây
+    S->>A: báo: computed đã cũ,<br/>component X dirty
+    A->>A: lên lịch đồng bộ (microtask)
+    Note over A: nhiều .set() trong một nhịp<br/>gộp thành một lần
+    A->>A: chạy template của X
+    A->>S: template đọc computed()
+    S-->>A: tính lại, trả giá trị
+    A->>D: sửa đúng chỗ khác nhau
+            </pre>
+            <figcaption>
+              Hai chỗ tiết kiệm nằm ở bước 3 (gộp) và bước 7 (chỉ component dirty). Trong
+              app dùng zone.js, bước 7 là quét lại toàn bộ cây.
+            </figcaption>
+          </figure>
+
+          <p>
+            <strong>Cái gì khởi động chu trình này?</strong> Trong app zoneless: một signal
+            đọc trong template bị đổi, một event binding của template chạy, hoặc một
+            <code>AsyncPipe</code> phát giá trị. <strong>Không</strong> phải: một
+            <code>setTimeout</code> gán field thường, một callback của thư viện ngoài, một
+            lời hứa <code>Promise</code> gán field thường. Đó chính xác là lý do bài 00 cảnh
+            báo về field thường.
+          </p>
+
+          <h3>3.10 <code>untracked</code>: có, nhưng repo không dùng</h3>
+
+          <p>
+            Angular có <code>untracked(() =&gt; sig())</code> để đọc một signal mà
+            <em>không</em> đăng ký phụ thuộc. Nó dùng khi một effect cần giá trị của một
+            signal nhưng không muốn chạy lại khi signal đó đổi.
+          </p>
+
+          <p>
+            Trong repo này <strong>không có lần dùng nào</strong>, và điều đó có ý nghĩa:
+            khi bạn thấy mình cần <code>untracked</code>, thường là effect đang làm hai
+            việc và nên tách ra, hoặc thứ bạn cần là một <code>computed</code>. Biết nó tồn
+            tại là đủ; dùng nó thì nên dừng lại hỏi trước.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/theme/theme.service.ts</code></td>
+                  <td>
+                    <strong>Bắt đầu từ đây.</strong> Cả năm thứ trong một file 140 dòng:
+                    signal private, <code>asReadonly</code>, <code>computed</code> có phụ
+                    thuộc động, <code>effect</code> đẩy ra DOM, <code>toSignal</code> nối
+                    RxJS
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui/scroll-lock.ts</code></td>
+                  <td>
+                    <code>effect</code> ngắn nhất repo, và cách một hàm thường cũng dùng
+                    được DI
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.ts</code></td>
+                  <td>
+                    Nhiều <code>computed</code> dẫn xuất từ một signal của store; và
+                    <code>toggleRow</code> — khuôn mẫu bất biến
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-form/customer-form-page.ts</code></td>
+                  <td><code>effect((onCleanup) =&gt; …)</code>, trường hợp cần dọn dẹp</td>
+                </tr>
+                <tr>
+                  <td><code>layout/layout-breakpoints.ts</code></td>
+                  <td>
+                    <code>toSignal</code> trên <code>BreakpointObserver</code>: bề rộng màn
+                    hình trở thành một signal đọc được ở mọi nơi
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Đồ thị phụ thuộc của <code>ThemeService</code></h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    OS["Hệ điều hành<br/>prefers-color-scheme"] --> BO["BreakpointObserver<br/><i>Observable</i>"]
+    BO -->|"toSignal"| SPD["systemPrefersDark<br/><i>signal</i>"]
+    LS["localStorage<br/>+ sự kiện storage từ tab khác"] --> CUR
+    USER["Người dùng bấm<br/>theme toggle"] -->|"set()"| CUR["current<br/><i>signal private</i>"]
+    CUR -->|"asReadonly()"| PREF["preference<br/><i>chỉ đọc, ra ngoài</i>"]
+    CUR --> RES["resolved<br/><i>computed</i>"]
+    SPD -.->|"chỉ khi current === 'system'"| RES
+    CUR --> EFF["effect"]
+    EFF --> ATTR["thuộc tính data-theme<br/>trên &lt;html&gt;"]
+    ATTR --> PAINT["Trình duyệt tính lại biến CSS<br/><i>không component nào vẽ lại</i>"]
+    RES --> UI["UI hiện nhãn đúng"]
+            </pre>
+            <figcaption>
+              Mũi tên nét đứt là phụ thuộc <em>động</em> ở mục 3.3. Và chú ý nhánh phải:
+              đổi theme <strong>không</strong> làm component nào vẽ lại — nó chỉ đổi một
+              thuộc tính, rồi trình duyệt lo phần còn lại.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Zoneless thay vì zone.js — ADR-0002</h4>
+          <p>
+            Phương án bị loại: zone.js, thứ mọi tutorial giả định. Giá phải trả, ghi thẳng
+            trong ADR: mọi thư viện thêm vào sau phải chạy được không cần zone.js, và state
+            template đọc buộc phải là signal. Cái nhận được: không vá global của trình
+            duyệt (vốn xung đột với SSR), và không quét cả cây mỗi khi một
+            <code>setTimeout</code> bất kỳ nổ.
+          </p>
+
+          <h4><code>system</code> là một lựa chọn thật, không phải "chưa chọn"</h4>
+          <p>
+            Phương án bị loại: lưu theme đã resolve (<code>light</code>/<code>dark</code>)
+            rồi quên đi lựa chọn gốc. Bị loại vì khi đó "theo hệ điều hành" không còn
+            <em>theo</em> nữa — hoàng hôn tới, hệ điều hành chuyển tối, app vẫn sáng. Giữ
+            <code>system</code> là một giá trị riêng khiến <code>resolved</code> tiếp tục
+            phụ thuộc vào hệ điều hành.
+          </p>
+
+          <h4>Với <code>system</code>, thuộc tính bị <em>xoá</em> chứ không gán</h4>
+          <p>
+            Chi tiết tinh tế nhất trong file. Xoá <code>data-theme</code> trả quyền quyết
+            định về cho media query trong stylesheet — và media query cũng chính là thứ tô
+            màu cho HTML được render sẵn từ server, <em>trước khi</em> bất kỳ dòng
+            TypeScript nào chạy. Gán một giá trị đã resolve sẽ làm trang nháy một lần khi
+            app khởi động.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Sửa tại chỗ rồi <code>set</code> lại cùng tham chiếu</span>
+            <p>
+              <code>arr.push(x); sig.set(arr);</code> — <code>Object.is</code> thấy bằng
+              nhau nên không báo cho ai. Màn hình không đổi, không lỗi, không cảnh báo.
+              Mục 3.5.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Dùng <code>effect</code> để tính một giá trị</span>
+            <p>
+              <code>effect(() =&gt; this.total.set(this.a() + this.b()))</code>. Chạy được,
+              nhưng: thêm một bước trễ (giá trị cũ trong một nhịp), tạo ra một signal có thể
+              sai, và nếu lỡ đọc <code>total</code> trong cùng effect thì thành vòng lặp.
+              Đúng ra là
+              <code>total = computed(() =&gt; this.a() + this.b())</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Quên <code>onCleanup</code> trong effect có subscribe</span>
+            <p>
+              Mỗi lần effect chạy lại là một subscription mới chồng lên. Sau mười lần,
+              mỗi sự kiện được xử lý mười lần — và triệu chứng thường là "form tự tăng số
+              lần không hiểu sao", không phải một thông báo lỗi.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. <code>toSignal</code> không có <code>initialValue</code></span>
+            <p>
+              Kiểu trở thành <code>T | undefined</code>, nên mọi chỗ đọc phải xử lý
+              <code>undefined</code> — và thường người ta xử lý bằng cách thêm
+              <code>!</code>, tức là đẩy lỗi sang lúc chạy. Cho nó một giá trị đầu, hoặc
+              <code>requireSync: true</code> nếu Observable chắc chắn phát ngay.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Gán field thường cho state template đọc</span>
+            <p>
+              Lỗi số một của người đến từ Angular cũ. Không có lỗi nào được báo. Nếu bạn
+              gặp "màn hình không cập nhật", kiểm tra điều này
+              <strong>trước tiên</strong>, trước khi nghi ngờ bất cứ thứ gì khác.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Signal làm test dễ hơn hẳn: không cần <code>fakeAsync</code>, không cần chờ
+            subscription. Gán, rồi đọc.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/theme/theme.service.spec.ts</code></td>
+                  <td>
+                    <code>resolved</code> theo hệ điều hành khi preference là
+                    <code>system</code> và không theo khi đã chọn cứng; thuộc tính được xoá
+                    chứ không gán; theme đổi ở tab khác thì tab này theo
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>State đi qua đúng các nhánh của <code>RemoteData</code></td>
+                </tr>
+                <tr>
+                  <td><code>layout/layout-breakpoints.spec.ts</code></td>
+                  <td>Bề rộng màn hình đổi thì signal đổi theo</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một mẹo test đáng nhớ</span>
+            <p>
+              Một <code>computed</code> chỉ tính lại khi <em>có người đọc</em>. Trong test,
+              nếu bạn gán signal nguồn rồi khẳng định một tác dụng phụ mà không đọc computed
+              nào, có thể chẳng có gì chạy cả. Đọc giá trị ra trước khi khẳng định — đó
+              cũng chính là cách template làm.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>
+            Một hình trả lời câu hỏi thực tế bạn sẽ gặp mỗi ngày: <strong>thứ này nên là
+            gì?</strong>
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Nó là dữ liệu<br/>hay là một việc cần làm?"}
+    Q0 -->|"một việc"| EFF["effect()<br/><i>đẩy ra ngoài thế giới signal</i>"]
+    Q0 -->|"dữ liệu"| Q1{"Suy ra được từ<br/>dữ liệu khác không?"}
+    Q1 -->|"có"| CMP["computed()<br/><i>không bao giờ sai, không phải đồng bộ</i>"]
+    Q1 -->|"không"| Q2{"Ai được ghi?"}
+    Q2 -->|"cha truyền xuống"| INP["input()"]
+    Q2 -->|"chính class này"| SIG["signal() private<br/>+ asReadonly() ra ngoài"]
+    Q2 -->|"đến từ RxJS"| TS["toSignal(obs$, { initialValue })"]
+
+    EFF --> R1["Cần dọn dẹp? → onCleanup"]
+    SIG --> R2["Ghi bằng giá trị MỚI:<br/>new Set(…), [...arr], { ...obj }"]
+    CMP --> R3["Lười · có nhớ · không nháy"]
+
+    NEVER["KHÔNG BAO GIỜ:<br/>field thường cho state template đọc"]
+            </pre>
+            <figcaption>
+              Cây quyết định này trả lời được gần như mọi câu hỏi về state trong một
+              component Angular hiện đại. Ô dưới cùng bên phải là lỗi gây mất thời gian
+              nhiều nhất cho người mới — và nó im lặng.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Tự tay gây ra lỗi "màn hình không đổi"</h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>customer-list-page.ts</code>, tìm <code>toggleRow</code>. Đổi
+                nó thành phiên bản sửa tại chỗ:
+                <div class="code">
+                  <pre><code>protected toggleRow(id: CustomerId): void {
+  const next = this.selectedIds() as Set&lt;CustomerId&gt;;
+  if (!next.delete(id)) {
+    next.add(id);
+  }
+  this.selectedIds.set(next);
+}</code></pre>
+                </div>
+              </li>
+              <li>Chạy app, vào danh sách, bấm tick một dòng. Quan sát.</li>
+              <li>
+                Bây giờ tick một dòng rồi <em>đổi trang</em> và quay lại. Quan sát lần nữa.
+              </li>
+              <li><code>git checkout</code> để hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì — và vì sao bước 3 quan trọng</summary>
+              <p>
+                Bước 2: dấu tick không hiện, thanh bulk không xuất hiện. Dữ liệu
+                <em>đã</em> đổi — <code>Set</code> thật sự có thêm phần tử — nhưng không ai
+                được báo, nên không gì vẽ lại.
+              </p>
+              <p>
+                Bước 3 là phần đáng giá: sau khi điều hướng, có thứ khác làm Angular đồng
+                bộ lại, và lúc đó dấu tick <strong>đột nhiên xuất hiện</strong>. Đây là
+                điều khiến loại bug này khó truy: nó không hỏng hẳn, nó hỏng
+                <em>có lúc</em>. Người ta sẽ báo là "thỉnh thoảng phải bấm hai lần".
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đọc <code>ThemeService</code> và trả lời</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                Người dùng chọn <code>dark</code>. Sau đó hệ điều hành chuyển sang sáng.
+                <code>resolved</code> có tính lại không? Vì sao?
+              </li>
+              <li>
+                Vì sao <code>preference</code> dùng <code>asReadonly()</code> mà
+                <code>resolved</code> thì không cần?
+              </li>
+              <li>
+                Khi preference là <code>system</code>, vì sao code
+                <em>xoá</em> thuộc tính thay vì gán <code>data-theme="light"</code>?
+              </li>
+              <li>
+                <code>followOtherTabs()</code> không dùng <code>effect</code>. Vì sao
+                không?
+              </li>
+              <li>
+                Nếu bỏ <code>{ initialValue: false }</code> khỏi
+                <code>toSignal</code>, điều gì hỏng?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  Không. Lần chạy gần nhất của <code>resolved</code> thoát ở nhánh
+                  <code>if (preference !== 'system')</code> nên nó
+                  <strong>chưa bao giờ đọc</strong> <code>systemPrefersDark</code>, và do
+                  đó không đăng ký phụ thuộc vào signal đó. Phụ thuộc động, mục 3.3.
+                </li>
+                <li>
+                  <code>computed</code> vốn đã chỉ-đọc — không có
+                  <code>.set()</code> để mà lộ ra. <code>current</code> thì ghi được, nên
+                  phải bọc.
+                </li>
+                <li>
+                  Để trả quyền quyết định cho media query trong stylesheet — chính thứ đã
+                  tô màu cho HTML render sẵn trước khi JavaScript chạy. Gán giá trị đã
+                  resolve sẽ làm trang nháy một lần lúc khởi động.
+                </li>
+                <li>
+                  Vì nó phản ứng với một <em>sự kiện DOM</em>
+                  (<code>storage</code>), không phải với một signal đổi.
+                  <code>effect</code> chỉ chạy lại khi signal đổi; ở đây nguồn thay đổi đến
+                  từ bên ngoài, nên dùng listener và dọn bằng
+                  <code>DestroyRef.onDestroy</code>.
+                </li>
+                <li>
+                  <code>systemPrefersDark</code> có kiểu
+                  <code>boolean | undefined</code>, nên
+                  <code>this.systemPrefersDark() ? 'dark' : 'light'</code> vẫn chạy nhưng
+                  trình biên dịch sẽ buộc bạn xử lý <code>undefined</code> ở những chỗ
+                  khác, và lần đọc đầu tiên trước khi observable phát sẽ là
+                  <code>undefined</code> chứ không phải "sáng".
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Biến một <code>effect</code> sai thành <code>computed</code></h3>
+            <p class="task__meta">~30 phút · viết trên branch <code>learning/*</code></p>
+            <p>Cho đoạn code sau (viết sai có chủ ý):</p>
+            <div class="code">
+              <pre><code>export class OrderSummary {
+  readonly items = input.required&lt;readonly Item[]&gt;();
+  readonly discountPercent = input(0);
+
+  protected total = signal(0);
+  protected label = signal('');
+
+  constructor() {
+    effect(() =&gt; {
+      const sum = this.items().reduce((n, i) =&gt; n + i.price, 0);
+      this.total.set(sum - (sum * this.discountPercent()) / 100);
+    });
+    effect(() =&gt; {
+      this.label.set(this.total() &gt; 0 ? 'Có hàng' : 'Trống');
+    });
+  }
+}</code></pre>
+            </div>
+            <ol>
+              <li>Viết lại bằng <code>computed</code>, không còn <code>effect</code> nào.</li>
+              <li>
+                Liệt kê ba vấn đề cụ thể của bản gốc — không phải "nó xấu", mà điều gì sẽ
+                thật sự sai.
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <div class="code">
+                <pre><code>export class OrderSummary {
+  readonly items = input.required&lt;readonly Item[]&gt;();
+  readonly discountPercent = input(0);
+
+  protected readonly total = computed(() =&gt; {
+    const sum = this.items().reduce((n, i) =&gt; n + i.price, 0);
+    return sum - (sum * this.discountPercent()) / 100;
+  });
+
+  protected readonly label = computed(() =&gt; (this.total() &gt; 0 ? 'Có hàng' : 'Trống'));
+}</code></pre>
+              </div>
+              <p>Ba vấn đề của bản gốc:</p>
+              <ol>
+                <li>
+                  <strong>Trễ một nhịp, và có thể hai.</strong>
+                  <code>total</code> cập nhật ở lần chạy effect thứ nhất, rồi
+                  <code>label</code> mới cập nhật ở lần thứ hai. Có một khoảnh khắc
+                  <code>total</code> đã mới mà <code>label</code> còn cũ — và khoảnh khắc đó
+                  có thể lọt ra màn hình.
+                </li>
+                <li>
+                  <strong>Hai signal có thể sai.</strong> Chúng là bản sao của một thứ suy ra
+                  được. Ai đó gọi <code>this.total.set(999)</code> ở chỗ khác thì không gì
+                  ngăn được, và nó sẽ bị effect ghi đè vào lúc không ai đoán trước.
+                </li>
+                <li>
+                  <strong>Tính cả khi không ai nhìn.</strong> <code>effect</code> chạy dù có
+                  ai đọc <code>total</code> hay không; <code>computed</code> thì lười. Với
+                  danh sách lớn, đó là công vô ích trên mỗi lần input đổi.
+                </li>
+              </ol>
+              <p>
+                Thêm một điểm nhỏ nhưng thật: bản <code>computed</code> khai được
+                <code>readonly</code>, nên trình biên dịch cưỡng chế luôn điều mà bản gốc
+                chỉ mong đợi.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Viết một service có state theo khuôn repo</h3>
+            <p class="task__meta">~45 phút · tạo file mới trên branch <code>learning/*</code></p>
+            <p>
+              Viết <code>RecentlyViewedService</code>: nhớ tối đa 5 khách hàng vừa xem gần
+              nhất, mới nhất lên đầu, không trùng lặp.
+            </p>
+            <ul>
+              <li>
+                Theo đúng khuôn mục 3.8: signal <code>private</code>, lộ ra bản chỉ đọc,
+                thay đổi qua method công khai.
+              </li>
+              <li>
+                Lộ thêm một <code>computed</code>: <code>isEmpty</code>.
+              </li>
+              <li>Mọi thay đổi phải tạo mảng mới, không sửa tại chỗ.</li>
+              <li>
+                Lưu qua một lần F5 — dùng <code>LOCAL_STORAGE</code> từ
+                <code>core/platform/platform.tokens.ts</code>,
+                <strong>không</strong> dùng <code>localStorage</code> trực tiếp (quy tắc
+                2).
+              </li>
+              <li>Viết một spec: thêm trùng id thì không nhân đôi, và danh sách tối đa 5.</li>
+            </ul>
+            <details>
+              <summary>Ba câu hỏi để tự chấm</summary>
+              <ol>
+                <li>
+                  Có thể gọi <code>.set()</code> lên state từ bên ngoài service không? Nếu
+                  có thì khuôn chưa đúng.
+                </li>
+                <li>
+                  <code>isEmpty</code> là <code>computed</code> hay một signal thứ hai? Phải
+                  là computed.
+                </li>
+                <li>
+                  Có <code>effect</code> nào không? Nếu có, nó đang đẩy cái gì ra ngoài thế
+                  giới signal? Ghi xuống <code>localStorage</code> là một lý do hợp lệ —
+                  đối chiếu với <code>ThemeService</code>, nơi việc lưu storage nằm trong
+                  <code>set()</code> chứ không trong effect, và tự hỏi vì sao cách đó cũng
+                  đúng.
+                </li>
+              </ol>
+              <p>
+                Chấm bằng máy: <code>npm run lint</code>,
+                <code>npm run typecheck</code>, và spec của bạn chạy qua.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. "Đọc tức là đăng ký" nghĩa là gì?</summary>
+            <p>
+              Khi bạn gọi <code>sig()</code> bên trong một <code>computed</code>, một
+              <code>effect</code>, hoặc lúc vẽ template, signal ghi lại rằng chỗ đó phụ
+              thuộc vào nó. Đồ thị phụ thuộc được dựng bởi hành động đọc, không ai khai báo.
+              Đọc ở ngoài ba chỗ đó chỉ là lấy giá trị.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>arr.push(x); sig.set(arr)</code> không cập nhật màn hình?</summary>
+            <p>
+              Vì signal so sánh bằng <code>Object.is</code>, và tham chiếu không đổi nên nó
+              coi như không có gì thay đổi — không báo cho ai. Phải tạo giá trị mới:
+              <code>sig.set([...arr, x])</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Phụ thuộc "động" nghĩa là gì, cho một ví dụ?</summary>
+            <p>
+              Danh sách phụ thuộc được dựng lại sau mỗi lần chạy, nên nhánh
+              <code>if</code> không chạy thì signal trong đó không được đăng ký.
+              <code>ThemeService.resolved</code>: khi preference là <code>dark</code>, nó
+              không phụ thuộc <code>systemPrefersDark</code>, nên hệ điều hành đổi theme
+              cũng không làm nó tính lại.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Khi nào <code>effect</code> là lựa chọn đúng?</summary>
+            <p>
+              Khi phải đẩy một thay đổi ra <em>ngoài</em> thế giới signal: ghi vào DOM, gọi
+              một lệnh của service, đăng ký một subscription, bật/tắt một trạng thái bên
+              ngoài. Bốn nhóm ở mục 3.6. Nếu kết quả bạn cần là một giá trị thì đó là
+              <code>computed</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>onCleanup</code> chạy khi nào?</summary>
+            <p>
+              Trước <strong>mỗi</strong> lần effect chạy lại, và một lần cuối khi effect bị
+              huỷ. Đó là chỗ huỷ subscription, clear timer, gỡ listener.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Khuôn "ghi trong, đọc ngoài" gồm những gì, và nó mua được gì?</summary>
+            <p>
+              Signal <code>private</code> ghi được; một <code>asReadonly()</code> hoặc
+              <code>computed</code> public để đọc; method public để yêu cầu thay đổi. Nó
+              mua được một câu trả lời cho "ai đã đổi thứ này" — luôn là qua method đó — và
+              một chỗ duy nhất để đặt những việc đi kèm như telemetry hay lưu storage.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Trong app zoneless, cái gì khởi động một lần đồng bộ?</summary>
+            <p>
+              Một signal mà template đọc bị đổi, một event binding của template chạy, hoặc
+              một <code>AsyncPipe</code> phát giá trị. Không phải: <code>setTimeout</code>,
+              callback của thư viện ngoài, hay <code>Promise</code> gán vào field thường.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Khi nào dùng signal, khi nào dùng Observable?</summary>
+            <p>
+              Signal cho state có "giá trị hiện tại" và cần hiển thị. Observable cho sự kiện
+              cần thứ tự, thời điểm chính xác và khả năng huỷ — HTTP, gõ phím, tin từ
+              server. <code>toSignal</code> nối chiều thứ nhất, và nó là chiều bạn dùng
+              gần như mọi lần.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 04 lấy hai bài vừa rồi ghép lại: component giao tiếp với nhau bằng gì
+              (<code>input</code>/<code>output</code> đã gặp, cộng projection nâng cao và
+              các kiểu input đặc biệt), và ranh giới "thông minh / trình bày" vẽ ở đâu cho
+              một feature thật.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="02-component-va-template.html">← Bài 02</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

@@ -157,8 +157,10 @@ nhau, và chỉ việc thứ hai được trả lương.
 6. Đánh đổi & phương án bị loại (rút từ ADR)
 7. Làm kiểu ngây thơ thì vỡ thế nào
 8. Test ở đâu, khẳng định điều gì
-9. Bài tập
-10. Tự kiểm tra: 5 câu, đáp án gập lại
+9. **Sơ đồ tổng hợp**: một hình nối lại mọi thành phần vừa học, đặt ngay trước
+   bài tập — để thứ rời rạc trong bài khép lại thành một hình nhớ được
+10. Bài tập
+11. Tự kiểm tra: 5–8 câu, đáp án gập lại
 
 Mỗi bài có một nhãn ở đầu: **chuyển được sang dự án thật** hay **chỉ hợp trong
 repo học này** — căn cứ `docs/enterprise-review.md` §1.5.

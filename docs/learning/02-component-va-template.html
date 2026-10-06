@@ -1,0 +1,1355 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 02 — Component &amp; template</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 1 — Viết được UI → Bài 02</p>
+        <h1>Component &amp; template</h1>
+        <p class="lede">
+          Bài 00 cho bạn đọc được một component mười dòng. Bài này cho bạn
+          <strong>viết</strong> được một component thật: bốn kiểu binding, ba khối điều
+          khiển, hai cách nhận nội dung từ bên ngoài, và câu hỏi khó nhất — khi nào thì
+          tách một component mới.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 1 · hướng tới Mốc 1</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Trước khi đọc</span>
+            <p>
+              Cần từ bài 00: decorator, <code>selector</code>, <code>input()</code>, signal
+              và cặp <code>()</code>, <code>computed</code>. Bài này đi sâu vào template —
+              phần bài 00 mới chỉ liệt kê trong một bảng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Binding</strong></td>
+                  <td>
+                    Một trong bốn mối nối giữa class và DOM: in giá trị, truyền property,
+                    gắn attribute, nghe sự kiện.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Control flow block</strong></td>
+                  <td>
+                    <code>@if</code>, <code>@for</code>, <code>@switch</code>,
+                    <code>@defer</code>. Cú pháp của chính trình biên dịch, không phải
+                    directive, nên không cần import gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>track</code></td>
+                  <td>
+                    Biểu thức trong <code>@for</code> nói cho Angular biết "dòng nào là
+                    dòng nào" giữa hai lần vẽ. Bắt buộc. Mục 3.4.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Content projection</strong></td>
+                  <td>
+                    Nhận <em>một mảnh template</em> từ người gọi qua
+                    <code>&lt;ng-content /&gt;</code>, thay vì nhận dữ liệu qua input.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>View encapsulation</strong></td>
+                  <td>
+                    Cơ chế cô lập CSS: Angular thêm một thuộc tính riêng vào mọi thẻ của
+                    component, và viết lại selector để chỉ khớp thẻ mang thuộc tính đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:host</code></td>
+                  <td>
+                    Trong CSS của component, trỏ tới <em>chính thẻ</em> của component
+                    (<code>&lt;app-badge&gt;</code>), không phải nội dung bên trong.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Smart / presentational</strong></td>
+                  <td>
+                    Component “thông minh” biết store, URL, quyền. Component “trình bày”
+                    chỉ nhận dữ liệu vào và phát ý định ra. Repo chia rõ ràng — mục 3.6.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>output()</code></td>
+                  <td>
+                    Cách component con nói với cha: <code>output&lt;T&gt;()</code> tạo một
+                    kênh, <code>.emit(value)</code> gửi đi. Cha nghe bằng
+                    <code>(tenOutput)="…"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Directive</strong></td>
+                  <td>
+                    Gắn hành vi vào thẻ có sẵn. <em>Structural</em> (có dấu
+                    <code>*</code>) quyết định thẻ có tồn tại không;
+                    <em>attribute</em> chỉ đổi thuộc tính của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>imports: []</code></td>
+                  <td>
+                    Danh sách component, directive, pipe mà template này được phép dùng.
+                    Quên khai báo thì lỗi biên dịch.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Viết một component mới từ con số không, không cần copy file khác.</li>
+            <li>
+              Dùng đúng bốn kiểu binding, và nói được vì sao
+              <code>[attr.aria-label]</code> khác <code>aria-label</code>.
+            </li>
+            <li>
+              Giải thích được <code>track</code> làm gì, và điều gì hỏng khi chọn sai nó.
+            </li>
+            <li>
+              Quyết định được: thứ này nên là một <code>input</code>, hay nên là content
+              projection?
+            </li>
+            <li>
+              Đọc hết <code>customer-table.ts</code> — 260 dòng — và nói được nó sở hữu
+              state gì. (Đáp án: không gì cả.)
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Gần nhất ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Thymeleaf fragment / JSP tag file</td>
+                  <td>Component</td>
+                  <td>
+                    Fragment được <em>chèn</em> vào một lần rồi thành HTML chết. Component
+                    là một object còn sống sau khi vẽ, có state riêng, và tự vẽ lại khi
+                    dữ liệu đổi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>th:each</code> / <code>c:forEach</code></td>
+                  <td><code>@for</code></td>
+                  <td>
+                    Vòng lặp của bạn chạy một lần rồi xong, nên không cần
+                    <code>track</code>. <code>@for</code> chạy lại nhiều lần trên cùng một
+                    DOM, nên <strong>phải</strong> biết dòng nào là dòng nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tham số của fragment</td>
+                  <td><code>input()</code></td>
+                  <td>
+                    Tham số truyền một lần. <code>input</code> là một signal: cha đổi giá
+                    trị thì con tự cập nhật, không ai gọi lại gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có gì tương đương</td>
+                  <td><code>output()</code></td>
+                  <td>
+                    Backend không có chiều ngược: HTML không “báo lên” cho template. Ở đây
+                    con phát ý định, cha quyết định làm gì — và đó là hợp đồng quan trọng
+                    nhất của bài này.
+                  </td>
+                </tr>
+                <tr>
+                  <td>CSS toàn cục + quy ước đặt tên (BEM)</td>
+                  <td>View encapsulation</td>
+                  <td>
+                    Bạn tránh đụng độ CSS bằng kỷ luật đặt tên. Ở đây trình biên dịch làm
+                    hộ: CSS của một component <em>không thể</em> rò sang component khác,
+                    kể cả khi trùng tên class.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Hợp đồng cần nhớ: dữ liệu xuống, ý định lên</span>
+            <p>
+              Component con <strong>không bao giờ</strong> tự quyết định. Bảng khách hàng
+              không biết "sắp xếp" nghĩa là gì — nó chỉ phát ra
+              <code>sortChange.emit('email,asc')</code>. Trang mới là nơi biết rằng sắp
+              xếp nghĩa là một lần điều hướng đổi URL.
+            </p>
+            <p>
+              Lợi ích cụ thể, không trừu tượng: cũng cái bảng đó dùng được ở một trang
+              khác nơi sắp xếp nghĩa là gọi API khác; và test nó không cần router, không
+              cần store, chỉ cần truyền <code>rows</code> vào rồi xem nó phát ra gì.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ba phần của một component</h3>
+
+          <p>Mọi component đều là đúng ba thứ, không hơn:</p>
+
+          <div class="code">
+            <div class="code__file">hình dạng chung</div>
+            <pre><code>@Component({          // 1. METADATA - Angular đọc lúc biên dịch
+  selector: 'app-thing',
+  imports: [OtherComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: ` … `,    // 2. TEMPLATE - HTML + cú pháp Angular
+  styles: ` … `,
+})
+export class Thing {  // 3. CLASS - state và hành vi
+  readonly label = input.required&lt;string&gt;();
+  protected readonly upper = computed(() =&gt; this.label().toUpperCase());
+}</code></pre>
+          </div>
+
+          <p>
+            Repo này luôn viết <code>template:</code> nội tuyến chứ không
+            <code>templateUrl:</code> trỏ sang file <code>.html</code> riêng. Một ngoại lệ
+            duy nhất: <code>app.html</code> của component gốc. Lý do ở mục 6.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Ba mức truy cập, và chúng có ý nghĩa thật</span>
+            <p>
+              Để ý <code>readonly label</code> (public), <code>protected upper</code>,
+              <code>private store</code>. Quy ước trong repo:
+              <strong>public</strong> là hợp đồng với bên ngoài (input, output);
+              <strong>protected</strong> là thứ template được đọc;
+              <strong>private</strong> là việc nội bộ. Không phải trang trí —
+              <code>ngc</code> thật sự chặn template đọc một field
+              <code>private</code>, nên mức truy cập trở thành tài liệu cho người đọc
+              tiếp theo: "ba field này là thứ template dùng, phần còn lại thì không".
+            </p>
+          </div>
+
+          <h3>3.2 Bốn kiểu binding</h3>
+
+          <p>Lấy ví dụ thật từ bảng khách hàng, từng dòng một.</p>
+
+          <h4>a. Interpolation — in ra văn bản</h4>
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts</div>
+            <pre><code>&lt;td class="cell--code"&gt;{{ row.customerCode }}&lt;/td&gt;</code></pre>
+          </div>
+          <p>
+            Giá trị được chuyển thành chuỗi và chèn vào làm text node. Angular
+            <strong>escape</strong> nó, nên dữ liệu chứa <code>&lt;script&gt;</code> hiện
+            ra như chữ chứ không chạy. Đây là phòng tuyến XSS mặc định, và nó bật sẵn —
+            muốn tắt phải cố ý gọi API khác.
+          </p>
+
+          <h4>b. Property binding — truyền giá trị vào</h4>
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>&lt;app-badge [tone]="tone(row)"&gt;{{ t(statusKey(row)) }}&lt;/app-badge&gt;
+
+&lt;input type="checkbox" [checked]="isSelected(row.id)" [indeterminate]="someSelected()" /&gt;</code></pre>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Viết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>tone="danger"</code></td>
+                  <td>Truyền chuỗi <code>"danger"</code> nguyên văn.</td>
+                </tr>
+                <tr>
+                  <td><code>[tone]="tone(row)"</code></td>
+                  <td>
+                    Chạy biểu thức <code>tone(row)</code> và truyền
+                    <em>kết quả</em>. Ngoặc vuông = "đọc cái này như code".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[tone]="'danger'"</code></td>
+                  <td>
+                    Cũng truyền chuỗi <code>danger</code> — chú ý nháy đơn bên trong. Viết
+                    <code>[tone]="danger"</code> là tìm một field tên
+                    <code>danger</code> và sẽ không có.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[indeterminate]="…"</code></td>
+                  <td>
+                    Trạng thái thứ ba của checkbox — "một vài, không phải tất cả". Nó
+                    <strong>chỉ</strong> tồn tại như property của DOM, không có attribute
+                    HTML tương ứng. Đây là lý do property binding tồn tại.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>c. Attribute binding — khi không có property để gán</h4>
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>&lt;th scope="col" [attr.aria-sort]="ariaSort(column.field)"&gt;
+
+&lt;input [attr.aria-label]="t('pages.customers.list.table.selectRow', { name: row.fullName })" /&gt;
+
+&lt;time [attr.datetime]="row.updatedAt"&gt;{{ row.updatedAt | appInstant: 'short' }}&lt;/time&gt;</code></pre>
+          </div>
+          <p>
+            HTML có <em>attribute</em> (những gì viết trong thẻ) và DOM có
+            <em>property</em> (những gì JavaScript đọc được trên object). Phần lớn trùng
+            tên, nhưng <code>aria-*</code>, <code>data-*</code> và
+            <code>colspan</code> thì không có property. Với chúng phải dùng
+            <code>[attr.x]</code>. Quy tắc thực hành: gán không được bằng
+            <code>[x]</code> thì thử <code>[attr.x]</code>.
+          </p>
+
+          <div class="box box--warn">
+            <span class="box__label">Vì sao repo bắt buộc dùng binding cho <code>aria-label</code></span>
+            <p>
+              Viết <code>aria-label="Select row"</code> là một chuỗi tiếng Anh cứng, và
+              lint sẽ chặn (quy tắc 1). Một binding thì được chấp nhận, vì giá trị đến từ
+              hàm dịch. Chú ý điều này bắt đầu từ phase 1 và tính cả
+              <code>placeholder</code>, <code>title</code>: đó mới là những chuỗi hay bị
+              bỏ sót, vì nhìn chúng không giống “nội dung”.
+            </p>
+          </div>
+
+          <h4>d. Event binding — nghe sự kiện</h4>
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>&lt;button type="button" class="sort" (click)="toggleSort(column.field)"&gt;
+
+&lt;input type="checkbox" (change)="allToggled.emit(!allSelected())" /&gt;</code></pre>
+          </div>
+          <p>
+            Tên trong ngoặc tròn là tên sự kiện DOM (<code>click</code>,
+            <code>change</code>, <code>input</code>, <code>keydown</code>…), hoặc tên một
+            <code>output()</code> của component con. Trong biểu thức có biến
+            <code>$event</code> mang dữ liệu sự kiện. Angular tự gỡ listener khi component
+            bị huỷ — không có <code>removeEventListener</code> nào phải nhớ.
+          </p>
+
+          <h4>Hai dạng rút gọn hay gặp</h4>
+          <div class="code">
+            <pre><code>&lt;tr [class.row--selected]="isSelected(row.id)"&gt;     &lt;!-- thêm/bớt một class --&gt;
+&lt;div [style.width.%]="percent()"&gt;                  &lt;!-- gán một thuộc tính style --&gt;</code></pre>
+          </div>
+
+          <h3>3.3 <code>@if</code> — rẽ nhánh</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts</div>
+            <pre><code>@if (selectable()) {
+  &lt;th scope="col" class="cell--select"&gt; … &lt;/th&gt;
+}</code></pre>
+          </div>
+
+          <p>
+            Khối trong ngoặc nhọn <strong>không tồn tại trong DOM</strong> khi điều kiện
+            sai — khác hẳn <code>display: none</code>. Hệ quả thực tế: thẻ đó không nằm
+            trong thứ tự Tab, screen reader không đọc nó, và component bên trong nó không
+            được dựng (nên không chạy, không gọi API). Có cả <code>@else</code> và
+            <code>@else if</code>.
+          </p>
+
+          <h3>3.4 <code>@for</code> và <code>track</code> — chỗ dễ sai nhất</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts</div>
+            <pre><code>@for (row of rows(); track row.id) {
+  &lt;tr [class.row--selected]="isSelected(row.id)"&gt;
+    &lt;td class="cell--code"&gt;{{ row.customerCode }}&lt;/td&gt;
+    …
+  &lt;/tr&gt;
+}</code></pre>
+          </div>
+
+          <p>
+            <code>track row.id</code> là <strong>bắt buộc</strong>, và trình biên dịch sẽ
+            từ chối nếu thiếu. Lý do đáng hiểu kỹ, vì nó là một trong vài chỗ frontend khác
+            backend về bản chất chứ không về cú pháp.
+          </p>
+
+          <p>
+            Danh sách 25 khách hàng đang hiện trên màn hình. Người dùng sắp xếp lại. Bây
+            giờ Angular có 25 dòng cũ trong DOM và 25 dòng mới trong dữ liệu. Nó phải
+            quyết định: <em>dòng nào trong DOM ứng với bản ghi nào?</em>
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th><code>track</code> là gì</th>
+                  <th>Angular làm gì</th>
+                  <th>Hậu quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>row.id</code> — khoá ổn định</td>
+                  <td>
+                    Nhận ra từng bản ghi, <em>di chuyển</em> thẻ DOM có sẵn sang vị trí
+                    mới
+                  </td>
+                  <td>
+                    Nhanh; checkbox đang tick giữ nguyên; ô đang focus giữ nguyên; animation
+                    không nháy
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>$index</code> — vị trí</td>
+                  <td>
+                    Coi "dòng thứ 3" là cùng một thứ, chỉ thay nội dung bên trong
+                  </td>
+                  <td>
+                    Sắp xếp lại thì <strong>checkbox ở sai dòng</strong>; ô đang gõ nhảy
+                    sang bản ghi khác. Bug rất khó truy.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Một object không ổn định</td>
+                  <td>Coi mọi dòng là mới</td>
+                  <td>Huỷ và dựng lại cả 25 dòng mỗi lần — mất focus, mất cuộn, chậm</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Quy tắc: <strong>track bằng id của bản ghi</strong>. Dùng
+            <code>$index</code> chỉ khi danh sách thật sự không có khoá và không bao giờ
+            sắp xếp lại — hiếm hơn bạn tưởng.
+          </p>
+
+          <p>
+            <code>@for</code> còn có khối <code>@empty</code> chạy khi danh sách rỗng, và
+            các biến <code>$index</code>, <code>$first</code>, <code>$last</code>,
+            <code>$even</code>, <code>$odd</code>, <code>$count</code>.
+          </p>
+
+          <h3>3.5 <code>@switch</code> — chọn một trong nhiều</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — rút gọn</div>
+            <pre><code>@switch (view()) {
+  @case ('loading') { &lt;app-skeleton [lines]="8" /&gt; }
+  @case ('error')   { &lt;app-error-state … /&gt; }
+  @case ('empty')   { &lt;app-empty-state … /&gt; }
+  @case ('rows')    { &lt;app-customer-table [rows]="rows()" … /&gt; }
+}</code></pre>
+          </div>
+
+          <p>
+            Vì <code>view()</code> có kiểu
+            <code>'loading' | 'error' | 'empty' | 'rows'</code>, trình biên dịch biết đúng
+            bốn giá trị có thể xảy ra. Viết nhầm <code>@case ('loaded')</code> là lỗi biên
+            dịch. Đây là <code>strictTemplates</code> trả công cho việc bạn đã khai kiểu
+            tử tế ở class.
+          </p>
+
+          <h3>3.6 Content projection — nhận một mảnh template, không phải dữ liệu</h3>
+
+          <p>
+            Có hai cách để một component nhận thứ gì đó từ bên ngoài. Input nhận
+            <em>dữ liệu</em>. Projection nhận <em>một mảnh giao diện</em>. Chọn sai là
+            nguồn gốc của những component có hai mươi input.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/page-header.ts</div>
+            <pre><code>template: `
+  &lt;div class="page-header"&gt;
+    &lt;div class="page-header__text"&gt;
+      &lt;h1&gt;{{ heading() }}&lt;/h1&gt;
+      @if (description()) {
+        &lt;p class="page-header__description"&gt;{{ description() }}&lt;/p&gt;
+      }
+    &lt;/div&gt;
+
+    &lt;div class="page-header__actions"&gt;&lt;ng-content select="[pageActions]" /&gt;&lt;/div&gt;
+  &lt;/div&gt;
+`</code></pre>
+          </div>
+
+          <p>Và người gọi:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — rút gọn</div>
+            <pre><code>&lt;app-page-header
+  [heading]="t('pages.customers.list.heading')"
+  [description]="t('pages.customers.list.description')"
+&gt;
+  &lt;div pageActions&gt;
+    &lt;app-button *appIfPermitted="'CUSTOMER_CREATE'" variant="primary" link="/customers/new"&gt;
+      {{ t('pages.customers.list.create') }}
+    &lt;/app-button&gt;
+  &lt;/div&gt;
+&lt;/app-page-header&gt;</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>&lt;ng-content /&gt;</code></td>
+                  <td>Slot mặc định: nhận mọi thứ không khớp slot nào khác.</td>
+                </tr>
+                <tr>
+                  <td><code>&lt;ng-content select="[pageActions]" /&gt;</code></td>
+                  <td>
+                    Slot có tên: chỉ nhận thẻ mang attribute <code>pageActions</code>.
+                    <code>select</code> nhận một CSS selector bất kỳ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;div pageActions&gt;</code></td>
+                  <td>
+                    Bên gọi đánh dấu mảnh nào đi vào slot nào. Attribute này không làm gì
+                    khác, nó chỉ là cái nhãn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>.page-header__actions:empty { display: none }</code></td>
+                  <td>
+                    Trang không truyền action nào thì vùng đó biến mất hẳn, không để lại
+                    khoảng trống. Chi tiết nhỏ, và nó là cách một slot "tự ẩn".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao projection chứ không phải một input <code>[actions]</code></span>
+            <p>
+              Chú thích đầu file trả lời thẳng, và đây là một lập luận đáng học thuộc: một
+              input <code>[actions]</code> nhận danh sách mô tả nút sẽ phải lớn dần —
+              thêm icon, thêm tone, thêm lý do disabled, thêm quyền, rồi cuối cùng là split
+              button. <strong>Mỗi thứ trong số đó là kiến thức nghiệp vụ nhét vào một
+              component layout.</strong> Một slot không có vấn đề đó: người gọi tự viết
+              nút nó muốn.
+            </p>
+            <p>
+              Quy tắc rút ra: nếu thứ bạn định truyền vào là <em>dữ liệu</em> (một chuỗi,
+              một số, một bản ghi) thì dùng input. Nếu nó là <em>giao diện</em> mà component
+              không nên có ý kiến gì về nội dung, thì dùng projection.
+            </p>
+          </div>
+
+          <h3>3.7 Component thông minh và component trình bày</h3>
+
+          <p>
+            Mở <code>customer-table.ts</code> và tìm xem nó giữ state gì. Câu trả lời nằm
+            ngay trong chú thích của nó: <em>"It owns no state. Rows, sort and selection
+            come in; intentions go out."</em>
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts — phần khai báo</div>
+            <pre><code>export class CustomerTable {
+  readonly rows = input.required&lt;readonly Customer[]&gt;();
+  /** `field,direction`, as it appears in the URL. */
+  readonly sort = input.required&lt;string&gt;();
+  readonly selectedIds = input.required&lt;ReadonlySet&lt;CustomerId&gt;&gt;();
+  readonly selectable = input(true);
+
+  readonly sortChange = output&lt;string&gt;();
+  readonly rowToggled = output&lt;CustomerId&gt;();
+  readonly allToggled = output&lt;boolean&gt;();
+
+  private readonly parsedSort = computed(() =&gt; parseSortParam(this.sort()));
+
+  protected readonly allSelected = computed(() =&gt; {
+    const rows = this.rows();
+    return rows.length &gt; 0 &amp;&amp; rows.every((row) =&gt; this.selectedIds().has(row.id));
+  });
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thành phần</th>
+                  <th>Vai trò</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>4 <code>input</code></td>
+                  <td>
+                    Mọi thứ nó cần để vẽ. <code>readonly Customer[]</code> và
+                    <code>ReadonlySet</code> — kiểu chỉ-đọc nói rõ rằng con
+                    <strong>không được</strong> sửa dữ liệu của cha.
+                  </td>
+                </tr>
+                <tr>
+                  <td>3 <code>output</code></td>
+                  <td>
+                    Ba ý định: muốn đổi sắp xếp, muốn bật/tắt một dòng, muốn chọn/bỏ tất
+                    cả. Không cái nào là một lệnh — chỉ là thông báo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>computed</code></td>
+                  <td>
+                    <code>allSelected</code>, <code>someSelected</code>,
+                    <code>parsedSort</code> — tất cả suy ra từ input, không có bản sao nào
+                    phải đồng bộ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>0 service được inject</td>
+                  <td>
+                    Không có store, không có router, không có HttpClient. Đó là thứ làm nó
+                    dùng lại được và test được trong vài dòng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đối chiếu: <code>CustomerListPage</code> inject mười hai thứ — store, session,
+            router, feature flags, logger, confirmation, notification… Đó là component
+            "thông minh". Quy tắc chia: <strong>một trang biết thế giới; mọi thứ bên dưới
+            nó chỉ biết dữ liệu được đưa cho.</strong>
+          </p>
+
+          <h3>3.8 CSS được cô lập thế nào</h3>
+
+          <p>
+            Khi bạn viết <code>.sort { … }</code> trong <code>styles</code> của
+            <code>CustomerTable</code>, Angular biên dịch nó thành đại ý
+            <code>.sort[_ngcontent-abc] { … }</code>, và thêm thuộc tính
+            <code>_ngcontent-abc</code> vào mọi thẻ của component đó. Kết quả: một class
+            tên <code>.sort</code> ở component khác
+            <strong>không thể</strong> bị ảnh hưởng. Bạn không cần BEM để tránh đụng độ
+            nữa — dù repo vẫn dùng BEM, để tên class tự mô tả.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selector</th>
+                  <th>Trỏ tới</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>:host</code></td>
+                  <td>
+                    Chính thẻ của component —
+                    <code>&lt;app-customer-table&gt;</code>. Dùng để cho component một
+                    <code>display</code>, vì mặc định nó là <code>inline</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:host([data-tone='danger'])</code></td>
+                  <td>Chính thẻ đó, khi nó mang thuộc tính này. Cách <code>Badge</code> đổi màu.</td>
+                </tr>
+                <tr>
+                  <td><code>::ng-deep</code></td>
+                  <td>
+                    <strong>Cửa thoát hiểm</strong>: xuyên qua lớp cô lập để chạm vào bên
+                    trong component con. <code>page-header.ts</code> dùng đúng một lần, để
+                    nút trong slot giãn hết chiều ngang trên điện thoại. Nó bị đánh dấu
+                    deprecated và mọi lần dùng đều nên kèm lý do.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.9 <code>imports</code>: component phải khai những gì nó dùng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-table.ts</div>
+            <pre><code>imports: [Badge, InstantPipe, RouterLink, Table, TranslocoDirective],</code></pre>
+          </div>
+
+          <p>
+            Năm thứ, và template dùng đúng năm thứ đó: <code>&lt;app-badge&gt;</code>,
+            pipe <code>| appInstant</code>, <code>[routerLink]</code>,
+            <code>&lt;app-table&gt;</code>, và <code>*transloco</code>. Quên một cái thì
+            lỗi biên dịch nói thẳng:
+          </p>
+
+          <div class="code">
+            <pre><code>'app-badge' is not a known element:
+1. If 'app-badge' is an Angular component, then verify that it is included
+   in the '@Component.imports' of this component.</code></pre>
+          </div>
+
+          <p>
+            Để ý điều <strong>không</strong> cần import: <code>@if</code>,
+            <code>@for</code>, <code>@switch</code>. Chúng là cú pháp của trình biên dịch.
+            Tutorial cũ bắt import <code>CommonModule</code> cho <code>*ngIf</code> —
+            không còn đúng.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này: từ nhỏ tới lớn</h2>
+
+          <p>Bốn component, xếp theo độ phức tạp. Mở lần lượt theo thứ tự này:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Dài</th>
+                  <th>Dạy gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>shared/ui/badge/badge.ts</code></td>
+                  <td>~56 dòng</td>
+                  <td>Hình dạng nhỏ nhất: một input, một slot, host binding</td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui/empty-state/empty-state.ts</code></td>
+                  <td>~60 dòng</td>
+                  <td>Interpolation, <code>@if</code>, <code>input.required</code></td>
+                </tr>
+                <tr>
+                  <td><code>layout/page-header.ts</code></td>
+                  <td>~85 dòng</td>
+                  <td>Named projection, và lập luận chọn projection thay vì input</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-table.ts</code></td>
+                  <td>~260 dòng</td>
+                  <td>
+                    Bản đầy đủ: <code>@for</code> + <code>track</code>, bốn kiểu binding,
+                    3 output, computed, và ba chi tiết accessibility
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Ba chi tiết trong <code>CustomerTable</code> đáng đọc chú thích</span>
+            <ul>
+              <li>
+                <strong>Header sắp xếp là <code>&lt;button&gt;</code> bên trong
+                <code>&lt;th&gt;</code></strong>, và <code>&lt;th&gt;</code> mang
+                <code>aria-sort</code>. Ô tiêu đề mang <em>trạng thái</em>, cái nút là
+                <em>điều khiển</em>.
+              </li>
+              <li>
+                <strong>Mỗi checkbox có tên riêng</strong> dựng từ tên khách hàng. Hai
+                mươi checkbox cùng tên "Select" thì người dùng screen reader không biết
+                mình đang chọn gì.
+              </li>
+              <li>
+                <strong>Ô tên là một link</strong>, không phải một <code>(click)</code>
+                trên cả dòng. Link thì chuột giữa và "mở trong tab mới" hoạt động; handler
+                trên <code>&lt;tr&gt;</code> lấy mất cả hai.
+              </li>
+            </ul>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Cây component của trang danh sách</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    PAGE["CustomerListPage<br/><i>thông minh: store, router, quyền</i>"]
+    PAGE --> PC["app-page-container"]
+    PC --> PH["app-page-header<br/><i>slot: pageActions</i>"]
+    PH --> BTN["app-button × 4"]
+    PC --> FIL["app-customer-filters"]
+    PC --> BULK["app-customer-bulk-bar<br/><i>chỉ khi có dòng được chọn</i>"]
+    PC --> SW{"@switch (view())"}
+    SW -->|loading| SK["app-skeleton"]
+    SW -->|error| ERR["app-error-state"]
+    SW -->|empty| EMP["app-empty-state"]
+    SW -->|rows| TBL["app-customer-table<br/><i>hoặc app-customer-card-list</i>"]
+    TBL --> BADGE["app-badge mỗi dòng"]
+    PC --> PAG["app-pagination"]
+            </pre>
+            <figcaption>
+              Một component thông minh ở trên cùng, mọi thứ bên dưới chỉ nhận dữ liệu.
+              Nhánh <code>rows</code> đổi giữa bảng và danh sách thẻ tuỳ bề rộng màn hình
+              — <strong>hai component khác nhau, cùng một hợp đồng input/output</strong>,
+              nên trang không phải biết nó đang hiện cái nào.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Class diagram — <code>CustomerTable</code></h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+classDiagram
+    class CustomerTable{
+        +rows : input ReadonlyArray~Customer~
+        +sort : input string
+        +selectedIds : input ReadonlySet~CustomerId~
+        +selectable : input boolean
+        +sortChange : output string
+        +rowToggled : output CustomerId
+        +allToggled : output boolean
+        -parsedSort : computed
+        #allSelected : computed
+        #someSelected : computed
+        #isSelected(id) boolean
+        #ariaSort(field) string
+        #toggleSort(field) void
+    }
+            </pre>
+            <figcaption>
+              <code>+</code> public (hợp đồng ra ngoài), <code>#</code> protected (template
+              đọc), <code>-</code> private (nội bộ). Mức truy cập ở đây là tài liệu: nhìn
+              một cái biết ngay template dùng những gì. Và điều đáng chú ý nhất là thứ
+              <em>không</em> có trong hình: <strong>không một field nào gán được</strong> —
+              mọi giá trị hoặc là input, hoặc suy ra từ input.
+              <code>ReadonlyArray&lt;Customer&gt;</code> ở đây chính là
+              <code>readonly Customer[]</code> trong code, viết dạng khác vì Mermaid không
+              đọc được dấu ngoặc vuông.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Template nội tuyến thay vì file <code>.html</code> riêng</h4>
+          <p>
+            Phương án bị loại: <code>templateUrl</code>, tức mỗi component ba file. Lý do
+            loại: với component dưới khoảng 300 dòng, nhảy qua lại giữa hai file để đọc
+            một thứ tốn hơn là cuộn. Giá phải trả: file <code>.ts</code> dài, và editor
+            phải hiểu được template trong template literal (đều hỗ trợ). Ngoại lệ giữ lại:
+            <code>app.html</code> — component gốc.
+          </p>
+
+          <h4>Đổi component thay vì ẩn bằng CSS trên điện thoại</h4>
+          <p>
+            Phương án bị loại: render cả bảng lẫn danh sách thẻ rồi <code>display: none</code>
+            một cái. Chú thích trong <code>customer-list-page.ts</code> nói vì sao bị loại:
+            làm thế là <strong>mọi dòng nằm hai lần trong DOM và mọi checkbox nằm hai lần
+            trong thứ tự Tab</strong>. Cách đang dùng: một <code>@if</code> trong
+            TypeScript chọn hẳn một trong hai component.
+          </p>
+
+          <h4>Dấu mũi tên sắp xếp vẽ bằng CSS, không viết trong template</h4>
+          <p>
+            Chú thích ngay cạnh: <em>"a glyph in the markup is a text node, and every text
+            node here is a translation"</em>. Một ký tự ▲ viết thẳng vào template là một
+            chuỗi cứng, và lint sẽ chặn. Đặt nó vào <code>content:</code> của CSS là đúng
+            chỗ — nó là trang trí, không phải nội dung.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>track $index</code> trong một danh sách sắp xếp được</span>
+            <p>
+              Người dùng tick dòng số 3 rồi đổi sắp xếp. Dấu tick vẫn ở dòng số 3 —
+              nhưng dòng số 3 bây giờ là một khách hàng khác. Nếu họ bấm "Xoá" thì xoá
+              nhầm người. Không có lỗi nào, không có cảnh báo nào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Quên <code>()</code> trong <code>@if</code></span>
+            <p>
+              <code>@if (selectable)</code> thay vì <code>@if (selectable())</code>: một
+              hàm luôn truthy nên nhánh <code>@else</code> không bao giờ chạy. Đây là lỗi
+              âm thầm nhất của signal, vì nó <em>trông</em> đúng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Đặt <code>(click)</code> lên <code>&lt;tr&gt;</code> hoặc <code>&lt;div&gt;</code></span>
+            <p>
+              Mất chuột giữa, mất "mở trong tab mới", mất Enter khi dùng bàn phím, mất cả
+              việc screen reader đọc "liên kết". Nếu nó điều hướng, nó là
+              <code>&lt;a&gt;</code>; nếu nó làm một việc, nó là
+              <code>&lt;button&gt;</code>. Không có trường hợp thứ ba.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Component có mười lăm input</span>
+            <p>
+              Dấu hiệu gần như chắc chắn rằng thứ cần truyền vào là
+              <em>giao diện</em> chứ không phải <em>dữ liệu</em> — dùng projection. Hoặc
+              component đang làm việc của hai component.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">5. Dùng <code>::ng-deep</code> cho tiện</span>
+            <p>
+              Nó xuyên thủng đúng cái lớp cô lập vừa giúp bạn khỏi phải nghĩ về đụng độ
+              CSS, và nó đã bị đánh dấu deprecated. Repo dùng một lần, ở
+              <code>page-header.ts</code>, có chú thích lý do. Nếu bạn sắp dùng lần thứ
+              hai: thường thứ cần là một CSS custom property do component con khai báo sẵn
+              để bên ngoài chỉnh.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Component trình bày là loại dễ test nhất trong cả repo, và cách repo làm đáng
+            học vì nó test <em>qua một host component</em> thay vì gọi API nội bộ:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-card-list.spec.ts — rút gọn</div>
+            <pre><code>@Component({
+  selector: 'app-card-list-host',
+  imports: [CustomerCardList],
+  template: `
+    &lt;app-customer-card-list
+      [rows]="rows()"
+      [sort]="sort()"
+      [selectedIds]="selected()"
+      (sortChange)="sorts.push($event)"
+      (rowToggled)="toggled.push($event)"
+    /&gt;
+  `,
+})
+class CardListHost {
+  readonly rows = signal&lt;readonly Customer[]&gt;([aCustomer(), anotherCustomer()]);
+  readonly sort = signal('updatedAt,desc');
+  readonly selected = signal&lt;ReadonlySet&lt;CustomerId&gt;&gt;(new Set());
+  readonly sorts: string[] = [];
+  readonly toggled: CustomerId[] = [];
+}</code></pre>
+          </div>
+
+          <p>
+            Vì sao một host thay vì dựng thẳng component cần test: host dùng nó
+            <strong>đúng như một người gọi thật</strong> — qua template, qua binding. Nếu
+            một input đổi tên hay một output đổi kiểu, test đổ ở chỗ đáng đổ. Và bắt output
+            chỉ là đẩy vào một mảng, rồi khẳng định mảng đó.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-card-list.spec.ts</code></td>
+                  <td>
+                    Cùng hợp đồng với bảng; sắp xếp bằng select và select-all có nhãn
+                    riêng hoạt động
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-list-page.spec.ts</code></td>
+                  <td>Trang dịch ba output của bảng thành các lần điều hướng</td>
+                </tr>
+                <tr>
+                  <td><code>lint/styles.test.ts</code></td>
+                  <td>
+                    Chính luật CSS cũng được kiểm: token ngữ nghĩa, hướng logic, focus
+                    outline còn nguyên
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>
+            Mọi thứ bài này dạy, trên một hình: hai component nói chuyện với nhau ra sao,
+            và mỗi cú pháp đứng ở đâu trong cuộc nói chuyện đó.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TB
+    subgraph CHA["Component cha (thông minh)"]
+      ST["state: signal / computed"]
+      H["handler: applyCriteria(…)"]
+    end
+
+    subgraph CON["Component con (trình bày)"]
+      I["input() ← dữ liệu"]
+      C["computed ← suy ra"]
+      T["template"]
+      O["output() → ý định"]
+    end
+
+    ST -->|"property binding<br/>[rows] = rows()"| I
+    I --> C
+    I --> T
+    C --> T
+    T -->|"{{ }} @if @for track<br/>[attr.] [class.]"| DOM["DOM"]
+    DOM -->|"(click)"| O
+    O -->|"sortChange.emit('email,asc')"| H
+    H -->|".set() hoặc navigate"| ST
+
+    SLOT["ng-content select='[x]'"] -.->|"cha truyền cả một mảnh giao diện"| T
+            </pre>
+            <figcaption>
+              Vòng tròn này là toàn bộ quy ước giao tiếp giữa component:
+              <strong>dữ liệu đi xuống qua input, ý định đi lên qua output</strong>, và
+              không mũi tên nào đi tắt. Nhánh nét đứt là lối thứ hai để nhận thứ từ cha —
+              projection — dùng khi thứ cần truyền là giao diện chứ không phải dữ liệu.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đọc <code>CustomerTable</code> và trả lời</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>Component này sở hữu state nào? Liệt kê, hoặc viết "không có".</li>
+              <li>
+                Khi người dùng bấm vào tiêu đề cột "Email", những gì xảy ra, theo thứ tự,
+                cho tới lúc URL đổi?
+              </li>
+              <li>
+                <code>allSelected</code> và <code>someSelected</code> khác nhau ở đâu, và
+                cái thứ hai dùng cho thuộc tính DOM nào?
+              </li>
+              <li>
+                Vì sao <code>rows</code> khai kiểu <code>readonly Customer[]</code> chứ
+                không phải <code>Customer[]</code>?
+              </li>
+              <li>
+                Tìm chỗ duy nhất trong template có một chuỗi không đi qua hàm dịch
+                <code>t()</code>. Nó là gì, và vì sao được phép?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án</summary>
+              <ol>
+                <li>
+                  Không có. Mọi thứ hoặc là <code>input</code>, hoặc là
+                  <code>computed</code> suy ra từ input. Không có
+                  <code>signal()</code> nào gán được trong class này.
+                </li>
+                <li>
+                  <code>(click)="toggleSort('email')"</code> →
+                  <code>toggleSort</code> đọc <code>parsedSort()</code> để biết cột đang
+                  active → vì cột khác nên phát
+                  <code>sortChange.emit('email,asc')</code> → trang nghe
+                  <code>(sortChange)="applySort($event)"</code> →
+                  <code>applyCriteria</code> → <code>router.navigate</code> → URL đổi →
+                  input <code>sort</code> của bảng đổi theo. Vòng tròn khép lại qua URL,
+                  không phải qua một biến.
+                </li>
+                <li>
+                  <code>allSelected</code> là "mọi dòng trên trang đều được chọn";
+                  <code>someSelected</code> là "một vài nhưng không phải tất cả". Cái thứ
+                  hai gán vào <code>[indeterminate]</code> — trạng thái thứ ba của
+                  checkbox, chỉ tồn tại như property của DOM.
+                </li>
+                <li>
+                  Để nói rõ rằng con <strong>không được sửa</strong> mảng của cha. Kiểu
+                  chỉ-đọc biến quy ước "dữ liệu đi một chiều" thành thứ trình biên dịch
+                  cưỡng chế được.
+                </li>
+                <li>
+                  <code>{{ row.customerCode }}</code>, <code>{{ row.email }}</code> và
+                  <code>{{ row.fullName }}</code> — nhưng đó là <em>dữ liệu</em>, không
+                  phải chuỗi giao diện. Quy tắc 1 nói về chữ do ứng dụng viết ra, không
+                  phải nội dung do người dùng nhập. Phân biệt được chỗ này là hiểu đúng
+                  quy tắc.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá <code>track</code> để thấy hậu quả</h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>Chạy app, vào <code>/customers</code>, tick hai, ba dòng bất kỳ.</li>
+              <li>Đổi sắp xếp bằng cách bấm một tiêu đề cột. Quan sát các dấu tick.</li>
+              <li>
+                Trong <code>customer-table.ts</code>, đổi
+                <code>track row.id</code> thành <code>track $index</code>.
+              </li>
+              <li>Lặp lại bước 1 và 2. So sánh.</li>
+              <li><code>git checkout</code> file đó.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Với <code>track row.id</code>: dấu tick <strong>đi theo khách hàng</strong>
+                — sắp xếp lại thì nó vẫn ở đúng người bạn chọn, chỉ đổi vị trí.
+              </p>
+              <p>
+                Với <code>track $index</code>: dấu tick <strong>đứng yên theo vị trí</strong>
+                — sau khi sắp xếp, dòng 1 vẫn được tick nhưng dòng 1 bây giờ là người khác.
+                Lưu ý: <code>selectedIds</code> trong trang vẫn chứa id đúng, nên đây là
+                lỗi <em>hiển thị</em> — người dùng nhìn thấy một sự thật và hệ thống giữ
+                một sự thật khác. Đó là loại bug tệ nhất.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một cột vào bảng</h3>
+            <p class="task__meta">~45 phút · sửa thật · đây là bài chính</p>
+            <p>
+              Thêm cột <strong>số điện thoại</strong> vào <code>CustomerTable</code>, giữa
+              cột Email và cột trạng thái.
+            </p>
+            <p>Yêu cầu, theo đúng luật của repo:</p>
+            <ul>
+              <li>Tiêu đề cột phải đi qua hàm dịch, không viết chữ cứng.</li>
+              <li>
+                Quyết định xem cột này có nút sắp xếp hay không —
+                <strong>và lập luận cho quyết định đó</strong>. Gợi ý: mở
+                <code>packages/contracts/src/customer.ts</code>, tìm
+                <code>customerSortFieldSchema</code>.
+              </li>
+              <li>
+                Khách hàng có thể không có số điện thoại. Ô trống thì hiện gì?
+              </li>
+              <li><code>npm run lint</code> và <code>npm run typecheck</code> phải sạch.</li>
+            </ul>
+            <details>
+              <summary>Hướng đi, và cái bẫy chính</summary>
+              <p>
+                <strong>Khoá dịch đã có sẵn:</strong>
+                <code>customers.field.phone</code> trong cả
+                <code>en.json</code> và <code>vi.json</code>. Thêm một
+                <code>&lt;th scope="col"&gt;{{ t('customers.field.phone') }}&lt;/th&gt;</code>
+                và một <code>&lt;td&gt;</code> tương ứng.
+              </p>
+              <p>
+                <strong>Cái bẫy:</strong> <code>phone</code>
+                <em>không</em> nằm trong <code>customerSortFieldSchema</code> — API không
+                sắp xếp được theo nó. Nên cột này <strong>không được</strong> có nút sắp
+                xếp, và vì vậy nó không được thêm vào <code>SORTABLE_COLUMNS</code>. Chú
+                thích ngay trên mảng đó đã nói trước: <em>"A column the API cannot sort by
+                must not render a sort control: an ordering request that silently does
+                nothing is worse than no control at all."</em>
+              </p>
+              <p>
+                Nếu bạn thêm vào <code>SORTABLE_COLUMNS</code> cho tiện và thấy nó "chạy
+                được" — thử bấm vào tiêu đề đó. Thứ tự sẽ không đổi, và không có lỗi nào.
+                Đó chính là cái mà chú thích cảnh báo.
+              </p>
+              <p>
+                <strong>Ô trống:</strong> xem các component khác xử lý thế nào trước khi
+                tự nghĩ ra cách mới — <code>customer-detail-page.ts</code> có tiền lệ.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Viết một component từ số không</h3>
+            <p class="task__meta">~45 phút · tạo file mới trên branch <code>learning/*</code></p>
+            <p>
+              Viết <code>app-key-value</code>: một component trình bày một cặp nhãn–giá
+              trị, dùng để hiện một dòng thông tin trong trang chi tiết.
+            </p>
+            <ul>
+              <li>Nhận vào: <code>label</code> (bắt buộc, chuỗi đã dịch).</li>
+              <li>Giá trị thì nhận qua <strong>projection</strong>, không qua input.</li>
+              <li>Khi không có giá trị nào được truyền, hiện một dấu gạch mờ.</li>
+              <li>Chỉ dùng semantic token, không hex, không hướng vật lý.</li>
+              <li>Đặt ở đâu? Đọc <code>shared/ui/README.md</code> rồi quyết định.</li>
+            </ul>
+            <details>
+              <summary>Hai câu hỏi thiết kế bạn phải tự trả lời</summary>
+              <p>
+                <strong>Vì sao giá trị là projection chứ không phải input?</strong> Vì giá
+                trị có thể là chữ, có thể là một <code>&lt;app-badge&gt;</code>, có thể là
+                một link, có thể là một <code>&lt;time&gt;</code>. Nhận qua input thì
+                component phải biết hết các trường hợp đó — đúng vấn đề mà
+                <code>page-header.ts</code> mô tả.
+              </p>
+              <p>
+                <strong>Đặt ở <code>shared/ui</code> hay trong feature?</strong> Quy tắc
+                trong <code>shared/ui/README.md</code>: một component chuyển vào
+                <code>shared/ui</code> khi có <em>người gọi thứ hai</em>, không phải khi nó
+                trông có vẻ chung chung. Mới một chỗ dùng thì để cạnh feature đó. Rule 8
+                trong <code>CLAUDE.md</code> nói cùng một điều: không trừu tượng hoá khi
+                chưa gọi tên được người dùng thứ hai.
+              </p>
+              <p>
+                Cách tự chấm: <code>npm run lint</code> và
+                <code>npm run typecheck</code> sạch, và component hiện ra đúng trong một
+                trang bạn tự cắm nó vào.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. <code>tone="danger"</code> và <code>[tone]="'danger'"</code> khác nhau thế nào?</summary>
+            <p>
+              Kết quả giống nhau. Cách đọc khác nhau: cái đầu truyền chuỗi nguyên văn, cái
+              sau chạy một biểu thức JavaScript mà biểu thức đó tình cờ là một hằng chuỗi.
+              Hệ quả thực tế: <code>[tone]="danger"</code> (thiếu nháy đơn) sẽ đi tìm field
+              tên <code>danger</code> và hỏng.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Khi nào phải dùng <code>[attr.x]</code> thay vì <code>[x]</code>?</summary>
+            <p>
+              Khi thuộc tính đó không có property tương ứng trên DOM:
+              <code>aria-*</code>, <code>data-*</code>, <code>colspan</code>. Ngược lại
+              <code>indeterminate</code> chỉ có property mà không có attribute, nên phải
+              dùng <code>[indeterminate]</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. <code>track</code> để làm gì, và chọn sai thì hỏng ra sao?</summary>
+            <p>
+              Nói cho Angular biết thẻ DOM nào ứng với bản ghi nào giữa hai lần vẽ, để nó
+              di chuyển thẻ có sẵn thay vì dựng lại. Chọn <code>$index</code> trong một
+              danh sách sắp xếp được: trạng thái gắn với thẻ DOM — dấu tick, ô đang gõ,
+              focus — ở lại đúng vị trí trong khi dữ liệu đã đổi chỗ.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Khi nào dùng input, khi nào dùng content projection?</summary>
+            <p>
+              Thứ truyền vào là <em>dữ liệu</em> (chuỗi, số, bản ghi) → input. Là
+              <em>giao diện</em> mà component không nên có ý kiến về nội dung → projection.
+              Dấu hiệu chọn sai: input bắt đầu nhận danh sách object mô tả nút, rồi phải
+              thêm icon, tone, disabled, quyền.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao <code>CustomerTable</code> không tự điều hướng khi người dùng bấm sắp xếp?</summary>
+            <p>
+              Vì "sắp xếp nghĩa là gì" không phải việc của nó. Nó phát
+              <code>sortChange</code>; trang quyết định rằng ở đây sắp xếp nghĩa là đổi
+              URL. Nhờ vậy cùng cái bảng dùng được ở chỗ khác, và test nó không cần router.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. CSS của một component có rò sang component khác được không?</summary>
+            <p>
+              Không, trừ khi cố ý dùng <code>::ng-deep</code>. Angular thêm một thuộc tính
+              riêng vào mọi thẻ của component và viết lại selector để chỉ khớp thẻ mang
+              thuộc tính đó. Đụng độ tên class không còn là vấn đề cần kỷ luật đặt tên.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Những gì phải khai trong <code>imports</code>, những gì không?</summary>
+            <p>
+              Phải khai: component, directive, pipe mà template dùng. Không cần khai:
+              <code>@if</code>, <code>@for</code>, <code>@switch</code>,
+              <code>@defer</code> — chúng là cú pháp của trình biên dịch, không phải
+              directive.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 03 lật ngược góc nhìn: thay vì "template hiển thị gì", nó hỏi
+              "<strong>Angular biết lúc nào phải vẽ lại, và biết bằng cách nào</strong>".
+              Đó là bài về signal, và nó là bài quan trọng nhất của chặng 1.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="01-tu-url-toi-pixel.html">← Bài 01</a></span>
+            <span><a href="03-signals-va-zoneless.html">Bài 03 — Signals &amp; zoneless →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Từ nhỏ tới lớn</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

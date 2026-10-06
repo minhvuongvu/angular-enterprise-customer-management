@@ -1420,7 +1420,52 @@ flowchart LR
           </div>
 
           <!-- =========================================================== 9 -->
-          <h2 id="bai-tap"><span class="num">Mục 9</span>Bài tập</h2>
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>
+            Mười hai chặng, gấp lại thành một vòng tròn. Đọc theo chiều kim đồng hồ từ ô
+            “người dùng bấm”.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    U(["Người dùng bấm"]) --> NAV["router.navigate<br/><i>không gọi mạng</i>"]
+    NAV --> URL["URL / query params<br/><b>nguồn sự thật</b>"]
+    URL -->|"withComponentInputBinding"| INP["input() trên page"]
+    INP -->|"computed"| CRI["criteria đã chuẩn hoá<br/>readCriteria()"]
+    CRI -->|"effect"| SET["store.setCriteria()"]
+    SET -->|"criteriaKey đổi?"| SUB["Subject.next()"]
+    SUB --> SW["switchMap<br/><i>huỷ request trước</i>"]
+    SW --> CACHE["cache.getPage()<br/>→ loading hay refreshing"]
+    CACHE --> API["CustomerApi.list()<br/>+ request-policy"]
+    API --> INT["5 interceptor<br/>id · log · refresh · csrf · error"]
+    INT --> SRV["Mock API :4300<br/><i>tự kiểm quyền</i>"]
+    SRV --> ZOD["Zod parse ở biên"]
+    ZOD --> ST["listState.set(success)<br/><b>một phép gán signal</b>"]
+    ST --> CMP["computed: rows, view, pending"]
+    CMP --> TPL["template @switch"]
+    TPL --> DOM(["Màn hình"])
+    DOM -.->|"thao tác tiếp theo"| U
+            </pre>
+            <figcaption>
+              Ba chỗ đáng chỉ tay vào khi ôn lại. <strong>Đầu vòng:</strong> điều hướng
+              xảy ra trước và không chạm mạng. <strong>Giữa vòng:</strong>
+              <code>switchMap</code> là chỗ duy nhất huỷ request, và
+              <code>cache.getPage</code> là chỗ quyết định hiện skeleton hay giữ bảng cũ.
+              <strong>Cuối vòng:</strong> mọi thứ kết thúc bằng một phép gán signal —
+              không có lệnh vẽ nào.
+            </figcaption>
+          </figure>
+
+          <p>
+            Một lỗi ở bất kỳ ô nào trong vòng này đều biểu hiện ở ô cuối cùng: “màn hình
+            sai”. Kỹ năng gỡ lỗi frontend chính là đi ngược vòng tròn này cho tới ô đầu
+            tiên sai — và đó là bài tập 3 bên dưới.
+          </p>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
 
           <div class="task">
             <h3>Bài 1 — Lần theo một correlation id xuyên hai tiến trình</h3>
@@ -1567,8 +1612,8 @@ flowchart LR
             </details>
           </div>
 
-          <!-- ========================================================== 10 -->
-          <h2 id="tu-kiem-tra"><span class="num">Mục 10</span>Tự kiểm tra</h2>
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
 
           <details>
             <summary>1. Trong một lần bấm sang trang 2, có mấy lần gọi mạng, và “router” nào gây ra chúng?</summary>
@@ -1683,6 +1728,7 @@ flowchart LR
             <li><a href="#danh-doi">Đánh đổi</a></li>
             <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
             <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
             <li><a href="#bai-tap">Bài tập</a></li>
             <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
           </ol>

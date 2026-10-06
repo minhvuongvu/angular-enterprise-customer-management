@@ -1393,7 +1393,52 @@ flowchart TD
           </p>
 
           <!-- =========================================================== 9 -->
-          <h2 id="bai-tap"><span class="num">Mục 9</span>Bài tập</h2>
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>
+            Mọi thứ bài này dạy, trên một hình. Một component có đúng ba nguồn dữ liệu, và
+            đúng một đường ra màn hình — rồi thao tác của người dùng đóng vòng tròn lại.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TB
+    PARENT["Component cha"] -->|"[tone] = giá trị"| IN
+    DI["Injector<br/>@Injectable providedIn: root<br/>hoặc providers trên route"] -->|"inject()"| SVC
+
+    subgraph COMP["Một component"]
+      IN["input()<br/><i>là signal</i>"]
+      SVC["service đã inject<br/><i>thường chứa signal</i>"]
+      SIG["signal() cục bộ<br/>computed() dẫn xuất"]
+      TPL["template<br/>{{ }} · [prop] · (event)<br/>@if · @for · @switch"]
+      M["method trong class"]
+    end
+
+    IN --> TPL
+    SVC --> SIG
+    SIG --> TPL
+    TPL -->|"Angular đồng bộ"| DOM["DOM thật"]
+    DOM -->|"người dùng bấm"| M
+    M -->|".set() / .update()"| SIG
+    SIG -.->|"signal đổi → chỉ component đọc nó được vẽ lại"| TPL
+            </pre>
+            <figcaption>
+              Vòng tròn khép kín, và không chỗ nào có lệnh “render”. Ba mũi tên vào
+              component là ba nguồn dữ liệu duy nhất: cha truyền vào
+              (<code>input</code>), DI đưa cho (<code>inject</code>), và state của chính
+              nó (<code>signal</code>). Mũi tên nét đứt là phần zoneless: signal biết ai
+              đọc nó, nên Angular chỉ vẽ lại đúng chừng đó.
+            </figcaption>
+          </figure>
+
+          <p>
+            Nếu nhớ được một hình từ bài này, nhớ hình này. Mọi component trong repo —
+            từ <code>Badge</code> mười dòng tới <code>CustomerListPage</code> bảy trăm
+            dòng — đều là hình này, chỉ khác độ lớn của từng ô.
+          </p>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
 
           <p>
             Làm theo thứ tự. Quy tắc 2 trong lộ trình: thử trước, mở đáp án sau. Bài 1 và
@@ -1555,8 +1600,8 @@ flowchart TD
             </details>
           </div>
 
-          <!-- ========================================================== 10 -->
-          <h2 id="tu-kiem-tra"><span class="num">Mục 10</span>Tự kiểm tra</h2>
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
 
           <p>
             Trả lời trong đầu <em>trước khi</em> mở. Câu nào trả lời không trôi chảy thì
@@ -1662,6 +1707,7 @@ flowchart TD
             <li><a href="#danh-doi">Đánh đổi</a></li>
             <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
             <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
             <li><a href="#bai-tap">Bài tập</a></li>
             <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
           </ol>
