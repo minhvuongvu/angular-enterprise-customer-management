@@ -145,11 +145,13 @@ nhau, và chỉ việc thứ hai được trả lương.
 
 ## 7. Khuôn mỗi bài — 10 mục
 
+0. **Từ vựng**: mọi thuật ngữ và cú pháp Angular mới của bài, giải thích trước
+   khi dùng
 1. Sau bài này bạn làm được gì
 2. Dịch từ backend sang Angular — **và chỗ phép so sánh sai**
 3. Cơ chế: Angular làm việc đó ra sao
-4. Trong repo này: file nào, mỗi đoạn nghĩa gì (trích tên hàm, không trích số
-   dòng — số dòng lệch ngay khi code đổi)
+4. Trong repo này: **bản rút gọn trước, bản thật sau**; file nào, đọc từng dòng
+   (trích tên hàm, không trích số dòng — số dòng lệch ngay khi code đổi)
 5. Sơ đồ: Sequence luôn có; Component/Class/Call graph khi có cấu trúc để vẽ;
    State Machine chỉ ở bài ◆
 6. Đánh đổi & phương án bị loại (rút từ ADR)
@@ -162,6 +164,21 @@ Mỗi bài có một nhãn ở đầu: **chuyển được sang dự án thật*
 repo học này** — căn cứ `docs/enterprise-review.md` §1.5.
 
 Thiếu mục nào trong một bài thì đó là lỗi của bài đó, không phải của bạn.
+
+### Chuẩn độ sâu
+
+Bản đầu của bài 00 và 01 bị trả lại vì **quá nông**: nó nhắc tên `signal`,
+`inject()`, `Observable`, `switchMap` rồi đi tiếp, trong khi người đọc chưa từng
+viết một dòng Angular nào. Giải thích "vì sao chọn thế này" là vô nghĩa khi người
+đọc còn chưa đọc nổi "thế này" là gì. Bốn luật rút ra, áp cho cả 36 file:
+
+1. **Không hoãn.** Khái niệm hay cú pháp nào xuất hiện lần đầu thì giải thích
+   ngay tại chỗ. Hoãn sang bài sau nghĩa là đoạn code bên dưới không đọc được.
+2. **Đọc từng dòng, không tóm tắt.** Một đoạn code mẫu đi kèm bảng hoặc danh
+   sách giải nghĩa từng dòng đáng chú ý, chứ không phải một câu tổng kết.
+3. **Rút gọn trước, thật sau.** Đưa bản nhỏ nhất của một ý trước — `HealthApi`
+   16 dòng trước `CustomerApi` 200 dòng — rồi nói bản thật thêm gì và vì sao.
+4. **Dài không phải là lỗi.** Lỗi là phải tra chỗ khác mới đọc tiếp được.
 
 ## 8. Vì sao thứ tự này, không theo thứ tự phase
 
