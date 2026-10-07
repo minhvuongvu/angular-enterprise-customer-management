@@ -1,0 +1,1198 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 15 — Router</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 15</p>
+        <h1>Router</h1>
+        <p class="lede">
+          Cây route của một ứng dụng là <strong>kiến trúc của nó viết ra thành một
+          file</strong>: cái gì công khai, cái gì cần đăng nhập, feature nào sở hữu gì, và
+          code nào được tải lúc nào. Bài này đọc hai file route của repo — và ba chỗ trong
+          đó mà thứ tự dòng là load-bearing.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · hướng tới Mốc 3</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Routes</code></td>
+                  <td>Một mảng cấu hình route. Lồng nhau bằng <code>children</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>router-outlet</code></td>
+                  <td>Chỗ trống trong template mà router đặt component của route vào.</td>
+                </tr>
+                <tr>
+                  <td><code>loadComponent</code></td>
+                  <td>Nạp <em>một</em> component theo kiểu lazy.</td>
+                </tr>
+                <tr>
+                  <td><code>loadChildren</code></td>
+                  <td>Nạp <em>cả một nhánh route</em> theo kiểu lazy.</td>
+                </tr>
+                <tr>
+                  <td><strong>Path-less route</strong></td>
+                  <td>
+                    Route <code>path: ''</code> không có component — tồn tại chỉ để mang
+                    <code>providers</code>, <code>canActivate</code> hoặc để nhóm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>pathMatch: 'full'</code></td>
+                  <td>
+                    Chỉ khớp khi URL còn lại <em>rỗng hoàn toàn</em>. Không có nó,
+                    <code>path: ''</code> khớp với mọi thứ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>data</code></td>
+                  <td>
+                    Dữ liệu tĩnh gắn vào route. Angular khai kiểu nó là
+                    <code>any</code> — repo bọc lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>TitleStrategy</code></td>
+                  <td>Lớp quyết định tiêu đề tab trình duyệt từ route đang hoạt động.</td>
+                </tr>
+                <tr>
+                  <td><code>PreloadingStrategy</code></td>
+                  <td>Lớp quyết định chunk lazy nào được tải trước khi ai đó cần.</td>
+                </tr>
+                <tr>
+                  <td><code>UrlTree</code> / <code>RedirectCommand</code></td>
+                  <td>
+                    Hai cách một guard nói "đi chỗ khác".
+                    <code>RedirectCommand</code> mới hơn và làm được nhiều hơn — bài 16.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Thêm một route mới vào đúng chỗ, và biết vì sao là chỗ đó.</li>
+            <li>
+              Nhận ra ba chỗ trong cây route mà <strong>thứ tự dòng quyết định hành
+              vi</strong>.
+            </li>
+            <li>Giải thích được lazy loading mua được gì, và ai trả giá cho nó.</li>
+            <li>
+              Nói được vì sao <code>title</code> trong file route là một khoá dịch chứ không
+              phải một tiêu đề.
+            </li>
+            <li>Đọc metadata của route một cách có type, và tránh cái bẫy dữ liệu bị gộp.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@RequestMapping</code> rải khắp controller</td>
+                  <td>Cây route tập trung, chia theo feature</td>
+                  <td>
+                    Của bạn phân tán, và framework gom lại. Ở đây cấu hình là một
+                    <em>cấu trúc dữ liệu</em> bạn đọc được từ đầu đến cuối — và đó là tài
+                    liệu kiến trúc tốt nhất của dự án.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Filter mapping theo URL pattern</td>
+                  <td><code>canActivate</code> trên một route cha</td>
+                  <td>
+                    Gần giống. Khác ở chỗ ở đây nó bảo vệ
+                    <em>điều hướng</em>, không bảo vệ dữ liệu — API vẫn phải tự kiểm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lazy loading bean</td>
+                  <td>Lazy loading <em>code</em></td>
+                  <td>
+                    Của bạn tiết kiệm bộ nhớ server. Ở đây nó tiết kiệm
+                    <strong>băng thông và thời gian khởi động trên máy người dùng</strong> —
+                    một người không bao giờ mở phòng thí nghiệm kỹ thuật thì không tải code
+                    của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Thứ tự mapping không quan trọng</td>
+                  <td>Thứ tự route <strong>rất</strong> quan trọng</td>
+                  <td>
+                    Router khớp từ trên xuống, lấy cái đầu tiên trúng. Ba chỗ trong repo phụ
+                    thuộc vào điều này — mục 3.4.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Cây route là ba quyết định kiến trúc</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/app.routes.ts — chú thích đầu file</div>
+            <pre><code>Its shape carries three decisions:
+
+ 1. **Public and authenticated are different branches.** `/login` sits
+    outside the shell and is the one route that is prerendered. Everything
+    else lives under a path-less route that renders `AppShell` and carries
+    `authGuard`, so the guard is stated once for the whole application
+    rather than repeated on every page.
+
+ 2. **Every route is lazy.** Adding a feature never grows the initial
+    bundle by default, and a feature owns its own route file: the
+    application composes it with one `loadChildren` and learns nothing
+    about its internals.
+
+ 3. **Not found renders inside the shell.** A 404 with no navigation is a
+    dead end; this one keeps the header and sidebar, so the user can leave.
+
+Route order matters twice here - `login` before the shell, and the wildcard
+last among the shell's children.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file — rút gọn</div>
+            <pre><code>export const routes: Routes = [
+  { path: '', pathMatch: 'full', redirectTo: 'customers' },
+
+  { path: 'login', title: 'pages.login.title',
+    loadComponent: () =&gt; import('./login/login-page').then((m) =&gt; m.LoginPage) },
+
+  { path: 'rendering-lab', loadChildren: () =&gt; import(…) },
+
+  { path: 'home', redirectTo: 'customers' },
+
+  {
+    path: '',
+    canActivate: [authGuard],
+    data: withMetadata({ preload: true }),
+    loadComponent: () =&gt; import('./layout/app-shell').then((m) =&gt; m.AppShell),
+    children: [
+      { path: 'customers', data: withMetadata({ breadcrumb: 'nav.customers', preload: true }),
+        loadChildren: () =&gt; import('./customers/customers.routes').then((m) =&gt; m.customersRoutes) },
+      { path: 'technical-labs', canMatch: [featureEnabled('technicalLabs')], loadChildren: … },
+      { path: 'forbidden', title: 'pages.forbidden.title', loadComponent: … },
+      { path: '**', title: 'pages.notFound.title', loadComponent: … },
+    ],
+  },
+];</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một chi tiết nhỏ mà tử tế</span>
+            <p>
+              <code>{ path: 'home', redirectTo: 'customers' }</code>, với chú thích:
+              <em>"Phase 0's landing route. Kept as a redirect rather than deleted: a URL
+              that once worked and now 404s is indistinguishable from a broken application,
+              and redirects are the cheapest thing in a router."</em>
+            </p>
+            <p>
+              Ai đó đã bookmark <code>/home</code>. Giữ một dòng redirect tốn gần như không
+              gì; xoá nó khiến họ nghĩ ứng dụng hỏng.
+            </p>
+          </div>
+
+          <h3>3.2 Mọi route đều lazy — và hai cách</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cách</th>
+                  <th>Nạp gì</th>
+                  <th>Dùng khi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>loadComponent: () =&gt; import(…)</code></td>
+                  <td>Một component</td>
+                  <td>Một trang lẻ: <code>/login</code>, <code>/forbidden</code></td>
+                </tr>
+                <tr>
+                  <td><code>loadChildren: () =&gt; import(…)</code></td>
+                  <td>Cả một file route, với mọi route con của nó</td>
+                  <td>
+                    Một <strong>feature</strong>: <code>/customers</code>,
+                    <code>/technical-labs</code>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Hàm <code>() =&gt; import(…)</code> là một <strong>dynamic import</strong>:
+            trình đóng gói thấy nó và cắt phần code đó thành một chunk riêng. Chunk chỉ được
+            tải khi hàm được gọi — tức là khi ai đó thật sự đi tới route đó (hoặc khi
+            preloading quyết định tải trước, mục 3.6).
+          </p>
+
+          <p>
+            Dòng <code>loadChildren</code> trong <code>app.routes.ts</code> là ranh giới
+            giữa ứng dụng và feature. Chú thích nói: thêm
+            <code>/customers/:id/notes</code> ở một phase sau là một thay đổi
+            <strong>chỉ trong file route của feature</strong> —
+            <code>app.routes.ts</code> không bao giờ biết tới nó.
+          </p>
+
+          <h3>3.3 Route cha không có path</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customers.routes.ts — chú thích</div>
+            <pre><code>## The path-less parent
+
+Phase 2 wrapped the four pages in a route that matches nothing and exists
+only to carry `providers`. That is what gives the feature's state its
+lifetime: one `CustomerStore` and one `CustomerCache` serve every page under
+`/customers`, and both are destroyed when the user leaves the section.
+
+No path, no component and no data, so it is invisible to the URL and to the
+breadcrumb trail, which reads each route's own configuration.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>export const customersRoutes: Routes = [
+  {
+    path: '',
+    providers: [CustomerCache, CustomerStore, provideCustomerRealtimeSync()],
+    canActivate: [requirePermission('CUSTOMER_READ')],
+    children: [ /* bốn trang */ ],
+  },
+];</code></pre>
+          </div>
+
+          <p>Một route không khớp gì cả làm được <strong>ba</strong> việc cùng lúc:</p>
+
+          <ul>
+            <li>
+              <strong>Tuổi thọ của state</strong> — <code>providers</code>, bài 05 mục 3.2.
+            </li>
+            <li>
+              <strong>Một guard cho cả nhóm</strong> — "đọc được khách hàng" là điều kiện
+              sàn cho cả khu vực, viết một lần.
+            </li>
+            <li>
+              <strong>Một chỗ để nhóm</strong> mà không thêm một đoạn nào vào URL.
+            </li>
+          </ul>
+
+          <h3>3.4 Ba chỗ thứ tự là load-bearing</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cặp</th>
+                  <th>Nếu đảo lại</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>login</code> trước nhánh shell</td>
+                  <td>
+                    Nhánh shell có <code>path: ''</code>, khớp với mọi thứ bên dưới nó. Đặt
+                    sau <code>login</code> thì <code>login</code> được xét trước. Đảo lại:
+                    <code>/login</code> rơi vào shell, gặp <code>authGuard</code>, và người
+                    chưa đăng nhập bị chuyển về… <code>/login</code>. Vòng lặp.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>**</code> cuối cùng trong children</td>
+                  <td>
+                    Wildcard khớp tất cả. Đặt nó trước <code>customers</code> thì mọi URL
+                    trong shell đều ra trang 404.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>new</code> và <code>import</code> trước <code>:id</code>
+                  </td>
+                  <td>
+                    <code>:id</code> khớp với <em>bất kỳ</em> đoạn nào, kể cả chuỗi
+                    <code>new</code>. Đảo lại: <code>/customers/new</code> mở trang chi
+                    tiết với id là <code>"new"</code>, gọi API, nhận 404, và người dùng thấy
+                    "không tìm thấy khách hàng" khi họ bấm "Thêm mới".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code">
+            <div class="code__file">customers/customers.routes.ts — chú thích tại chỗ</div>
+            <pre><code>{
+  // Before `:id`, or "new" would be read as an identifier. Route order is
+  // load-bearing and this is the classic way to get it wrong.
+  path: 'new',
+  …
+}</code></pre>
+          </div>
+
+          <p>
+            Và một chi tiết nữa: <code>{ path: '', pathMatch: 'full', redirectTo: 'customers' }</code>
+            ở đầu <code>app.routes.ts</code>. Thiếu <code>pathMatch: 'full'</code>, route
+            rỗng khớp với <em>mọi</em> URL — vì mọi URL đều bắt đầu bằng một tiền tố rỗng —
+            và mọi điều hướng đều thành một redirect về <code>/customers</code>.
+          </p>
+
+          <h3>3.5 <code>title</code> là một khoá dịch</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customers.routes.ts</div>
+            <pre><code>{ path: '', pathMatch: 'full', title: 'pages.customers.list.title', … }
+{ path: 'new', title: 'pages.customers.create.title', … }</code></pre>
+          </div>
+
+          <p>
+            Angular có sẵn <code>title</code> trên route và tự ghi nó vào tiêu đề tài liệu.
+            Nhưng ghi <em>nguyên văn</em> — nên nếu bạn viết
+            <code>title: 'New customer'</code> thì đó là một chuỗi tiếng Anh cứng trong một
+            file route, đúng thứ quy tắc 1 cấm. Repo để khoá dịch ở đó và thay chiến lược:
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/seo/translated-title.strategy.ts</div>
+            <pre><code>@Injectable()
+export class TranslatedTitleStrategy extends TitleStrategy {
+  private readonly titleKey = signal&lt;string | null&gt;(null);
+
+  constructor() {
+    super();
+    toObservable(this.titleKey)
+      .pipe(switchMap((key) =&gt; this.resolve(key)), takeUntilDestroyed())
+      .subscribe((title) =&gt; this.title.setTitle(title));
+  }
+
+  override updateTitle(snapshot: RouterStateSnapshot): void {
+    // `buildTitle` walks to the deepest route that declares a title, which is
+    // why a child route overrides its parent's without either one knowing.
+    this.titleKey.set(this.buildTitle(snapshot) ?? null);
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>buildTitle(snapshot)</code></td>
+                  <td>
+                    Hàm có sẵn: đi xuống route sâu nhất có khai <code>title</code>. Nhờ vậy
+                    route con ghi đè route cha mà không bên nào phải biết bên nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>selectTranslate</code> (trong <code>resolve</code>)</td>
+                  <td>
+                    Một điều hướng xảy ra <em>trước khi</em> gói ngôn ngữ tải xong vẫn ra
+                    một tiêu đề thật, thay vì hiện nguyên khoá
+                    <code>pages.customers.list.title</code> trên tab.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Dùng signal + <code>toObservable</code></td>
+                  <td>
+                    Để tiêu đề <strong>áp lại khi đổi ngôn ngữ</strong> — không chỉ khi đổi
+                    route. Đây là một trong rất ít chỗ repo đi từ signal sang Observable.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cài qua DI</td>
+                  <td>
+                    <code>{ provide: TitleStrategy, useClass: TranslatedTitleStrategy }</code>
+                    trong <code>app.config.ts</code> — bài 05 mục 3.4, thay một mảnh của
+                    framework mà không fork nó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.6 Metadata của route, có type</h3>
+
+          <div class="code">
+            <div class="code__file">core/routing/route-metadata.ts</div>
+            <pre><code>/**
+ * Angular types `Route.data` as `{ [key: string]: any }`, which means a typo in
+ * a route definition is silent and a consumer reading it is guessing. These two
+ * functions put a type on both ends: routes are authored through
+ * `withMetadata()`, and anything reading route data goes through
+ * `routeMetadata()`.
+ *
+ * Everything here is a *translation key*, never a label. A route file that
+ * contains English is a hardcoded string that survived review because it did
+ * not look like one.
+ */
+export interface RouteMetadata {
+  readonly breadcrumb?: string;
+  readonly preload?: boolean;
+}
+
+export function withMetadata(metadata: RouteMetadata): Data {
+  return { ...metadata };
+}</code></pre>
+          </div>
+
+          <p>
+            Hai hàm, mười dòng, và chúng bịt một lỗ thật: <code>data</code> có kiểu
+            <code>any</code>, nên <code>{ breadcrumbs: 'nav.customers' }</code> (thừa chữ s)
+            là một lỗi im lặng — breadcrumb đơn giản không xuất hiện, và không ai biết vì
+            sao.
+          </p>
+
+          <h4>Và một cái bẫy chỉ lộ ra khi đọc ngược</h4>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>/**
+ * Reads metadata back off an activated route.
+ *
+ * Deliberately `routeConfig.data` and not `snapshot.data`. Angular merges a
+ * parent's data into a child whose path is empty, so a breadcrumb declared on
+ * `/customers` would reappear on its own index child and the trail would read
+ * "Customers &gt; Customers". Reading the route's own configuration asks the
+ * question that was actually meant: what did *this* route declare?
+ */
+export function routeMetadata(snapshot: ActivatedRouteSnapshot): RouteMetadata {
+  const breadcrumb = snapshot.routeConfig?.data?.['breadcrumb'];
+  return typeof breadcrumb === 'string' ? { breadcrumb } : {};
+}</code></pre>
+          </div>
+
+          <p>
+            <code>snapshot.data</code> là dữ liệu <em>đã gộp</em> từ cha xuống con.
+            <code>snapshot.routeConfig.data</code> là thứ chính route đó khai. Với breadcrumb
+            thì phải là cái thứ hai — nếu không, trail hiện "Khách hàng › Khách hàng" và
+            không ai hiểu vì sao.
+          </p>
+
+          <h3>3.7 Preloading: giữa hai thái cực</h3>
+
+          <div class="code">
+            <div class="code__file">core/routing/flagged-preloading.ts</div>
+            <pre><code>@Injectable({ providedIn: 'root' })
+export class FlaggedPreloading implements PreloadingStrategy {
+  private readonly flags = inject(FeatureFlags);
+  private readonly navigator = inject(NAVIGATOR) as
+    (Navigator &amp; { connection?: NetworkInformation }) | null;
+
+  preload(route: Route, load: () =&gt; Observable&lt;unknown&gt;): Observable&lt;unknown&gt; {
+    const wanted = route.data?.['preload'] === true;
+    const allowed =
+      this.flags.isEnabled('routePreloading') &amp;&amp; !this.navigator?.connection?.saveData;
+    return wanted &amp;&amp; allowed ? load() : EMPTY;
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chiến lược</th>
+                  <th>Hành vi</th>
+                  <th>Vấn đề</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>NoPreloading</code> (mặc định)</td>
+                  <td>Không tải trước gì cả</td>
+                  <td>Lần đầu vào mỗi khu vực đều phải chờ tải code</td>
+                </tr>
+                <tr>
+                  <td><code>PreloadAllModules</code></td>
+                  <td>Tải trước mọi chunk</td>
+                  <td>
+                    Tải cả phòng thí nghiệm kỹ thuật cho người sẽ không bao giờ mở nó
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>FlaggedPreloading</code></strong></td>
+                  <td>Chỉ route có <code>preload: true</code></td>
+                  <td>
+                    Phải chọn thủ công — nhưng đó chính là điều đúng: shell và danh sách
+                    khách hàng được tải <em>trong lúc người dùng còn đang gõ mật khẩu</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Hai điều kiện dừng đáng chú ý:</p>
+
+          <ul>
+            <li>
+              <code>saveData</code> — người dùng đã bật chế độ tiết kiệm dữ liệu của trình
+              duyệt. Tải trước thứ họ chưa yêu cầu là đi ngược lại điều họ vừa nói.
+            </li>
+            <li>
+              Flag <code>routePreloading</code> — tắt được lúc chạy, và chú thích nói đó
+              cũng là cách script đo hiệu năng so sánh có/không
+              <strong>mà không cần build lần hai</strong>.
+            </li>
+          </ul>
+
+          <h3>3.8 Query param thành input</h3>
+
+          <p>
+            Đã gặp ở bài 01, nhắc lại vì nó thuộc về bài này:
+            <code>withComponentInputBinding()</code> trong
+            <code>provideRouter</code> làm tham số route và query param bơm thẳng vào
+            <code>input()</code> cùng tên. Không component nào phải subscribe
+            <code>ActivatedRoute</code>.
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customers.routes.ts — một cách dùng khác của data</div>
+            <pre><code>{
+  path: 'new',
+  data: {
+    ...withMetadata({ breadcrumb: 'pages.customers.create.breadcrumb' }),
+    // Bound straight to the page's `mode` input by `withComponentInputBinding`.
+    // One component serves create and edit because the difference between
+    // them is which data it starts from, not what it looks like.
+    mode: 'create',
+  },
+  …
+}</code></pre>
+          </div>
+
+          <p>
+            <code>data</code> cũng được bind vào input. Nhờ vậy
+            <strong>một</strong> component phục vụ cả tạo mới lẫn sửa, và sự khác biệt được
+            khai báo trong file route chứ không phải suy ra từ việc URL có
+            <code>:id</code> hay không.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>app/app.routes.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> Ba quyết định kiến trúc, và hai chỗ thứ tự
+                    quan trọng
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customers.routes.ts</code></td>
+                  <td>
+                    Route cha không path; <code>new</code> trước <code>:id</code>;
+                    <code>data.mode</code> cho một component hai vai
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/routing/route-metadata.ts</code></td>
+                  <td>
+                    Metadata có type, và cái bẫy <code>snapshot.data</code> bị gộp
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/seo/translated-title.strategy.ts</code></td>
+                  <td>Thay một mảnh framework qua DI; tiêu đề đổi theo ngôn ngữ</td>
+                </tr>
+                <tr>
+                  <td><code>core/routing/flagged-preloading.ts</code></td>
+                  <td>Giữa hai thái cực, và hai điều kiện dừng</td>
+                </tr>
+                <tr>
+                  <td><code>layout/breadcrumbs.ts</code></td>
+                  <td>Nơi <code>routeMetadata()</code> được đọc để dựng trail</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Công thức thêm một route, theo <code>docs/development-guide.md</code></span>
+            <ol>
+              <li>Tạo component <code>&lt;name&gt;-page.ts</code> trong thư mục feature.</li>
+              <li>
+                Thêm một mục lazy vào route file <strong>của feature</strong> —
+                <code>customers.routes.ts</code>, không phải <code>app.routes.ts</code>.
+              </li>
+              <li>
+                Cho nó một <code>title</code>, là <strong>khoá dịch</strong>. Thêm
+                <code>data: withMetadata({ breadcrumb: '...' })</code> nếu nó nên vào trail.
+              </li>
+              <li>
+                Quyết định render mode trong <code>app.routes.server.ts</code>. Không chắc
+                thì <code>Client</code>.
+              </li>
+              <li>Đặt chữ của nó vào <code>en.json</code> và đọc qua Transloco.</li>
+              <li>
+                Bọc trang trong <code>app-page-container</code> với một
+                <code>app-page-header</code> — đó là <code>&lt;h1&gt;</code> duy nhất của
+                trang.
+              </li>
+            </ol>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Cây route đầy đủ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    ROOT["routes[]"] --> R0["'' pathMatch:full<br/>→ redirect /customers"]
+    ROOT --> LOGIN["'login'<br/>prerender · loadComponent"]
+    ROOT --> LAB["'rendering-lab'<br/>loadChildren · ngoài shell"]
+    ROOT --> HOME["'home' → redirect"]
+    ROOT --> SHELL
+
+    SHELL["'' + authGuard<br/>loadComponent: AppShell<br/>preload: true"]
+    SHELL --> CUST["'customers'<br/>loadChildren · preload: true"]
+    SHELL --> LABS["'technical-labs'<br/>canMatch: featureEnabled"]
+    SHELL --> FORB["'forbidden'"]
+    SHELL --> WILD["'**' → 404 TRONG shell"]
+
+    CUST --> PARENT["'' không component<br/>providers: Store + Cache<br/>canActivate: CUSTOMER_READ"]
+    PARENT --> LIST["'' pathMatch:full → danh sách"]
+    PARENT --> NEW["'new' + CUSTOMER_CREATE<br/>+ unsavedChangesGuard"]
+    PARENT --> IMP["'import' + canMatch flag"]
+    PARENT --> ID["':id'"]
+    ID --> DET["'' → chi tiết"]
+    ID --> EDIT["'edit' + CUSTOMER_UPDATE<br/>+ unsavedChangesGuard"]
+    ID --> AUD["'audit'"]
+            </pre>
+            <figcaption>
+              Hai nhánh ở cấp cao nhất: công khai (trái) và sau đăng nhập (phải). Mọi thứ
+              trong nhánh phải thừa hưởng <code>authGuard</code> từ một dòng duy nhất. Và
+              <code>'**'</code> nằm <em>trong</em> shell, nên trang 404 vẫn có header và
+              sidebar để người dùng đi tiếp.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Một lần điều hướng, từ cú bấm tới tiêu đề tab</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant R as Router
+    participant G as Guards
+    participant L as Chunk loader
+    participant C as Component
+    participant T as TranslatedTitleStrategy
+    U->>R: bấm link /customers/new
+    R->>R: khớp từ trên xuống<br/>'new' trước ':id'
+    R->>G: canMatch (flag) → canActivate (authGuard, permission)
+    G-->>R: cho phép
+    R->>L: import('./customer-form/customer-form-page')
+    Note over L: chunk có thể đã nằm sẵn<br/>nhờ preload
+    L-->>R: component class
+    R->>C: dựng, bind input từ data.mode và query param
+    R->>T: updateTitle(snapshot)
+    T->>T: buildTitle → khoá sâu nhất
+    T->>T: selectTranslate(key)
+    T-->>U: tiêu đề tab bằng ngôn ngữ đang chọn
+            </pre>
+            <figcaption>
+              Guard chạy <em>trước</em> khi chunk được tải — nên một route bị từ chối không
+              tốn băng thông nào. Và tiêu đề là bước cuối, sau khi đã biết route sâu nhất.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Feature sở hữu file route của nó</h4>
+          <p>
+            Phương án bị loại: khai mọi route trong <code>app.routes.ts</code>. Bị loại vì
+            khi đó mỗi lần thêm một trang là một thay đổi ở file gốc, và file gốc biết chi
+            tiết nội bộ của mọi feature. Giá phải trả: phải mở hai file để thấy toàn cảnh —
+            nhưng đổi lại, ranh giới feature là thật.
+          </p>
+
+          <h4><code>title</code> là khoá dịch — ADR-0009</h4>
+          <p>
+            Phương án bị loại: dùng <code>TitleStrategy</code> mặc định với tiêu đề viết
+            thẳng. Bị loại vì đó là chuỗi tiếng Anh cứng trong file route — và chú thích
+            trong <code>route-metadata.ts</code> gọi đúng tên hiện tượng:
+            <em>"a hardcoded string that survived review because it did not look like
+            one."</em>
+          </p>
+
+          <h4>Preloading theo flag — ADR-0031</h4>
+          <p>
+            Hai phương án có sẵn bị loại vì chúng là hai thái cực. Giá phải trả: phải tự
+            đánh dấu route nào đáng tải trước, và quyết định đó phải được đo lại khi ứng
+            dụng lớn lên — <code>docs/performance.md</code> có số đo.
+          </p>
+
+          <h4>404 nằm trong shell</h4>
+          <p>
+            Phương án bị loại: một trang 404 độc lập. Bị loại vì
+            <em>"a 404 with no navigation is a dead end"</em> — người dùng gõ sai một chữ
+            trong URL và mất luôn thanh điều hướng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>:id</code> trước <code>new</code></span>
+            <p>
+              Bấm "Thêm khách hàng" và nhận "Không tìm thấy khách hàng". Router khớp
+              <code>:id</code> với chuỗi <code>"new"</code>, trang chi tiết gọi API, server
+              trả 404. Lỗi trông như lỗi dữ liệu nhưng là lỗi thứ tự dòng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Quên <code>pathMatch: 'full'</code> trên route rỗng</span>
+            <p>
+              <code>path: ''</code> khớp tiền tố, và <em>mọi</em> URL có tiền tố rỗng. Kết
+              quả: mọi điều hướng đều rơi vào route đó. Nếu nó là một redirect thì ứng dụng
+              không đi đâu được nữa.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Wildcard không ở cuối</span>
+            <p>
+              <code>'**'</code> khớp tất cả, nên mọi route sau nó là code chết. Triệu chứng:
+              một trang mới thêm vào "không hoạt động" dù cấu hình trông đúng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Đọc <code>snapshot.data</code> cho breadcrumb</span>
+            <p>
+              Angular gộp data của cha vào con có path rỗng, nên breadcrumb khai trên
+              <code>/customers</code> xuất hiện lại ở route con index. Trail đọc là "Khách
+              hàng › Khách hàng". Phải đọc <code>routeConfig.data</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Gõ sai một khoá trong <code>data</code></span>
+            <p>
+              <code>{ breadcrumbs: '...' }</code> thay vì <code>{ breadcrumb: '...' }</code>.
+              Vì <code>data</code> có kiểu <code>any</code>, không gì báo lỗi — crumb chỉ
+              đơn giản không xuất hiện. <code>withMetadata()</code> tồn tại vì đúng chuyện
+              này.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Đặt <code>authGuard</code> lên từng route</span>
+            <p>
+              Chạy được — cho tới khi ai đó thêm trang thứ mười hai và quên. Đặt một lần
+              trên route cha của nhánh thì <strong>trang thêm sau cũng được bảo vệ</strong>
+              mà không ai phải nhớ. Đây là khác biệt giữa một quy ước và một cấu trúc.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>app/app.routes.spec.ts</code></td>
+                  <td>
+                    Hình dạng cây đúng: <code>login</code> ngoài shell, wildcard cuối cùng —
+                    tức là <strong>thứ tự được canh bằng một cổng</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/seo/translated-title.strategy.spec.ts</code></td>
+                  <td>Khoá được dịch, và tiêu đề áp lại khi đổi ngôn ngữ</td>
+                </tr>
+                <tr>
+                  <td><code>core/routing/flagged-preloading.spec.ts</code></td>
+                  <td>
+                    Chỉ route có cờ được tải trước; flag tắt hoặc <code>saveData</code> thì
+                    không tải gì
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>layout/breadcrumbs.spec.ts</code></td>
+                  <td>Trail không lặp lại crumb của cha ở con index</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/navigation.spec.ts</code></td>
+                  <td>Đi qua các trang thật, bằng link thật, trong trình duyệt thật</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Công cụ test route của Angular</span>
+            <p>
+              <code>RouterTestingHarness</code> cho bạn điều hướng thật tới một URL trong
+              test và nhận component đã dựng — không cần template giả, không cần router giả.
+              Kết hợp với <code>provideLocationMocks()</code>, bạn test được cả nút Back.
+              Bài 23 nói kỹ.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi thêm một trang mới"}
+    Q0 --> Q1{"Nó thuộc feature nào?"}
+    Q1 -->|"một feature đã có"| F1["thêm vào routes của FEATURE đó<br/>app.routes.ts không đổi"]
+    Q1 -->|"feature mới"| F2["tạo file routes mới<br/>+ MỘT loadChildren trong app.routes.ts"]
+    Q1 -->|"công khai, không cần đăng nhập"| F3["đặt NGOÀI nhánh shell<br/>trước route '' của shell"]
+
+    F1 --> O{"Đặt ở vị trí nào trong mảng?"}
+    O -->|"đường dẫn cố định"| O1["TRƯỚC mọi ':param'"]
+    O -->|"có tham số"| O2["sau các đường dẫn cố định"]
+    O -->|"bắt tất cả"| O3["cuối cùng, luôn luôn"]
+
+    F1 --> M["title: KHOÁ DỊCH, không phải tiêu đề"]
+    F1 --> M2["data: withMetadata({...}) — có type"]
+    F1 --> M3["cần state riêng? → providers trên route cha không path"]
+    F1 --> M4["cần quyền? → canActivate trên cha, không lặp từng trang"]
+    F1 --> M5["gần như ai cũng vào? → preload: true"]
+    F1 --> M6["tắt được lúc chạy? → canMatch, không canActivate"]
+            </pre>
+            <figcaption>
+              Nhánh giữa là ba luật thứ tự, và chúng đủ để tránh cả ba cái bẫy ở mục 7. Hai
+              dòng cuối là khác biệt tinh tế nhất của bài sau: <code>canMatch</code> làm
+              route <em>không tồn tại</em>, <code>canActivate</code> làm nó tồn tại nhưng từ
+              chối.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh ba luật thứ tự</h3>
+            <p class="task__meta">~30 phút · sửa rồi hoàn nguyên sau mỗi bước</p>
+            <ol>
+              <li>
+                Trong <code>customers.routes.ts</code>, chuyển mục <code>':id'</code> lên
+                <strong>trước</strong> <code>'new'</code>. Bấm "New customer". Quan sát.
+              </li>
+              <li>
+                Hoàn nguyên. Trong <code>app.routes.ts</code>, chuyển mục
+                <code>'**'</code> lên đầu danh sách <code>children</code>. Mở
+                <code>/customers</code>.
+              </li>
+              <li>
+                Hoàn nguyên. Xoá <code>pathMatch: 'full'</code> khỏi route redirect đầu
+                tiên. Thử mở <code>/customers</code>.
+              </li>
+              <li>
+                Sau mỗi bước, chạy <code>npm test --workspace @ecm/web</code> và xem
+                <code>app.routes.spec.ts</code> có bắt được không.
+              </li>
+            </ol>
+            <details>
+              <summary>Ba triệu chứng, và một nhận xét về test</summary>
+              <p>
+                (1) "Không tìm thấy khách hàng" khi bấm Thêm mới — vì
+                <code>:id</code> nuốt chuỗi <code>"new"</code>. (2) Mọi URL trong shell ra
+                trang 404. (3) Mọi điều hướng quay về <code>/customers</code>, kể cả chính
+                <code>/customers</code>, nên ứng dụng kẹt.
+              </p>
+              <p>
+                Về bước 4: một số thay đổi bị test bắt, một số không. Ghi lại cái nào không
+                — <strong>đó là chỗ đáng thêm một test</strong>, và là một đóng góp thật nếu
+                bạn mang nó lên PR.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Nhìn lazy loading và preloading làm việc</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>
+                <code>npm run build</code> rồi <code>npm run start:api</code> và chạy bản
+                production (xem <code>docs/development-guide.md</code>). Hoặc đơn giản hơn:
+                dùng dev server và lọc Network theo <strong>JS</strong>.
+              </li>
+              <li>Mở <code>/login</code>. Ghi lại các file JS được tải.</li>
+              <li>
+                <strong>Chưa đăng nhập</strong>, chờ vài giây. Có file JS nào tải thêm
+                không? Của route nào?
+              </li>
+              <li>Đăng nhập. Danh sách khách hàng hiện ra nhanh hay chậm?</li>
+              <li>
+                Bây giờ vào <code>/technical-labs</code>. Có chunk mới được tải không?
+              </li>
+              <li>
+                Tắt flag <code>routePreloading</code> trong
+                <code>public/config.json</code>, nạp lại, lặp lại bước 3.
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (3): chunk của <code>AppShell</code> và của danh sách khách hàng được tải
+                <strong>trong lúc bạn còn đang ở trang đăng nhập</strong> — đó là hai route
+                có <code>preload: true</code>.
+              </p>
+              <p>
+                (5): có — <code>technical-labs</code> không có cờ preload, nên chunk của nó
+                chỉ tải khi bạn thật sự đi tới. Đó chính là thứ
+                <code>PreloadAllModules</code> sẽ tải cho mọi người.
+              </p>
+              <p>
+                (6): không có chunk nào tải trước nữa. Và chú ý điều này được làm
+                <em>không cần build lại</em> — đó là ý nghĩa của runtime flag ở bài 05.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một route mới, đúng công thức</h3>
+            <p class="task__meta">~50 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm <code>/customers/:id/notes</code> — một trang ghi chú (chỉ cần khung,
+              chưa cần dữ liệu thật).
+            </p>
+            <ol>
+              <li>Theo đúng sáu bước trong hộp ở mục 4.</li>
+              <li>
+                Nó phải xuất hiện trong breadcrumb. Thêm <code>withMetadata</code> phù hợp.
+              </li>
+              <li>Tiêu đề tab phải đúng ngôn ngữ — thêm khoá vào cả hai file dịch.</li>
+              <li>
+                Trả lời: nó có cần guard quyền không? Nếu có thì quyền nào, và đặt ở đâu?
+              </li>
+              <li>
+                Trả lời: <code>app.routes.ts</code> có phải sửa không? Vì sao?
+              </li>
+              <li><code>npm run lint</code>, <code>typecheck</code>, <code>test</code> sạch.</li>
+            </ol>
+            <details>
+              <summary>Đáp án hai câu hỏi, và một chỗ dễ sai</summary>
+              <p>
+                (4): <code>CUSTOMER_READ</code> đã được route cha không path bảo đảm, nên
+                không cần thêm gì — <em>trừ khi</em> ghi chú là dữ liệu nhạy cảm hơn, lúc đó
+                nó cần quyền riêng. Đây là câu hỏi nghiệp vụ, không phải kỹ thuật.
+              </p>
+              <p>
+                (5): <strong>không</strong>. Toàn bộ thay đổi nằm trong
+                <code>customers.routes.ts</code>. Đó chính là điều mà chú thích đầu file hứa:
+                <em>"adding <code>/customers/:id/notes</code> in a later phase is then a
+                change to this file alone"</em> — bạn vừa kiểm chứng một lời hứa trong tài
+                liệu.
+              </p>
+              <p>
+                <strong>Chỗ dễ sai:</strong> đặt route mới ở đâu trong mảng
+                <code>children</code> của <code>':id'</code>. Nó là một đường dẫn cố định
+                (<code>'notes'</code>) nên vị trí với <code>''</code> và
+                <code>'edit'</code> không xung đột — nhưng hãy tự hỏi vì sao, đừng đoán.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Tìm cái bẫy breadcrumb</h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>route-metadata.ts</code>, đổi
+                <code>snapshot.routeConfig?.data?.['breadcrumb']</code> thành
+                <code>snapshot.data?.['breadcrumb']</code>.
+              </li>
+              <li>Mở <code>/customers</code>. Đọc breadcrumb.</li>
+              <li>Mở <code>/customers/&lt;id&gt;</code>. Đọc lại.</li>
+              <li>Chạy <code>npm test --workspace @ecm/web</code>.</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và vì sao đây là một bẫy hay</summary>
+              <p>
+                Trail đọc "Khách hàng › Khách hàng". Angular gộp <code>data</code> của cha
+                vào con có path rỗng, nên crumb khai trên <code>/customers</code> xuất hiện
+                lại ở route con index của nó.
+              </p>
+              <p>
+                Đây là bẫy hay vì <code>snapshot.data</code> là thứ
+                <em>trông đúng hơn</em>: nó là API quen thuộc, nó có sẵn, và nó hoạt động ở
+                mọi route <em>trừ</em> route index. Bạn sẽ chỉ phát hiện khi nhìn breadcrumb
+                — hoặc khi một test canh nó, như <code>breadcrumbs.spec.ts</code> ở đây.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Ba chỗ nào trong cây route mà thứ tự quyết định hành vi?</summary>
+            <p>
+              <code>login</code> trước nhánh shell (không thì vòng lặp chuyển hướng);
+              <code>'**'</code> cuối cùng (không thì mọi thứ ra 404); đường dẫn cố định như
+              <code>new</code> trước <code>:id</code> (không thì "new" bị đọc là một id).
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>loadComponent</code> khác <code>loadChildren</code> ở đâu?</summary>
+            <p>
+              Cái đầu nạp một component; cái sau nạp cả một file route với mọi route con của
+              nó. <code>loadChildren</code> là ranh giới feature — và là dòng duy nhất mà
+              <code>app.routes.ts</code> biết về một feature.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Route cha không có path dùng để làm gì?</summary>
+            <p>
+              Ba việc cùng lúc: cấp <code>providers</code> (tuổi thọ của state), gắn một
+              guard cho cả nhóm, và nhóm các route lại — tất cả mà không thêm đoạn nào vào
+              URL.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao <code>title</code> trong file route là khoá dịch?</summary>
+            <p>
+              Vì <code>TitleStrategy</code> mặc định ghi nguyên văn vào tiêu đề tài liệu —
+              nên một tiêu đề thật ở đó là chuỗi cứng chưa dịch, phá quy tắc 1.
+              <code>TranslatedTitleStrategy</code> giải khoá đó, và áp lại khi đổi ngôn ngữ.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao <code>routeMetadata</code> đọc <code>routeConfig.data</code> chứ không <code>snapshot.data</code>?</summary>
+            <p>
+              Vì <code>snapshot.data</code> đã gộp dữ liệu của cha vào con có path rỗng, nên
+              breadcrumb của <code>/customers</code> xuất hiện lại ở route index và trail đọc
+              "Khách hàng › Khách hàng". <code>routeConfig.data</code> hỏi đúng câu cần hỏi:
+              <em>route này</em> khai gì?
+            </p>
+          </details>
+
+          <details>
+            <summary>6. <code>FlaggedPreloading</code> nằm giữa hai thái cực nào, và hai điều kiện dừng là gì?</summary>
+            <p>
+              Giữa <code>NoPreloading</code> (mọi khu vực đều phải chờ lần đầu) và
+              <code>PreloadAllModules</code> (tải cả thứ không ai mở). Hai điều kiện dừng:
+              người dùng bật <code>Save-Data</code>, và flag runtime
+              <code>routePreloading</code> bị tắt.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao <code>authGuard</code> đặt một lần trên nhánh shell?</summary>
+            <p>
+              Để trang thêm vào sau này cũng được bảo vệ mà không ai phải nhớ. Lặp guard
+              trên từng route là một quy ước; đặt trên cha là một cấu trúc — và cấu trúc
+              không quên.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 16 mổ kỹ bốn loại guard trong repo, và một phân biệt mà bài này mới chạm
+              tới: <code>canMatch</code> làm route <em>không tồn tại</em>, còn
+              <code>canActivate</code> làm nó tồn tại nhưng từ chối — hai hành vi khác nhau,
+              hai tình huống khác nhau.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="14-validation.html">← Bài 14</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

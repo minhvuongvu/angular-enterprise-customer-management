@@ -1,0 +1,1212 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 13 — Reactive form có type</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 13 ◆
+        </p>
+        <h1>Reactive form có type</h1>
+        <p class="lede">
+          Form là nơi người dùng thật sự <em>làm việc</em>, và là nơi frontend phức tạp
+          nhất. Bài này tách một form thành hai thứ tách rời được: một
+          <strong>mô hình</strong> gồm toàn hàm thuần, và một component chỉ lo hiển thị.
+          Kèm theo là máy trạng thái mà mọi control đều có — và một cái bẫy của Angular 22
+          mà repo đã mất thời gian vì nó.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · hướng tới Mốc 3</li>
+          <li class="tag">◆ có máy trạng thái</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>FormControl&lt;T&gt;</code></td>
+                  <td>Một ô nhập: giữ giá trị, trạng thái, và danh sách validator.</td>
+                </tr>
+                <tr>
+                  <td><code>FormGroup&lt;C&gt;</code></td>
+                  <td>
+                    Một nhóm control có tên. <code>C</code> là interface mô tả các control
+                    bên trong — đó là phần "có type".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Reactive form</strong></td>
+                  <td>
+                    Form được dựng <em>trong TypeScript</em>, template chỉ nối vào. Ngược
+                    với template-driven, nơi template là nguồn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>nonNullable</code></td>
+                  <td>
+                    Control không bao giờ nhận <code>null</code>, và
+                    <code>reset()</code> về giá trị khởi tạo thay vì về <code>null</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>value</code> vs <code>getRawValue()</code></td>
+                  <td>
+                    <code>value</code> bỏ qua control đang <code>disabled</code>;
+                    <code>getRawValue()</code> lấy tất cả.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>pristine</code> / <code>dirty</code></td>
+                  <td>Người dùng đã <em>đổi giá trị</em> chưa.</td>
+                </tr>
+                <tr>
+                  <td><code>untouched</code> / <code>touched</code></td>
+                  <td>
+                    Người dùng đã <em>rời khỏi</em> ô đó chưa (blur). Khác hẳn
+                    dirty.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>status</code></td>
+                  <td>
+                    <code>VALID</code>, <code>INVALID</code>, <code>PENDING</code> (async
+                    validator đang chạy), <code>DISABLED</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>form.events</code></td>
+                  <td>
+                    Luồng mọi sự kiện của form. <strong>Không giống</strong>
+                    <code>statusChanges</code> — mục 3.6.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Form model</strong></td>
+                  <td>
+                    File riêng chứa hình dạng form, validator và hai phép chuyển đổi ở biên
+                    — không có component nào trong đó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Dựng một form có type đầy đủ, với nhóm lồng nhau.</li>
+            <li>
+              Nói được <code>dirty</code> khác <code>touched</code> ở đâu, và mỗi cái dùng
+              để quyết định chuyện gì.
+            </li>
+            <li>
+              Tách mô hình form ra khỏi component, và giải thích được vì sao điều đó làm
+              test rẻ đi nhiều lần.
+            </li>
+            <li>
+              Biết vì sao <code>''</code> và <code>null</code> không được phép lẫn nhau ở
+              biên gửi đi.
+            </li>
+            <li>
+              Nhận ra khi nào phải dùng <code>form.events</code> chứ không phải
+              <code>statusChanges</code>.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>DTO + Bean Validation</td>
+                  <td><code>FormGroup</code> + validator</td>
+                  <td>
+                    DTO của bạn được validate <em>một lần</em>, khi request tới. Form được
+                    validate <strong>liên tục</strong>, sau mỗi phím gõ — nên validator phải
+                    rẻ và phải chịu được giá trị dở dang.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Binding form POST vào object</td>
+                  <td><code>toCreateRequest(form)</code></td>
+                  <td>
+                    Framework của bạn tự bind. Ở đây bạn <strong>viết tay phép chuyển
+                    đổi</strong> — và đó là tính năng, vì ô trống là
+                    <code>''</code> còn API muốn <code>null</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có gì tương đương</td>
+                  <td><code>dirty</code> / <code>touched</code></td>
+                  <td>
+                    Backend không có khái niệm "người dùng đã chạm vào ô này chưa". Ở đây nó
+                    quyết định <em>khi nào</em> được phép báo lỗi — và báo sai lúc là cách
+                    làm form trở nên khó chịu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Transaction: đọc rồi ghi</td>
+                  <td><code>baseline</code> + <code>version</code></td>
+                  <td>
+                    Database giữ transaction trong vài mili giây. Form của người dùng mở
+                    trong <em>hai mươi phút</em>, và trong khoảng đó người khác có thể đã
+                    lưu. Bài 18.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Reactive, không phải template-driven</h3>
+
+          <p>
+            Angular có hai kiểu form. <strong>Template-driven</strong> dựng form từ template
+            bằng <code>ngModel</code>; <strong>reactive</strong> dựng trong TypeScript rồi
+            template nối vào. Repo dùng reactive ở mọi chỗ, và lý do rất thực tế:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Validator là code, nên test được như code</strong> — không cần render
+              gì.
+            </li>
+            <li>
+              <strong>Có type.</strong> <code>FormGroup&lt;CustomerFormControls&gt;</code>
+              biết chính xác nó có control nào, kiểu gì.
+            </li>
+            <li>
+              <strong>Quy tắc cross-field có chỗ đặt.</strong> "Khách hàng ACTIVE phải có số
+              điện thoại" không thuộc về ô nào cả — nó thuộc về nhóm.
+            </li>
+          </ul>
+
+          <h3>3.2 Mô hình tách khỏi component</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts — chú thích đầu file</div>
+            <pre><code>Separated from the component on purpose. A form's rules are the part worth
+testing - they are business rules wearing a UI costume - and testing them
+through a rendered component means every assertion travels through change
+detection for no reason. Everything here is a pure function or a `FormGroup`
+factory, so `customer-form-model.spec.ts` reads like a specification.</code></pre>
+          </div>
+
+          <p>
+            Câu <em>"business rules wearing a UI costume"</em> đáng nhớ. "Một khách hàng
+            ACTIVE phải có số điện thoại" là một quy tắc nghiệp vụ; nó chỉ tình cờ được
+            diễn đạt bằng một validator. Chôn nó trong một component 600 dòng nghĩa là test
+            nó phải dựng cả component.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Chứa gì</th>
+                  <th>Test bằng gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form-model.ts</code></td>
+                  <td>
+                    Hình dạng form, mọi validator, hai phép chuyển đổi — toàn hàm thuần
+                  </td>
+                  <td>Gọi hàm. Không <code>TestBed</code>, không render.</td>
+                </tr>
+                <tr>
+                  <td><code>customer-form.ts</code></td>
+                  <td>Component hiển thị các ô và thông báo lỗi</td>
+                  <td>Host component + render</td>
+                </tr>
+                <tr>
+                  <td><code>customer-form-page.ts</code></td>
+                  <td>Trang: nạp dữ liệu, lưu, xử lý xung đột, điều hướng</td>
+                  <td><code>RouterTestingHarness</code> + <code>HttpTestingController</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Form có type, từng dòng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts</div>
+            <pre><code>export interface CustomerFormControls {
+  fullName: FormControl&lt;string&gt;;
+  email: FormControl&lt;string&gt;;
+  phone: FormControl&lt;string&gt;;
+  dateOfBirth: FormControl&lt;string&gt;;
+  gender: FormControl&lt;Gender&gt;;
+  status: FormControl&lt;CustomerStatus&gt;;
+  tags: FormControl&lt;string&gt;;
+  address: FormGroup&lt;CustomerAddressControls&gt;;
+}
+
+export type CustomerForm = FormGroup&lt;CustomerFormControls&gt;;</code></pre>
+          </div>
+
+          <p>Interface này là hợp đồng của form, và nó mua được ba thứ:</p>
+
+          <ul>
+            <li>
+              <code>form.controls.fullName</code> được gợi ý và kiểm kiểu;
+              <code>form.controls.fulName</code> là lỗi biên dịch.
+            </li>
+            <li>
+              <code>form.getRawValue()</code> trả về một object có hình dạng đã biết, không
+              phải <code>any</code>.
+            </li>
+            <li>
+              <code>gender: FormControl&lt;Gender&gt;</code> — không phải
+              <code>string</code>. Gán một giá trị không thuộc union là lỗi biên dịch.
+            </li>
+          </ul>
+
+          <div class="code">
+            <div class="code__file">cùng file — nhà máy dựng form</div>
+            <pre><code>/**
+ * Builds an empty form.
+ *
+ * Every control is `nonNullable`, so `reset()` returns to the initial value
+ * rather than to `null` - which is what makes "reset" mean "back to how it
+ * was" for an edit and "empty" for a create, with no branching.
+ */
+export function createCustomerForm(): CustomerForm {
+  return new FormGroup&lt;CustomerFormControls&gt;(
+    {
+      fullName: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.required, maxLength(MAX_FULL_NAME)],
+      }),
+      // …
+      address: new FormGroup&lt;CustomerAddressControls&gt;(
+        { /* năm control */ },
+        { validators: [addressCompleteness] },      // ← validator của NHÓM
+      ),
+    },
+    { validators: [phoneRequiredWhenActive] },       // ← validator của CẢ FORM
+  );
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>nonNullable: true</code></td>
+                  <td>
+                    Kiểu là <code>string</code>, không phải <code>string | null</code> — nên
+                    không chỗ nào phải xử lý null. Và <code>reset()</code> về
+                    <code>''</code>, giá trị khởi tạo.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Validator ở tham số thứ hai của <code>FormGroup</code></td>
+                  <td>
+                    Validator của <em>nhóm</em> — nó nhìn thấy mọi control bên trong. Đây là
+                    chỗ đặt quy tắc cross-field. Bài 14.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>address</code> là một <code>FormGroup</code> lồng</td>
+                  <td>
+                    Cấu trúc form phản ánh cấu trúc dữ liệu. Và nó cho phép
+                    <code>form.get('address.city')</code> — đường dẫn có dấu chấm, thứ sẽ
+                    quan trọng ở bài 14.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hằng số <code>MAX_FULL_NAME</code> export ra ngoài</td>
+                  <td>
+                    Để component hiển thị giới hạn, và để test khẳng định đúng con số đó —
+                    thay vì lặp lại <code>150</code> ở ba chỗ.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao <code>nonNullable</code> quan trọng hơn vẻ ngoài</span>
+            <p>
+              Mặc định, <code>reset()</code> đưa control về <code>null</code> — kể cả khi
+              bạn khởi tạo nó bằng <code>''</code>. Hệ quả: kiểu phải là
+              <code>string | null</code>, và mọi chỗ đọc giá trị phải xử lý null, kể cả
+              những chỗ biết chắc nó không null.
+            </p>
+            <p>
+              Với <code>nonNullable</code>, "reset" có nghĩa <em>"về như lúc đầu"</em>. Với
+              một form sửa đã được điền từ bản ghi, đó là "bỏ mọi thay đổi"; với một form
+              tạo mới, đó là "xoá trắng". <strong>Cùng một lời gọi, hai ngữ nghĩa đúng, và
+              không nhánh <code>if</code> nào.</strong>
+            </p>
+          </div>
+
+          <h3>3.4 Giá trị và trạng thái là hai chuyện</h3>
+
+          <p>
+            Một control giữ nhiều hơn một giá trị. Bốn trục trạng thái, độc lập với nhau:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trục</th>
+                  <th>Giá trị</th>
+                  <th>Đổi khi</th>
+                  <th>Dùng để quyết định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Đã sửa?</td>
+                  <td><code>pristine</code> / <code>dirty</code></td>
+                  <td>Giá trị thay đổi</td>
+                  <td>Có cảnh báo khi rời trang không; có gửi gì lên không</td>
+                </tr>
+                <tr>
+                  <td>Đã chạm?</td>
+                  <td><code>untouched</code> / <code>touched</code></td>
+                  <td>Blur — người dùng rời khỏi ô</td>
+                  <td><strong>Khi nào được phép hiện lỗi</strong></td>
+                </tr>
+                <tr>
+                  <td>Hợp lệ?</td>
+                  <td><code>VALID</code> / <code>INVALID</code> / <code>PENDING</code></td>
+                  <td>Validator chạy</td>
+                  <td>Nút Lưu, và thông báo nào hiện</td>
+                </tr>
+                <tr>
+                  <td>Bật?</td>
+                  <td><code>enabled</code> / <code>DISABLED</code></td>
+                  <td><code>disable()</code> / <code>enable()</code></td>
+                  <td>
+                    Và chú ý: control <code>disabled</code> <strong>không</strong> có trong
+                    <code>form.value</code>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Nhầm <code>dirty</code> với <code>touched</code></span>
+            <p>
+              Dùng <code>dirty</code> để quyết định hiện lỗi: người dùng bỏ trống một ô bắt
+              buộc, tab qua, và <em>không có lỗi nào hiện ra</em> — vì họ chưa gõ gì nên ô
+              vẫn <code>pristine</code>.
+            </p>
+            <p>
+              Dùng <code>touched</code> để quyết định cảnh báo rời trang: người dùng bấm vào
+              một ô rồi bấm ra, không sửa gì, và vẫn bị hỏi "bạn có chắc muốn rời đi không?"
+            </p>
+            <p>
+              Repo dùng đúng cả hai: <code>shouldShow</code> dùng
+              <code>touched</code>, <code>canLeave</code> dùng <code>dirty</code>.
+            </p>
+          </div>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>canLeave(): boolean | Observable&lt;boolean&gt; {
+  if (!this.form.dirty || this.saving()) {
+    return true;
+  }
+
+  return this.confirmation.confirm({
+    headingKey: 'pages.customers.form.leaveHeading',
+    bodyKey: 'pages.customers.form.leaveBody',
+    confirmKey: 'pages.customers.form.discard',
+    cancelKey: 'pages.customers.form.stay',
+    tone: 'danger',
+  });
+}</code></pre>
+          </div>
+
+          <p>
+            Chú ý điều kiện thứ hai: <code>|| this.saving()</code>. Đang lưu thì đi luôn —
+            vì việc rời trang lúc đó là hệ quả của chính lệnh lưu vừa thành công, và hỏi
+            lại là hỏi về thứ người dùng vừa làm xong.
+          </p>
+
+          <h3>3.5 Cái bẫy: <code>events</code> chứ không phải <code>statusChanges</code></h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts — trong submit()</div>
+            <pre><code>if (this.form.pending) {
+  // The asynchronous email check has not answered yet. Returning here
+  // would make the button do nothing, which a user reads as broken - and
+  // it is easy to hit, because the check waits for typing to settle.
+  // Waiting for the verdict and then continuing is what they expect.
+  this.saving.set(true);
+  // `events`, not `statusChanges`. When an asynchronous validator
+  // resolves, Angular publishes a StatusChangeEvent but does **not** emit
+  // on `statusChanges` - so a wait built on that stream never ends, and
+  // the button stays in its busy state for ever.
+  this.form.events
+    .pipe(filter(…), take(1))
+    .subscribe(…);
+}</code></pre>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">Đây là một hành vi của Angular 22 mà tài liệu cũ không nói</span>
+            <p>
+              Khi một async validator trả lời, Angular phát một
+              <code>StatusChangeEvent</code> trên <code>form.events</code> nhưng
+              <strong>không</strong> phát trên <code>statusChanges</code>. Một
+              <code>await</code> dựng trên <code>statusChanges</code> sẽ chờ mãi mãi, và nút
+              Lưu kẹt ở trạng thái bận vĩnh viễn.
+            </p>
+            <p>
+              Repo đã mất thời gian vì đúng chuyện này, và bây giờ ghi lại ở hai chỗ. Nếu
+              bạn gặp "nút lưu quay mãi sau khi gõ email", kiểm tra điều này
+              <strong>trước tiên</strong>.
+            </p>
+          </div>
+
+          <h3>3.6 Form không phải signal — và cách bắc cầu</h3>
+
+          <p>
+            Reactive forms có từ trước signal, nên <code>form.dirty</code> là một thuộc tính
+            thường. Dưới <code>OnPush</code>, đọc nó trong template sẽ không tự cập nhật khi
+            nó đổi. Repo giải quyết bằng một signal đếm:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>/** Bumped by the form's own events, so `dirty()` is reactive under OnPush. */
+private readonly formVersion = signal(0);
+
+protected readonly dirty = computed(() =&gt; {
+  this.formVersion();        // đọc để đăng ký phụ thuộc
+  return this.form.dirty;    // giá trị thật lấy từ form
+});
+
+constructor() {
+  effect((onCleanup) =&gt; {
+    const subscription = this.form.events.subscribe(() =&gt;
+      this.formVersion.update((version) =&gt; version + 1),
+    );
+    onCleanup(() =&gt; subscription.unsubscribe());
+  });
+}</code></pre>
+          </div>
+
+          <p>
+            Khuôn này đáng hiểu kỹ vì bạn sẽ gặp lại nó với mọi thư viện chưa dùng signal:
+          </p>
+
+          <ol>
+            <li>
+              Một signal <strong>chỉ để làm tín hiệu</strong> — giá trị của nó vô nghĩa, chỉ
+              việc nó <em>đổi</em> là có nghĩa.
+            </li>
+            <li>
+              <code>computed</code> đọc signal đó (để đăng ký phụ thuộc) rồi trả về giá trị
+              thật lấy từ nguồn không-signal.
+            </li>
+            <li>Một <code>effect</code> nghe nguồn kia và tăng signal.</li>
+          </ol>
+
+          <p>
+            Đây chính xác là nhóm 3 ở bài 03 mục 3.6 — "đăng ký cần dọn dẹp" — và
+            <code>onCleanup</code> là bắt buộc, nếu không mỗi lần effect chạy lại là một
+            subscription chồng thêm.
+          </p>
+
+          <h3>3.7 Hai phép chuyển đổi ở biên</h3>
+
+          <p>
+            Form nói bằng chuỗi; API nói bằng contract. Hai hàm nối chúng, và chúng là
+            nghịch đảo của nhau:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts</div>
+            <pre><code>/** Fills the form from a customer. */
+export function toFormValue(customer: Customer): CustomerFormValue {
+  return {
+    fullName: customer.fullName,
+    phone: customer.phone ?? '',              // null → ''
+    dateOfBirth: customer.dateOfBirth ?? '',
+    tags: customer.tags.join(', '),           // mảng → một chuỗi
+    address: {
+      line1: customer.address?.line1 ?? '',
+      // …
+    },
+  };
+}
+
+/** The create payload. Empty optional fields become `null`, never `''`. */
+export function toCreateRequest(form: CustomerForm): CreateCustomerRequest {
+  const value = form.getRawValue();
+  return {
+    fullName: value.fullName.trim(),
+    phone: blankToNull(value.phone),          // '' → null
+    dateOfBirth: value.dateOfBirth ? (value.dateOfBirth as DateOnly) : null,
+    address: toAddress(value.address),        // tất cả trống → null
+    tags: parseTags(value.tags),              // chuỗi → mảng, bỏ trùng
+  };
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label"><code>''</code> và <code>null</code> không được lẫn</span>
+            <p>
+              Ô input HTML <strong>không thể</strong> giữ <code>null</code> — rỗng là
+              <code>''</code>. API thì phân biệt rõ: <code>null</code> nghĩa là "không có số
+              điện thoại", <code>''</code> nghĩa là "số điện thoại là chuỗi rỗng" — một giá
+              trị vô nghĩa mà schema sẽ từ chối hoặc, tệ hơn, chấp nhận và lưu.
+            </p>
+            <p>
+              Đây là lý do tồn tại của <code>blankToNull</code>, và là lý do hai phép chuyển
+              đổi được viết tay thay vì bind tự động. Ranh giới <code>''</code> ↔
+              <code>null</code> là một quyết định, và quyết định thì phải viết ra.
+            </p>
+          </div>
+
+          <p>
+            Để ý thêm <code>parseTags</code>: ô là một chuỗi phân tách bằng dấu phẩy, API
+            muốn một mảng. Hàm này trim, bỏ phần tử rỗng, và
+            <strong>bỏ trùng</strong> bằng một <code>Set</code> — ba quyết định nhỏ mà nếu
+            để trong component thì sẽ không ai test.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Dài</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form/customer-form-model.ts</code></td>
+                  <td>~380 dòng</td>
+                  <td>
+                    <strong>Đọc trước, và đọc hết.</strong> Toàn hàm thuần: hình dạng form,
+                    chín validator, hai phép chuyển đổi, và <code>toUpdateRequest</code> —
+                    phần khó nhất, để dành cho bài 18
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/customer-form.ts</code></td>
+                  <td>~400 dòng</td>
+                  <td>Component hiển thị: các ô, thông báo, và nghe <code>form.events</code></td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/customer-form-page.ts</code></td>
+                  <td>~650 dòng</td>
+                  <td>
+                    Trang: nạp, lưu, xung đột, <code>canLeave</code>, quản lý focus sau khi
+                    lưu hỏng
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/customer-form-model.spec.ts</code></td>
+                  <td>—</td>
+                  <td>
+                    Đọc nó như một bản đặc tả: mỗi quy tắc nghiệp vụ là một
+                    <code>it(...)</code>, không dòng nào dựng component
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của một control ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> SachChuaCham
+
+    SachChuaCham --> SachDaCham: blur (chưa gõ gì)
+    SachChuaCham --> BanChuaCham: gõ một phím
+    SachDaCham --> BanDaCham: gõ một phím
+    BanChuaCham --> BanDaCham: blur
+
+    BanDaCham --> SachChuaCham: form.reset()
+    SachDaCham --> SachChuaCham: form.reset()
+
+    state SachChuaCham {
+        [*] --> ValidA
+        ValidA --> InvalidA: validator báo lỗi
+        InvalidA --> ValidA: validator hết lỗi
+        state "VALID" as ValidA
+        state "INVALID - nhưng KHÔNG hiện" as InvalidA
+    }
+
+    state BanDaCham {
+        [*] --> ValidB
+        ValidB --> PendingB: async validator chạy
+        PendingB --> ValidB: email chưa ai dùng
+        PendingB --> InvalidB: email đã có người dùng
+        ValidB --> InvalidB: validator sync báo lỗi
+        InvalidB --> ValidB: sửa xong
+        state "VALID" as ValidB
+        state "PENDING - nút Lưu phải chờ" as PendingB
+        state "INVALID - CÓ hiện lỗi" as InvalidB
+    }
+
+    state "pristine + untouched" as SachChuaCham
+    state "pristine + touched" as SachDaCham
+    state "dirty + untouched" as BanChuaCham
+    state "dirty + touched" as BanDaCham
+            </pre>
+            <figcaption>
+              Hai trục độc lập, nhân với ba trạng thái hợp lệ. Điểm đáng chú ý nằm trong hai
+              khối lồng: cùng một <code>INVALID</code>, nhưng ở ô
+              <em>chưa chạm</em> thì <strong>không được hiện lỗi</strong> — đó là
+              <code>shouldShow</code>. Và <code>PENDING</code> chỉ xuất hiện ở ô có async
+              validator; nó là lý do nút Lưu phải biết chờ.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Ba file, ba trách nhiệm</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    subgraph MODEL["customer-form-model.ts — HÀM THUẦN"]
+      FAC["createCustomerForm()"]
+      VAL["9 validator"]
+      TFV["toFormValue(customer)"]
+      TCR["toCreateRequest(form)"]
+      TUR["toUpdateRequest(baseline, form, version)"]
+    end
+
+    subgraph PAGE["customer-form-page.ts — TRANG"]
+      LOAD["nạp bản ghi từ store"]
+      SUB["submit() · xử lý PENDING · 409"]
+      LEAVE["canLeave()"]
+    end
+
+    subgraph COMP["customer-form.ts — HIỂN THỊ"]
+      FIELDS["các ô + thông báo lỗi"]
+    end
+
+    STORE["CustomerStore"] --> LOAD
+    LOAD -->|"toFormValue"| TFV
+    TFV --> FAC
+    FAC --> FIELDS
+    FIELDS -->|"người dùng gõ"| VAL
+    SUB -->|"create"| TCR
+    SUB -->|"edit"| TUR
+    SUB --> STORE
+    LEAVE -->|"form.dirty"| FAC
+            </pre>
+            <figcaption>
+              Khối trên cùng không import một thứ gì của Angular ngoài
+              <code>@angular/forms</code>, và không biết component là gì. Đó là thứ làm spec
+              của nó đọc như một bản đặc tả nghiệp vụ.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Reactive, không template-driven</h4>
+          <p>
+            Phương án bị loại: <code>ngModel</code>. Bị loại vì quy tắc cross-field không có
+            chỗ đặt, vì không có type, và vì test một quy tắc nghiệp vụ phải render một
+            template. Giá phải trả: nhiều code hơn cho một form đơn giản — và với một form
+            thật sự đơn giản thì template-driven vẫn là lựa chọn hợp lý.
+          </p>
+
+          <h4>Validate ở client dù server đã validate</h4>
+          <p>
+            Chú thích nói rõ đây là trùng lặp <em>có chủ ý</em>:
+            <em>"the schema cannot tell a user which field to fix as they type, and the
+            server still validates everything again because the client is not a security
+            boundary."</em> Giá phải trả: hai bộ luật phải giữ cho khớp — và cách giữ là
+            server từ chối bất cứ thứ gì lệch.
+          </p>
+
+          <h4>Regex email cố ý dễ dãi</h4>
+          <p>
+            Phương án bị loại: regex theo RFC 5322. Chú thích:
+            <em>"those reject addresses that work and are impossible to read. The server
+            validates properly; this is a typo catcher."</em> Cùng tinh thần với
+            <code>PHONE_PATTERN</code>: <em>"A strict national format would reject a
+            legitimate international number, which is the more expensive mistake."</em>
+          </p>
+
+          <h4>Ngày sinh so sánh bằng chuỗi, không bằng <code>Date</code></h4>
+          <p>
+            Phương án bị loại: <code>new Date(value) &gt; new Date()</code>. Bị loại vì so
+            sánh hai chuỗi <code>YYYY-MM-DD</code> sắp xếp đúng <em>và</em> không thể trượt
+            qua nửa đêm ở múi giờ của ai đó. Đây là bài 08 mục 3.4 áp vào một chỗ cụ thể.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Quên <code>nonNullable</code></span>
+            <p>
+              Kiểu thành <code>string | null</code> ở khắp nơi, và
+              <code>reset()</code> xoá cả giá trị khởi tạo. Với form sửa, "huỷ thay đổi"
+              biến thành "xoá trắng mọi ô" — người dùng mất dữ liệu bằng một nút tên là
+              "Huỷ".
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Dùng <code>form.value</code> khi có control disabled</span>
+            <p>
+              Control <code>disabled</code> <strong>không xuất hiện</strong> trong
+              <code>form.value</code>. Payload gửi lên thiếu field, server coi là "không đổi"
+              hoặc từ chối. <code>getRawValue()</code> là thứ bạn gần như luôn muốn khi dựng
+              payload — repo dùng đúng nó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Hiện lỗi ngay khi form vừa mở</span>
+            <p>
+              Mọi ô bắt buộc đỏ rực trước khi người dùng gõ chữ nào. Form trông như đã hỏng.
+              <code>shouldShow</code> tồn tại để lỗi chỉ xuất hiện khi người dùng đã có cơ
+              hội — <code>touched</code>, hoặc đã bấm Lưu.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Gửi <code>''</code> thay vì <code>null</code></span>
+            <p>
+              Ô điện thoại để trống và payload mang <code>phone: ""</code>. Nếu schema chặt
+              thì 422 với một thông báo khó hiểu; nếu lỏng thì database lưu một chuỗi rỗng,
+              và báo cáo "khách hàng có số điện thoại" đếm sai từ đó về sau.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Chờ trên <code>statusChanges</code> sau async validator</span>
+            <p>
+              Nút Lưu kẹt ở trạng thái bận vĩnh viễn, và không có lỗi nào. Mục 3.5 — và đây
+              là một trong hai hoặc ba cái bẫy đặc thù của Angular 22 trong cả bộ tài liệu
+              này.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Đặt quy tắc nghiệp vụ trong component</span>
+            <p>
+              "Khách hàng ACTIVE phải có số điện thoại" nằm trong một component 600 dòng
+              nghĩa là test nó phải dựng component, qua change detection, với một host
+              template. Nó sẽ không được test — và một quy tắc nghiệp vụ không test là một
+              quy tắc sẽ bị phá trong im lặng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form-model.spec.ts</code></td>
+                  <td>
+                    Mọi validator, cả hai quy tắc cross-field, và hai phép chuyển đổi —
+                    <strong>không dựng component nào</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-form.spec.ts</code></td>
+                  <td>Thông báo lỗi hiện đúng lúc, và gắn với đúng ô qua <code>aria-describedby</code></td>
+                </tr>
+                <tr>
+                  <td><code>customer-form-page.spec.ts</code></td>
+                  <td>
+                    Lưu thành công thì điều hướng; <code>PENDING</code> thì chờ rồi tiếp;
+                    rời trang khi dirty thì hỏi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    Hộp thoại "Leave without saving?" xuất hiện, và chữ đã gõ còn nguyên sau
+                    khi chọn Ở lại
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao spec của model đọc như một bản đặc tả</span>
+            <p>
+              Vì mọi thứ trong file đó là hàm thuần. Một test là: dựng form, gán giá trị,
+              khẳng định lỗi. Không <code>TestBed</code>, không
+              <code>fixture.detectChanges()</code>, không chờ. Nếu bạn đang viết form ở dự án
+              thật và thấy test của mình toàn <code>await fixture.whenStable()</code>, đó là
+              dấu hiệu quy tắc đang nằm sai chỗ.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Thứ tôi đang viết là gì?"}
+
+    Q0 -->|"một quy tắc về dữ liệu"| R1{"Nó cần nhìn bao nhiêu ô?"}
+    R1 -->|"một ô"| V1["validator trên FormControl"]
+    R1 -->|"vài ô liên quan"| V2["validator trên FormGroup con<br/>addressCompleteness"]
+    R1 -->|"cả bản ghi"| V3["validator trên FormGroup gốc<br/>phoneRequiredWhenActive"]
+    R1 -->|"phải hỏi server"| V4["AsyncValidatorFn → bài 14"]
+
+    Q0 -->|"biến dữ liệu qua lại"| C1["hàm thuần trong form-model<br/>toFormValue · toCreateRequest"]
+    C1 --> C2["'' ↔ null là một QUYẾT ĐỊNH<br/>blankToNull · ?? ''"]
+
+    Q0 -->|"quyết định khi nào hiện lỗi"| S1["touched hoặc submitted<br/>KHÔNG phải dirty"]
+    Q0 -->|"quyết định có cảnh báo rời trang"| S2["dirty<br/>KHÔNG phải touched"]
+    Q0 -->|"chờ async validator xong"| S3["form.events<br/>KHÔNG phải statusChanges"]
+
+    Q0 -->|"đọc trạng thái form trong template OnPush"| B["signal đếm + computed<br/>cầu nối sang thư viện chưa dùng signal"]
+            </pre>
+            <figcaption>
+              Ba dòng "KHÔNG phải" ở giữa là ba nhầm lẫn tốn thời gian nhất với form trong
+              Angular. Nhánh trên cùng là câu hỏi quyết định mọi validator nằm ở đâu:
+              <em>nó cần nhìn bao nhiêu ô?</em>
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi hết máy trạng thái bằng tay</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <p>
+              Mở <code>/customers/new</code> và DevTools console. Dán đoạn này để quan sát
+              (nó đọc form qua DOM nên không cần sửa code):
+            </p>
+            <div class="code">
+              <pre><code>// Trong console, sau khi trang đã mở:
+const input = document.querySelector('input[name="fullName"]');
+['focus','input','blur'].forEach(e =&gt;
+  input.addEventListener(e, () =&gt; console.log(e, input.className)));</code></pre>
+            </div>
+            <ol>
+              <li>Bấm vào ô Full name rồi bấm ra ngay, không gõ gì. Lỗi có hiện không?</li>
+              <li>Bấm vào, gõ một chữ, xoá đi, bấm ra. Bây giờ lỗi có hiện không?</li>
+              <li>Thử bấm Lưu khi form hoàn toàn trống. Chuyện gì xảy ra với mọi ô?</li>
+              <li>
+                Gõ một email đã tồn tại, rồi bấm Lưu <strong>ngay lập tức</strong>, trong
+                vòng nửa giây. Nút phản ứng thế nào?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (1): có — <code>touched</code> là đủ, không cần <code>dirty</code>. Đây là
+                lý do <code>shouldShow</code> dùng <code>touched</code>.
+              </p>
+              <p>
+                (3): mọi ô bắt buộc hiện lỗi cùng lúc, dù chưa ô nào được chạm — vì
+                <code>submitted</code> là vế thứ hai của <code>shouldShow</code>. Và focus
+                nhảy tới ô đầu tiên có vấn đề: xem chú thích
+                <code>focusFirstInvalidField</code> trong <code>customer-form-page.ts</code>, nó
+                kể lại rằng phase 6 phát hiện người dùng bàn phím phải Shift+Tab ngược cả
+                form để tìm ô bị đánh dấu.
+              </p>
+              <p>
+                (4): nút chuyển sang trạng thái bận và <em>chờ</em> — đó là nhánh
+                <code>form.pending</code> ở mục 3.5. Nếu nó không làm gì cả, bạn vừa tìm ra
+                một bug.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá <code>nonNullable</code></h3>
+            <p class="task__meta">~20 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>createCustomerForm</code>, bỏ
+                <code>nonNullable: true</code> khỏi control <code>fullName</code>.
+              </li>
+              <li>Chạy <code>npm run typecheck</code>. Đọc lỗi.</li>
+              <li>
+                Sửa tạm cho qua typecheck (ví dụ đổi interface thành
+                <code>FormControl&lt;string | null&gt;</code>), rồi mở form sửa một khách
+                hàng, đổi tên, bấm Huỷ/reset.
+              </li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Bước 2: trình biên dịch bắt ngay, vì interface khai
+                <code>FormControl&lt;string&gt;</code>. Đó là giá trị của form có type —
+                một thay đổi tưởng vô hại bị chặn tại chỗ.
+              </p>
+              <p>
+                Bước 3: <code>reset()</code> đưa ô về <code>null</code> chứ không về giá trị
+                đã điền từ bản ghi. Với người dùng, nút "Huỷ" vừa xoá trắng ô thay vì khôi
+                phục. Và vì kiểu bây giờ có <code>null</code>, mọi hàm chuyển đổi phải xử lý
+                thêm một trường hợp — lan ra khắp file.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một field vào form, từ model ra ngoài</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm ô <strong>website</strong> (tuỳ chọn, tối đa 200 ký tự, phải bắt đầu bằng
+              <code>http://</code> hoặc <code>https://</code> nếu có nhập).
+            </p>
+            <ol>
+              <li>
+                <strong>Model trước.</strong> Thêm vào
+                <code>CustomerFormControls</code>, vào <code>createCustomerForm</code>, một
+                validator <code>urlFormat</code>, và cả hai phép chuyển đổi.
+              </li>
+              <li>
+                <strong>Spec trước khi làm UI.</strong> Thêm test vào
+                <code>customer-form-model.spec.ts</code>: rỗng thì hợp lệ,
+                <code>example.com</code> thì không, <code>https://example.com</code> thì có.
+              </li>
+              <li>Chạy test — chúng phải chạy được mà không cần component nào.</li>
+              <li>Bây giờ mới thêm ô vào <code>customer-form.ts</code>, và khoá dịch.</li>
+              <li>
+                Contract: <code>website</code> chưa có trong
+                <code>customerSchema</code>. Bạn làm gì?
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 5 là câu hỏi thật, và có hai câu trả lời đúng</summary>
+              <p>
+                <strong>Nếu đây là bài tập học:</strong> thêm vào contract và mock API, như
+                bài 08 bài tập 3. Toàn bộ chuỗi contract → server → client là Mốc 3.
+              </p>
+              <p>
+                <strong>Nếu đây là dự án thật và API chưa có field đó:</strong> dừng lại.
+                Thêm một ô vào form để gửi một field server không nhận là một ô
+                <em>luôn im lặng mất dữ liệu</em>. Với <code>strictObject</code> thì nó sẽ
+                bị từ chối ngay — và đó là cư xử tốt, vì nó buộc bạn nói chuyện với người
+                làm API trước khi người dùng mất mười phút gõ.
+              </p>
+              <p>
+                Lý do bước 2 đứng trước bước 4: khi quy tắc đã có test, việc làm UI chỉ còn
+                là nối dây. Nếu bạn làm UI trước, bạn sẽ test quy tắc qua UI — và đó là cách
+                một bộ test chậm chạp bắt đầu.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Đọc <code>toUpdateRequest</code> và dự đoán</h3>
+            <p class="task__meta">~30 phút · không sửa code · chuẩn bị cho bài 18</p>
+            <p>
+              Mở <code>toUpdateRequest</code> trong <code>customer-form-model.ts</code> và
+              đọc kỹ chú thích của nó. Trả lời <em>trước khi</em> mở đáp án:
+            </p>
+            <ol>
+              <li>
+                Hàm nhận ba tham số: <code>baseline</code>, <code>form</code>,
+                <code>version</code>. Vì sao <code>version</code> là tham số riêng chứ không
+                lấy <code>baseline.version</code>?
+              </li>
+              <li>Nếu người dùng không đổi gì, payload gồm những gì?</li>
+              <li>
+                <code>isEmptyPatch</code> kiểm <code>Object.keys(patch).length === 1</code>.
+                Con số 1 đó là field nào?
+              </li>
+              <li>
+                Điều gì xảy ra nếu đo diff với bản ghi <em>mới nhất</em> thay vì với
+                <code>baseline</code>?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án — và câu 4 là cả bài 18</summary>
+              <ol>
+                <li>
+                  Vì sau một lần xung đột và tải lại, <code>baseline</code> vẫn là bản ghi
+                  form <em>được điền từ đó</em>, nhưng version mới nhất thuộc về một bản ghi
+                  khác. Hai điểm tham chiếu, hai mục đích.
+                </li>
+                <li>Chỉ <code>{ version }</code>.</li>
+                <li><code>version</code> — đúng cái ở câu 2.</li>
+                <li>
+                  Chú thích trả lời: mọi field mà <em>người kia</em> vừa đổi bây giờ khác với
+                  thứ trong form này, nên chúng sẽ bị đưa vào patch và
+                  <strong>công việc của họ bị ghi đè</strong> — bởi chính cơ chế tồn tại để
+                  ngăn chuyện đó. Đây là bug tinh vi nhất trong cả repo, và bài 18 kể đầy đủ.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. <code>dirty</code> khác <code>touched</code> thế nào, và mỗi cái quyết định gì?</summary>
+            <p>
+              <code>dirty</code> = đã đổi giá trị; <code>touched</code> = đã rời khỏi ô.
+              Hiện lỗi dùng <code>touched</code> (hoặc đã bấm Lưu); cảnh báo rời trang dùng
+              <code>dirty</code>. Đổi chỗ hai cái là hai bug khác nhau, cả hai đều khó chịu.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. <code>nonNullable</code> mua được gì?</summary>
+            <p>
+              Kiểu là <code>string</code> chứ không <code>string | null</code>, và
+              <code>reset()</code> về giá trị khởi tạo chứ không về <code>null</code> — nên
+              "reset" có nghĩa đúng cho cả form tạo mới lẫn form sửa, không cần nhánh
+              <code>if</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. <code>form.value</code> khác <code>getRawValue()</code> ở đâu?</summary>
+            <p>
+              <code>value</code> bỏ qua control đang <code>disabled</code>;
+              <code>getRawValue()</code> lấy tất cả. Khi dựng payload bạn gần như luôn muốn
+              <code>getRawValue()</code>, nếu không payload sẽ thiếu field một cách im lặng.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao mô hình form tách ra khỏi component?</summary>
+            <p>
+              Vì quy tắc form là quy tắc nghiệp vụ mặc áo UI, và test chúng qua một component
+              đã render là bắt mọi khẳng định đi qua change detection không vì lý do gì. Tách
+              ra thì spec đọc như một bản đặc tả.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao <code>''</code> phải thành <code>null</code> trước khi gửi?</summary>
+            <p>
+              Vì input HTML không giữ được <code>null</code> — rỗng là <code>''</code>. API
+              thì phân biệt: <code>null</code> là "không có", <code>''</code> là "có, và nó
+              rỗng". Để lọt <code>''</code> thì hoặc bị 422 khó hiểu, hoặc database lưu một
+              giá trị vô nghĩa.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Khi nào phải dùng <code>form.events</code> thay cho <code>statusChanges</code>?</summary>
+            <p>
+              Khi chờ một <strong>async validator</strong> trả lời. Angular phát
+              <code>StatusChangeEvent</code> trên <code>events</code> nhưng không phát trên
+              <code>statusChanges</code>, nên một lượt chờ dựng trên
+              <code>statusChanges</code> không bao giờ kết thúc.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Làm sao đọc <code>form.dirty</code> trong template <code>OnPush</code> mà vẫn cập nhật?</summary>
+            <p>
+              Dùng một signal đếm làm tín hiệu: <code>effect</code> nghe
+              <code>form.events</code> và tăng nó; <code>computed</code> đọc signal đó rồi
+              trả về <code>form.dirty</code>. Khuôn này dùng được cho mọi thư viện chưa hỗ
+              trợ signal.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 14 lấy chín validator trong file này và hỏi câu khó hơn: làm sao biến một
+              <code>ValidationErrors</code> thành câu người dùng đọc được, bằng ngôn ngữ của
+              họ — và làm sao hoà lỗi của server vào cùng chỗ đó.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="12-cache-huy-request-race.html">← Bài 12</a></span>
+            <span><a href="14-validation.html">Bài 14 — Validation →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ ◆</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

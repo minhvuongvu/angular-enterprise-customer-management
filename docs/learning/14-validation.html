@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 14 — Validation</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 14</p>
+        <h1>Validation</h1>
+        <p class="lede">
+          Viết một validator mất năm phút. Phần khó là ba câu hỏi còn lại:
+          <em>khi nào</em> được hiện lỗi, <em>câu nào</em> trong số nhiều lỗi cùng lúc, và
+          làm sao lỗi của server hoà vào cùng một chỗ mà không để lọt một chữ tiếng Anh nào
+          ra màn hình.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · hướng tới Mốc 3</li>
+          <li class="tag">~2,5 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>ValidatorFn</code></td>
+                  <td>
+                    Hàm nhận control, trả <code>ValidationErrors | null</code>.
+                    <code>null</code> nghĩa là hợp lệ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>ValidationErrors</code></td>
+                  <td>
+                    Một object: khoá là tên lỗi, giá trị là chi tiết —
+                    <code>{ tooLong: { max: 150 } }</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>AsyncValidatorFn</code></td>
+                  <td>
+                    Như trên nhưng trả Observable hoặc Promise.
+                    <strong>Phải hoàn tất</strong>, nếu không control kẹt
+                    <code>PENDING</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Cross-field validator</strong></td>
+                  <td>Validator đặt trên <code>FormGroup</code>, nhìn thấy nhiều ô cùng lúc.</td>
+                </tr>
+                <tr>
+                  <td><code>setErrors</code></td>
+                  <td>
+                    Gán lỗi vào control <em>từ bên ngoài</em> — cách đưa lỗi của server vào
+                    form.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Dotted path</strong></td>
+                  <td>
+                    <code>address.city</code> — đường dẫn tới control lồng, mà
+                    <code>form.get()</code> hiểu trực tiếp.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>fieldIssues</code></td>
+                  <td>
+                    Lý do lỗi dưới dạng <strong>mã</strong>
+                    (<code>TOO_LONG</code>, <code>REQUIRED</code>) — thứ dịch được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>aria-describedby</code></td>
+                  <td>
+                    Thuộc tính nối một ô với thông báo lỗi của nó, để trình đọc màn hình đọc
+                    cả hai.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Viết cả ba loại validator, và biết loại nào thuộc về đâu.</li>
+            <li>
+              Viết một async validator <strong>không</strong> treo form khi mạng hỏng và
+              không kẹt ở <code>PENDING</code>.
+            </li>
+            <li>
+              Quyết định được khi nào hiện lỗi và hiện lỗi nào, khi một ô có nhiều lỗi.
+            </li>
+            <li>
+              Đưa lỗi 422 của server vào đúng ô, bằng ngôn ngữ người dùng, mà không hiển thị
+              một chữ nào do backend viết.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@NotNull</code>, <code>@Size</code>, <code>@Email</code></td>
+                  <td>Validator trên <code>FormControl</code></td>
+                  <td>
+                    Annotation chạy một lần, trên dữ liệu hoàn chỉnh. Validator ở đây chạy
+                    sau <em>mỗi phím gõ</em>, trên dữ liệu đang dở — nên "email chưa gõ xong"
+                    không được coi là email sai ngay lập tức.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@AssertTrue</code> trên class</td>
+                  <td>Validator trên <code>FormGroup</code></td>
+                  <td>Rất gần. Cả hai tồn tại vì có quy tắc không thuộc về field nào.</td>
+                </tr>
+                <tr>
+                  <td>Truy vấn DB để kiểm trùng</td>
+                  <td><code>AsyncValidatorFn</code></td>
+                  <td>
+                    Của bạn chạy trong transaction, nhanh, và kết quả là cuối cùng. Ở đây nó
+                    là một request qua mạng, có thể hỏng, và
+                    <strong>không được phép là lời cuối</strong> — server vẫn kiểm lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Trả message lỗi trong response</td>
+                  <td>Trả <strong>mã lý do</strong>, client dịch</td>
+                  <td>
+                    Câu chữ người dùng đọc thuộc về frontend. Message của backend là tiếng
+                    Anh, nhắc tên field nội bộ, và không dịch được.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ba tầng validator</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Đặt ở đâu</th>
+                  <th>Nhìn thấy</th>
+                  <th>Ví dụ trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Control</td>
+                  <td><code>new FormControl('', { validators: [...] })</code></td>
+                  <td>Một giá trị</td>
+                  <td>
+                    <code>required</code>, <code>emailFormat</code>,
+                    <code>phoneFormat</code>, <code>birthDate</code>, <code>tagList</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Group</td>
+                  <td>Tham số thứ hai của <code>FormGroup</code></td>
+                  <td>Mọi control trong nhóm</td>
+                  <td>
+                    <code>addressCompleteness</code>,
+                    <code>phoneRequiredWhenActive</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Async</td>
+                  <td><code>addAsyncValidators()</code> hoặc trong cấu hình control</td>
+                  <td>Một giá trị + server</td>
+                  <td><code>emailAvailabilityValidator</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Validator là một hàm thuần</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts</div>
+            <pre><code>function maxLength(max: number) {
+  return (control: { value: unknown }): ValidationErrors | null =&gt; {
+    const value = String(control.value ?? '');
+    return value.length &gt; max ? { tooLong: { max } } : null;
+  };
+}
+
+function emailFormat(control: { value: unknown }): ValidationErrors | null {
+  const value = String(control.value ?? '').trim();
+  if (!value) {
+    return null;
+  }
+  // One `@`, something either side, and a dot in the domain. Deliberately not
+  // an RFC 5322 regular expression: those reject addresses that work and are
+  // impossible to read. The server validates properly; this is a typo catcher.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? null : { invalidEmail: true };
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>{ tooLong: { max } }</code></td>
+                  <td>
+                    Tên lỗi, kèm <strong>tham số</strong>. Tham số đó sẽ đi thẳng vào câu
+                    dịch: "tối đa {{max}} ký tự". Nhờ vậy giới hạn không bị lặp lại trong
+                    file ngôn ngữ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>if (!value) return null</code></td>
+                  <td>
+                    <strong>Ô rỗng không phải lỗi định dạng.</strong> "Bắt buộc" là việc của
+                    <code>Validators.required</code>. Thiếu dòng này thì một ô tuỳ chọn để
+                    trống sẽ báo "email không hợp lệ".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>control: { value: unknown }</code></td>
+                  <td>
+                    Không khai <code>AbstractControl</code> mà chỉ khai đúng thứ cần. Nhờ vậy
+                    test gọi nó bằng <code>{ value: 'x' }</code> — không cần dựng control
+                    thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>maxLength</code> là một <em>factory</em></td>
+                  <td>
+                    Trả về validator, nên giới hạn được truyền vào tại chỗ dùng. Cùng khuôn
+                    với <code>requirePermission()</code> ở bài 16.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Cross-field: quy tắc không thuộc về ô nào</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts</div>
+            <pre><code>/**
+ * Cross-field rule: an address is all or nothing.
+ *
+ * Starting an address and leaving out the city produces a record that cannot
+ * be posted to anyone, so the moment any part is filled in, the parts that
+ * make it deliverable become required. This is on the group rather than on the
+ * controls because no single control can answer the question.
+ */
+function addressCompleteness(group: {
+  value: Partial&lt;Record&lt;keyof CustomerAddressControls, string&gt;&gt;;
+}): ValidationErrors | null {
+  const value = group.value;
+  const entries = Object.values(value).map((field) =&gt; (field ?? '').trim());
+  if (entries.every((field) =&gt; field === '')) {
+    return null;                                    // chưa ai điền gì → hợp lệ
+  }
+
+  const missing = (['line1', 'city', 'country'] as const).filter(
+    (field) =&gt; !(value[field] ?? '').trim(),
+  );
+  return missing.length ? { addressIncomplete: { fields: missing } } : null;
+}</code></pre>
+          </div>
+
+          <p>
+            Câu <em>"no single control can answer the question"</em> là tiêu chí quyết định.
+            Ô <code>city</code> không biết nó có bắt buộc hay không — điều đó phụ thuộc vào
+            việc ô <code>line1</code> có gì. Chỉ nhóm mới trả lời được.
+          </p>
+
+          <div class="code">
+            <div class="code__file">cùng file — quy tắc trên cả form</div>
+            <pre><code>function phoneRequiredWhenActive(group: {
+  value: { status?: CustomerStatus; phone?: string };
+}): ValidationErrors | null {
+  const { status, phone } = group.value;
+  return status === 'ACTIVE' &amp;&amp; !(phone ?? '').trim() ? { phoneRequiredWhenActive: true } : null;
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một câu trung thực trong chú thích</span>
+            <p>
+              <em>"It is checked again on the server — or would be, in a real system; here
+              it is the client's rule, and saying so is better than implying the server
+              enforces it."</em>
+            </p>
+            <p>
+              Đây là mẫu mực của việc ghi tài liệu trung thực: repo
+              <strong>không</strong> giả vờ rằng mock API kiểm quy tắc này. Nếu bạn mang
+              khuôn này sang dự án thật, nhớ rằng một quy tắc nghiệp vụ chỉ sống ở client là
+              một quy tắc có thể bị bỏ qua bằng curl.
+            </p>
+          </div>
+
+          <h3>3.4 Async validator: bốn quyết định trong mười dòng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/email-availability.validator.ts — toàn bộ phần thân</div>
+            <pre><code>export function emailAvailabilityValidator(
+  store: CustomerStore,
+  excludeId: () =&gt; CustomerId | null,
+): AsyncValidatorFn {
+  return (control) =&gt; {
+    const email = String(control.value ?? '').trim();
+    const blockedBySyncErrors =
+      control.hasError('required') ||
+      control.hasError('invalidEmail') ||
+      control.hasError('tooLong');
+
+    if (!email || blockedBySyncErrors) {
+      return of(null);
+    }
+
+    return timer(EMAIL_CHECK_DEBOUNCE_MS).pipe(
+      switchMap(() =&gt; store.isEmailAvailable(email, excludeId())),
+      map((available) =&gt; (available ? null : { emailTaken: true })),
+      catchError(() =&gt; of(null)),
+      // An async validator must complete, or the control stays PENDING for
+      // ever and the submit button never enables.
+      first(),
+    );
+  };
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do, theo chú thích</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>timer(400)</code> ở <strong>đầu</strong> pipeline</td>
+                  <td>
+                    Angular chạy lại async validator sau mỗi lần giá trị đổi và
+                    <em>unsubscribe lượt trước</em>. Nên một <code>timer</code> dẫn đầu
+                    nghĩa là request chỉ được gửi khi gõ đã ngừng — và
+                    <strong>việc huỷ đến miễn phí từ framework</strong>, không phải từ một
+                    cờ so sánh id request.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>catchError(() =&gt; of(null))</code></td>
+                  <td>
+                    Mạng hỏng thì câu trả lời trung thực là "tôi không biết". Chặn người
+                    dùng lưu vì điều đó còn tệ hơn để server quyết định — mà server
+                    <em>sẽ</em> quyết định, bằng một 409 mà trang xử lý được.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bỏ qua khi validator sync đã báo lỗi</td>
+                  <td>
+                    Hỏi xem "không phải email" có bị trùng không là tốn một request để trả
+                    lời một câu hỏi người dùng đã được báo rồi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>first()</code></td>
+                  <td>
+                    <strong>Async validator bắt buộc phải hoàn tất.</strong> Không thì
+                    control kẹt <code>PENDING</code> vĩnh viễn và nút Lưu không bao giờ bật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>excludeId: () =&gt; CustomerId | null</code></td>
+                  <td>
+                    Một <em>hàm</em>, không phải giá trị — vì id chỉ biết sau khi bản ghi
+                    được nạp, còn validator được gắn vào form sớm hơn. Khi sửa, email của
+                    chính bản ghi này không được coi là trùng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 Hiện lỗi nào, và khi nào</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/validation-messages.ts</div>
+            <pre><code>const ERROR_PRIORITY: readonly string[] = [
+  'required',
+  'invalidEmail',
+  'invalidPhone',
+  'invalidCountry',
+  'invalidDate',
+  'futureDate',
+  'tooLong',
+  'tooManyTags',
+  'tagTooLong',
+  'emailTaken',
+  SERVER_ERROR,
+];
+
+/**
+ * The translation key and parameters for a control's first error.
+ *
+ * One message at a time, in a fixed order of importance: a field that is both
+ * empty and too long is empty, and telling a user two things about one field
+ * makes them read neither.
+ */
+export function firstError(errors: ValidationErrors | null) { … }
+
+/** True once the user has had a chance to fix it: touched, or a save attempted. */
+export function shouldShow(control: AbstractControl, submitted: boolean): boolean {
+  return control.invalid &amp;&amp; (control.touched || submitted);
+}</code></pre>
+          </div>
+
+          <p>Hai quyết định, và cả hai đều về <em>trải nghiệm</em> chứ không về kỹ thuật:</p>
+
+          <ul>
+            <li>
+              <strong>Một lỗi tại một thời điểm.</strong> Nói với người dùng hai điều về một
+              ô là họ không đọc điều nào. Thứ tự ưu tiên cố định, và "bắt buộc" đứng đầu vì
+              nó là thứ phải sửa trước.
+            </li>
+            <li>
+              <strong>Chỉ hiện khi người dùng đã có cơ hội:</strong> đã rời khỏi ô
+              (<code>touched</code>), hoặc đã bấm Lưu (<code>submitted</code>). Dùng
+              <code>dirty</code> ở đây là bug — bài 13 mục 3.4.
+            </li>
+          </ul>
+
+          <h3>3.6 Lỗi của server, vào đúng ô</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/validation-messages.ts</div>
+            <pre><code>export function applyServerFieldErrors(
+  form: CustomerForm,
+  fieldErrors: ValidationError['fieldErrors'],
+  fieldIssues: ValidationError['fieldIssues'] = {},
+): string[] {
+  const unmatched: string[] = [];
+  const paths = new Set([...Object.keys(fieldErrors), ...Object.keys(fieldIssues)]);
+
+  for (const path of paths) {
+    const control = form.get(path);
+    if (control) {
+      control.setErrors({
+        ...(control.errors ?? {}),
+        [SERVER_ERROR]: serverErrorFor(path, fieldIssues[path]?.[0]),
+      });
+      // Marked touched so the message is visible immediately: the user has
+      // already pressed save, so waiting for a blur would show nothing.
+      control.markAsTouched();
+    } else {
+      unmatched.push(path);
+    }
+  }
+
+  return unmatched;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>form.get(path)</code></td>
+                  <td>
+                    <code>path</code> là đường dẫn có dấu chấm —
+                    <code>address.city</code>. Contract chọn cách viết đó
+                    <strong>chính vì</strong> <code>form.get</code> hiểu nó trực tiếp. Hai
+                    hệ thống khớp nhau ở một quy ước đặt tên.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>...(control.errors ?? {})</code></td>
+                  <td>
+                    Giữ các lỗi sẵn có, chỉ <em>thêm</em> lỗi của server. Gán đè sẽ xoá kết
+                    quả của validator client.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>markAsTouched()</code></td>
+                  <td>
+                    Để thông báo hiện ngay. Người dùng đã bấm Lưu rồi, nên chờ họ blur là
+                    chờ một việc sẽ không xảy ra.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>unmatched</code> được trả về</td>
+                  <td>
+                    Đường dẫn không khớp control nào — kể cả khoá <code>_</code> mà envelope
+                    dùng cho lỗi của cả payload — được trả về để trang hiện phía trên form,
+                    <strong>thay vì bị mất</strong>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.7 Mã lý do, không phải câu chữ</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/validation-messages.ts — chú thích đầu file</div>
+            <pre><code>`FieldErrors` maps a dotted field path to messages, and those messages are
+documented in `@ecm/contracts` as developer-facing: they are English
+sentences produced by the schema, they name internal field paths, and they
+cannot be translated. Rendering them would break two rules at once - no raw
+backend errors, and no untranslated user-facing text.
+
+So the server's prose is used only for **which field**. Since Phase 6 the
+envelope also carries `fieldIssues` - a code per problem (`TOO_LONG` with
+its limit, `REQUIRED`, `INVALID_FORMAT`) - and the client turns that code
+into the same sentence its own validator would have produced.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file — phép dịch mã</div>
+            <pre><code>function serverErrorFor(path: string, issue: FieldIssue | undefined): true | object {
+  switch (issue?.code) {
+    case 'REQUIRED':
+      return { reason: 'required' };
+    case 'TOO_LONG':
+      return { reason: 'tooLong', max: issue.limit };
+    case 'TOO_MANY':
+      return { reason: 'tooManyTags', max: issue.limit };
+    case 'INVALID_FORMAT':
+      return { reason: FORMAT_REASONS[path] ?? 'invalid' };
+    case 'INVALID_VALUE':
+    case 'UNKNOWN_FIELD':
+      return { reason: 'invalid' };
+    default:
+      return true;      // không có mã → câu chung "server từ chối giá trị này"
+  }
+}
+
+const FORMAT_REASONS: Readonly&lt;Record&lt;string, string&gt;&gt; = {
+  email: 'invalidEmail',
+  phone: 'invalidPhone',
+  dateOfBirth: 'invalidDate',
+  'address.country': 'invalidCountry',
+};</code></pre>
+          </div>
+
+          <p>
+            Kết quả cuối cùng rất đáng chú ý: <strong>một lỗi từ server hiện ra bằng
+            <em>đúng câu</em> mà validator client sẽ hiện</strong>. Người dùng không phân
+            biệt được — và không cần phân biệt. Với họ, "tên quá dài" là "tên quá dài", bất
+            kể ai phát hiện.
+          </p>
+
+          <p>
+            Chú ý <code>FORMAT_REASONS</code> tra theo <em>đường dẫn</em>:
+            <code>INVALID_FORMAT</code> trên <code>email</code> và trên
+            <code>address.country</code> là hai câu khác nhau, vì một email sai và một mã
+            quốc gia sai được giải thích khác nhau.
+          </p>
+
+          <h3>3.8 Xoá lỗi server khi người dùng sửa</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/validation-messages.ts</div>
+            <pre><code>/**
+ * Removes the server's verdict from a control.
+ *
+ * Called when the value changes: the server rejected the old value, and
+ * leaving the error in place would keep a corrected field marked as wrong.
+ */
+export function clearServerError(control: AbstractControl): void {
+  if (!control.errors || !(SERVER_ERROR in control.errors)) {
+    return;
+  }
+  const rest: ValidationErrors = {};
+  for (const [name, detail] of Object.entries(control.errors)) {
+    if (name !== SERVER_ERROR) {
+      rest[name] = detail;
+    }
+  }
+  control.setErrors(Object.keys(rest).length ? rest : null);
+}</code></pre>
+          </div>
+
+          <p>
+            Lỗi của validator client tự biến mất khi giá trị hợp lệ — chúng chạy lại mỗi lần
+            gõ. Lỗi của server thì <strong>không</strong>: nó được gán vào bằng tay, nên
+            phải được gỡ ra bằng tay. Thiếu hàm này, người dùng sửa email thành một địa chỉ
+            hoàn toàn khác và ô vẫn đỏ.
+          </p>
+
+          <p>
+            Chú ý dòng cuối: <code>setErrors(null)</code> khi không còn lỗi nào khác — vì
+            một object rỗng <code>{}</code> vẫn làm control <code>INVALID</code>.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form/customer-form-model.ts</code></td>
+                  <td>Chín validator sync, hai cross-field — toàn hàm thuần</td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/email-availability.validator.ts</code></td>
+                  <td>
+                    <strong>55 dòng, bốn quyết định.</strong> Async validator thật, không
+                    phải một ví dụ minh hoạ
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/validation-messages.ts</code></td>
+                  <td>
+                    Nơi hai nguồn lỗi gặp nhau; thứ tự ưu tiên; phép dịch mã lý do
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/errors.ts</code></td>
+                  <td>Envelope lỗi, <code>FieldIssue</code> và các mã của nó</td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui/text-input/text-input.ts</code></td>
+                  <td>
+                    Nhận câu <em>đã dịch</em> và nối nó với ô bằng
+                    <code>aria-describedby</code> — component chung không quyết định câu chữ
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Hai nguồn lỗi, một chỗ hiển thị</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    TYPE["Người dùng gõ"] --> SYNC["validator sync<br/>trên control"]
+    TYPE --> GROUP["validator group<br/>cross-field"]
+    TYPE --> ASYNC["async validator<br/>timer 400ms → server"]
+
+    SYNC --> ERRS["control.errors"]
+    GROUP --> GERRS["group.errors<br/>hiện riêng, không gắn ô nào"]
+    ASYNC --> ERRS
+
+    SAVE["Bấm Lưu"] --> API["PATCH /customers/:id"]
+    API -->|"422"| MAP["mapHttpError → ValidationError<br/>fieldErrors + fieldIssues"]
+    MAP --> APPLY["applyServerFieldErrors<br/>form.get('address.city')"]
+    APPLY -->|"setErrors + markAsTouched"| ERRS
+    APPLY -->|"path không khớp control"| ABOVE["hiện phía trên form"]
+
+    ERRS --> FE["firstError()<br/>ưu tiên cố định, MỘT câu"]
+    FE --> SHOW{"shouldShow?<br/>touched hoặc submitted"}
+    SHOW -->|"có"| MSG["khoá dịch + tham số → câu tiếng Việt"]
+    SHOW -->|"chưa"| HIDE["không hiện gì"]
+
+    EDIT["Người dùng sửa ô"] -->|"clearServerError"| ERRS
+            </pre>
+            <figcaption>
+              Hai nguồn — validator chạy khi gõ, và 422 từ server — đổ vào
+              <em>cùng một</em> <code>control.errors</code>. Từ đó trở xuống không ai phân
+              biệt được chúng, và đó là mục đích: người dùng chỉ thấy "tên quá dài", không
+              thấy ai đã phát hiện.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Mã lý do thay vì câu chữ — ADR-0035</h4>
+          <p>
+            Phương án bị loại: hiển thị message của server. Bị loại vì nó phá hai quy tắc
+            cùng lúc — không hiện lỗi thô, và không hiện chữ chưa dịch. Giá phải trả: server
+            phải gửi thêm <code>fieldIssues</code>, và client phải có một bảng tra mã. Nhưng
+            chú thích ghi rõ đây là trả một khoản nợ đã ghi sổ (debt row 12).
+          </p>
+
+          <h4>Async validator không chặn khi mạng hỏng</h4>
+          <p>
+            Phương án bị loại: coi lỗi mạng là "không hợp lệ". Bị loại vì khi đó người dùng
+            không lưu được vì một lý do không liên quan gì tới dữ liệu họ nhập — và server
+            vẫn sẽ kiểm lại. Giá phải trả: thỉnh thoảng người dùng bấm Lưu rồi mới nhận 409.
+          </p>
+
+          <h4>Một thông báo tại một thời điểm</h4>
+          <p>
+            Phương án bị loại: liệt kê mọi lỗi của một ô. Bị loại vì nói hai điều về một ô
+            là người dùng không đọc điều nào. Giá phải trả: phải duy trì một thứ tự ưu
+            tiên — và thứ tự đó là một quyết định thiết kế, không phải một danh sách ngẫu
+            nhiên.
+          </p>
+
+          <h4>Regex cố ý dễ dãi</h4>
+          <p>
+            Cả email lẫn số điện thoại. Chú thích cho số điện thoại nói thẳng tiêu chí:
+            <em>"A strict national format would reject a legitimate international number,
+            which is the more expensive mistake."</em> Chọn sai hướng ở đây nghĩa là chặn
+            khách hàng thật.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Async validator không hoàn tất</span>
+            <p>
+              Thiếu <code>first()</code> (hoặc <code>take(1)</code>) thì Observable không
+              bao giờ complete, control kẹt <code>PENDING</code>, và nút Lưu không bao giờ
+              bật. Không lỗi, không cảnh báo — chỉ là một form không gửi được.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Validator định dạng báo lỗi khi ô rỗng</span>
+            <p>
+              Mọi ô tuỳ chọn để trống đều đỏ. Người dùng không điền số điện thoại và bị báo
+              "số điện thoại không hợp lệ". Luôn <code>return null</code> cho giá trị rỗng —
+              "bắt buộc" là validator khác.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>setErrors</code> đè mất lỗi client</span>
+            <p>
+              <code>control.setErrors({ server: true })</code> xoá sạch
+              <code>required</code> và <code>tooLong</code> đang có. Ô trở thành "chỉ có lỗi
+              server", và khi người dùng sửa, lỗi client không quay lại cho tới lần gõ kế
+              tiếp. Luôn <em>trải</em> lỗi cũ vào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Quên <code>clearServerError</code></span>
+            <p>
+              Người dùng đổi email thành một địa chỉ hoàn toàn mới và ô vẫn đỏ với thông báo
+              cũ. Họ sửa đi sửa lại một thứ đã đúng. Lỗi client tự biến mất; lỗi gán tay thì
+              phải gỡ tay.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Bỏ qua <code>unmatched</code></span>
+            <p>
+              Server báo lỗi ở một đường dẫn không khớp control nào — ví dụ khoá
+              <code>_</code> cho lỗi của cả payload. Nếu không xử lý, lỗi
+              <strong>biến mất hoàn toàn</strong>: form không hiện gì, người dùng bấm Lưu
+              lại, lại thất bại, và không ai nói vì sao.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Để validator client là lời cuối</span>
+            <p>
+              Client không phải biên bảo mật. Mọi quy tắc phải được server kiểm lại — và nếu
+              một quy tắc chỉ sống ở client (như
+              <code>phoneRequiredWhenActive</code> ở đây), phải <em>nói ra</em> điều đó thay
+              vì ngụ ý rằng server cũng kiểm.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form-model.spec.ts</code></td>
+                  <td>
+                    Từng validator, kể cả hai cross-field: địa chỉ điền một nửa thì sai, bỏ
+                    trống hết thì đúng
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>email-availability.validator.spec.ts</code></td>
+                  <td>
+                    Gõ nhanh chỉ sinh một request; lỗi mạng
+                    <strong>không</strong> chặn form; giá trị sai định dạng không gọi server
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>validation-messages.spec.ts</code></td>
+                  <td>
+                    Thứ tự ưu tiên; mã lý do dịch thành đúng khoá; đường dẫn không khớp được
+                    trả về chứ không nuốt
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    "This field is required." hiện trước khi server được hỏi; email trùng
+                    hiện sau khi Tab ra khỏi ô
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một dòng trong e2e đáng đọc</span>
+            <p>
+              Trong <code>customer-crud.spec.ts</code>:
+              <em>"Tab out: a field's message appears once the user has had a chance at it,
+              not while they are still typing in it."</em> — test không chỉ kiểm rằng thông
+              báo xuất hiện, mà kiểm rằng nó xuất hiện <strong>đúng lúc</strong>. Đó là
+              <code>shouldShow</code> được canh bằng một cổng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Một quy tắc mới cần thêm"}
+    Q0 --> Q1{"Cần nhìn bao nhiêu dữ liệu?"}
+
+    Q1 -->|"một ô"| A1["ValidatorFn trên control<br/>rỗng → return null"]
+    Q1 -->|"vài ô"| A2["ValidatorFn trên FormGroup<br/>'no single control can answer'"]
+    Q1 -->|"phải hỏi server"| A3["AsyncValidatorFn"]
+
+    A3 --> R1["timer() dẫn đầu → debounce + huỷ miễn phí"]
+    A3 --> R2["catchError → of(null): mạng hỏng KHÔNG chặn"]
+    A3 --> R3["first() → BẮT BUỘC, nếu không kẹt PENDING"]
+
+    Q0 --> Q2{"Lỗi đến từ server?"}
+    Q2 -->|"có"| B1["applyServerFieldErrors<br/>form.get(dotted path)"]
+    B1 --> B2["TRẢI lỗi cũ vào, đừng đè"]
+    B1 --> B3["markAsTouched → hiện ngay"]
+    B1 --> B4["path không khớp → trả về, hiện trên form"]
+    B1 --> B5["clearServerError khi người dùng sửa"]
+
+    Q0 --> Q3{"Hiện câu nào, khi nào?"}
+    Q3 --> C1["MỘT câu: firstError theo ưu tiên cố định"]
+    Q3 --> C2["touched hoặc submitted — KHÔNG dùng dirty"]
+    Q3 --> C3["luôn là khoá dịch + tham số,<br/>không bao giờ là chữ của server"]
+            </pre>
+            <figcaption>
+              Nhánh trái trả lời "validator này thuộc về đâu" bằng một câu hỏi duy nhất.
+              Nhánh giữa là năm thao tác bắt buộc khi nhận 422 — thiếu cái nào cũng ra một
+              bug cụ thể ở mục 7. Nhánh phải là ba luật hiển thị.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Quan sát async validator làm việc</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>Mở <code>/customers/new</code>, DevTools → Network, lọc Fetch/XHR.</li>
+              <li>
+                Gõ chậm một email hợp lệ, từng ký tự, chờ giữa mỗi ký tự. Đếm request.
+              </li>
+              <li>Xoá hết, gõ thật nhanh cùng email đó. Đếm lại.</li>
+              <li>
+                Gõ <code>khong-phai-email</code>. Có request nào không? Vì sao?
+              </li>
+              <li>
+                Bật "Offline" trong DevTools, gõ một email mới, rồi thử bấm Lưu. Form có
+                chặn bạn không?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (2) nhiều request — mỗi lần dừng quá 400ms là một lượt. (3) một request —
+                <code>timer</code> dẫn đầu, và Angular unsubscribe lượt trước mỗi lần giá
+                trị đổi.
+              </p>
+              <p>
+                (4) không request nào: <code>blockedBySyncErrors</code> chặn trước khi tới
+                <code>timer</code>.
+              </p>
+              <p>
+                (5) form <strong>không</strong> chặn. <code>catchError(() =&gt; of(null))</code>
+                coi "không biết" là "không có lỗi", và để server quyết định. Đây là quyết
+                định thiết kế, không phải sơ suất.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá ba thứ, mỗi thứ một bug</h3>
+            <p class="task__meta">~40 phút · sửa rồi hoàn nguyên sau mỗi bước</p>
+            <p>Làm từng cái một, quan sát, rồi hoàn nguyên trước khi sang cái tiếp.</p>
+            <ol>
+              <li>
+                <strong>Bỏ <code>first()</code></strong> trong
+                <code>email-availability.validator.ts</code>. Gõ một email rồi bấm Lưu.
+              </li>
+              <li>
+                <strong>Bỏ <code>if (!value) return null</code></strong> khỏi
+                <code>phoneFormat</code>. Mở form mới và nhìn ô Phone.
+              </li>
+              <li>
+                <strong>Đổi <code>shouldShow</code></strong> thành
+                <code>control.invalid &amp;&amp; (control.dirty || submitted)</code>. Bấm vào
+                ô Full name rồi bấm ra, không gõ gì.
+              </li>
+            </ol>
+            <details>
+              <summary>Ba triệu chứng</summary>
+              <ol>
+                <li>
+                  Nút Lưu chuyển sang trạng thái bận và <strong>ở đó mãi mãi</strong>. Control
+                  kẹt <code>PENDING</code>, nên nhánh chờ trong <code>submit()</code> không
+                  bao giờ nhận được tín hiệu hoàn tất.
+                </li>
+                <li>
+                  Ô Phone đỏ ngay khi form vừa mở, với "số điện thoại không hợp lệ" — cho
+                  một ô tuỳ chọn mà người dùng chưa chạm vào. Thực tế bạn sẽ không thấy ngay
+                  vì <code>shouldShow</code> giấu nó, nhưng form đã
+                  <code>INVALID</code> và nút Lưu không bật. Hai lỗi lồng nhau.
+                </li>
+                <li>
+                  Không có lỗi nào hiện ra, dù ô bắt buộc đang trống. Người dùng không hiểu
+                  vì sao Lưu không ăn. <code>dirty</code> là sai công cụ ở đây.
+                </li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Hoà một lỗi server vào form</h3>
+            <p class="task__meta">~45 phút · dùng fault injection</p>
+            <p>
+              Mock API gây lỗi theo yêu cầu qua header
+              <code>x-mock-scenario</code> (<code>docs/mock-backend.md</code>). Tìm kịch bản
+              trả 422 và dùng nó.
+            </p>
+            <ol>
+              <li>
+                Dùng <code>page.route</code> trong một test Playwright tạm, hoặc DevTools để
+                thêm header, rồi lưu một form.
+              </li>
+              <li>Quan sát: ô nào bị đánh dấu? Câu chữ là gì — tiếng Anh hay tiếng Việt?</li>
+              <li>Sửa ô đó. Thông báo có biến mất ngay không?</li>
+              <li>
+                Bây giờ đọc <code>serverErrorFor</code> và xác định: nếu server gửi
+                <code>INVALID_FORMAT</code> cho <code>address.country</code>, người dùng đọc
+                được câu nào?
+              </li>
+            </ol>
+            <details>
+              <summary>Điều bạn phải xác nhận</summary>
+              <p>
+                Câu chữ phải bằng <strong>ngôn ngữ đang chọn</strong>, và phải giống hệt câu
+                mà validator client sẽ hiện cho cùng vấn đề. Nếu bạn thấy một chữ tiếng Anh
+                nào do backend viết, đó là một bug — và là bug phá quy tắc 1 và 6 cùng lúc.
+              </p>
+              <p>
+                (3): phải biến mất ngay khi giá trị đổi, nhờ
+                <code>clearServerError</code>. Nếu nó ở lại, hãy tìm xem ai quên gọi hàm đó.
+              </p>
+              <p>
+                (4): <code>FORMAT_REASONS['address.country']</code> →
+                <code>'invalidCountry'</code> → khoá
+                <code>customers.validation.invalidCountry</code> — cùng câu mà
+                <code>countryCode</code> validator sẽ hiện.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Viết một async validator cho một bài toán khác</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Viết <code>customerCodeAvailableValidator</code>: kiểm xem một mã khách hàng
+              (<code>C-000123</code>) đã tồn tại chưa. Đủ bốn quyết định ở mục 3.4.
+            </p>
+            <ul>
+              <li>Debounce bên trong, không ở component.</li>
+              <li>Bỏ qua nếu validator sync đã báo sai định dạng.</li>
+              <li>Lỗi mạng không chặn form.</li>
+              <li>Hoàn tất — <code>first()</code>.</li>
+              <li>
+                Một spec: gõ nhanh → một request; lỗi mạng → <code>null</code>; định dạng
+                sai → không gọi server.
+              </li>
+            </ul>
+            <details>
+              <summary>Hai câu hỏi thiết kế bạn phải tự trả lời</summary>
+              <p>
+                <strong>1. Khi sửa, mã của chính bản ghi này có bị coi là trùng không?</strong>
+                Không — và đó là lý do validator email nhận
+                <code>excludeId: () =&gt; CustomerId | null</code>. Chú ý nó là một
+                <em>hàm</em>: id chỉ biết sau khi bản ghi nạp xong, còn validator được gắn
+                vào form sớm hơn. Truyền giá trị thì sẽ bắt được <code>null</code> mãi mãi.
+              </p>
+              <p>
+                <strong>2. Validator này có nên tồn tại không?</strong> Câu hỏi thật, và câu
+                trả lời ở repo này là <em>không</em>: <code>customerCode</code> do server
+                sinh ra, client không đặt được. Nếu bạn vẫn làm bài tập này, hãy ghi lại
+                rằng bạn đang luyện cơ chế trên một tình huống giả — và ở dự án thật, câu
+                hỏi "field này có do client đặt không" phải hỏi <em>trước</em> khi viết
+                validator.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Validator thuộc về control hay group — tiêu chí là gì?</summary>
+            <p>
+              "Một control đơn lẻ có trả lời được câu hỏi này không?" Không thì nó thuộc về
+              group. Ô <code>city</code> không biết nó có bắt buộc hay không — điều đó phụ
+              thuộc vào <code>line1</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao validator định dạng phải trả <code>null</code> cho ô rỗng?</summary>
+            <p>
+              Vì "rỗng" là việc của <code>required</code>, không phải của validator định
+              dạng. Thiếu nó thì mọi ô tuỳ chọn để trống đều bị đánh dấu sai, và form không
+              bao giờ hợp lệ.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Ba thứ bắt buộc trong một async validator?</summary>
+            <p>
+              <code>timer</code> dẫn đầu (debounce, và huỷ miễn phí từ framework);
+              <code>catchError</code> trả <code>of(null)</code> (mạng hỏng không chặn người
+              dùng); và <code>first()</code> (phải hoàn tất, nếu không kẹt
+              <code>PENDING</code>).
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao không hiển thị message của server?</summary>
+            <p>
+              Vì đó là tiếng Anh do schema sinh ra, nhắc tên field nội bộ, và không dịch
+              được — hiển thị nó phá cả quy tắc "không lỗi thô" lẫn "không chữ chưa dịch".
+              Message chỉ dùng để biết <em>field nào</em>; lý do đến từ
+              <code>fieldIssues</code> dưới dạng mã.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao <code>applyServerFieldErrors</code> phải <code>markAsTouched</code>?</summary>
+            <p>
+              Vì <code>shouldShow</code> yêu cầu <code>touched</code> hoặc
+              <code>submitted</code>, và người dùng vừa bấm Lưu nên chờ họ blur là chờ một
+              việc sẽ không xảy ra. Không có dòng này, lỗi được gán vào nhưng không hiện ra.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao cần <code>clearServerError</code>?</summary>
+            <p>
+              Vì lỗi của server được gán bằng tay nên không tự biến mất khi giá trị đổi —
+              khác lỗi của validator client, vốn chạy lại sau mỗi phím gõ. Thiếu nó, một ô
+              đã sửa đúng vẫn bị đánh dấu sai.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Chuyện gì xảy ra với một đường dẫn lỗi không khớp control nào?</summary>
+            <p>
+              Nó được <em>trả về</em> cho trang để hiện phía trên form — kể cả khoá
+              <code>_</code> mà envelope dùng cho lỗi của cả payload. Nếu nuốt nó, người
+              dùng bấm Lưu thất bại mà không ai nói vì sao.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Hai bài form đã xong. Bài 15 chuyển sang nửa còn lại của chặng 3: router — cây
+              route, lazy loading theo feature, title là khoá dịch, và metadata có type.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="13-reactive-form-co-type.html">← Bài 13</a></span>
+            <span><a href="15-router.html">Bài 15 — Router →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
