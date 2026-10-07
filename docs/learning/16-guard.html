@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 16 — Guard</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 16</p>
+        <h1>Guard</h1>
+        <p class="lede">
+          Bốn loại guard, bốn câu hỏi khác nhau: <em>bạn đã đăng nhập chưa</em>,
+          <em>bạn có quyền này không</em>, <em>route này có tồn tại không</em>, và
+          <em>bạn có chắc muốn rời đi không</em>. Bài này đọc cả bốn — cộng với một hàm năm
+          mươi dòng chống lỗ hổng open redirect, phần duy nhất trong cả bài thật sự là
+          bảo mật.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · hướng tới Mốc 3</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>CanActivateFn</code></td>
+                  <td>"Có được <em>vào</em> route này không?" Route vẫn tồn tại.</td>
+                </tr>
+                <tr>
+                  <td><code>CanMatchFn</code></td>
+                  <td>
+                    "Route này có <em>khớp</em> URL không?" Trả <code>false</code> thì route
+                    <strong>coi như không tồn tại</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>CanDeactivateFn</code></td>
+                  <td>"Có được <em>rời</em> route này không?"</td>
+                </tr>
+                <tr>
+                  <td><code>UrlTree</code></td>
+                  <td>
+                    Một URL đã phân tích. Guard trả về nó nghĩa là "đi chỗ này thay vì chỗ
+                    kia".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>RedirectCommand</code></td>
+                  <td>
+                    Như trên nhưng có thêm tuỳ chọn — quan trọng nhất là
+                    <code>browserUrl</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Guard factory</strong></td>
+                  <td>
+                    Hàm <em>trả về</em> một guard, để tham số hoá nó:
+                    <code>requirePermission('CUSTOMER_CREATE')</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Open redirect</strong></td>
+                  <td>
+                    Lỗ hổng: ứng dụng của bạn chuyển hướng người dùng tới một URL do kẻ tấn
+                    công đặt. Mục 3.6.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Allowlist</strong></td>
+                  <td>
+                    Chỉ cho qua những dạng đã liệt kê. Ngược với blocklist — và
+                    <em>"a blocklist is always one encoding short"</em>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Chọn đúng loại guard cho một yêu cầu, và biện minh được lựa chọn đó.</li>
+            <li>
+              Nói được <code>canMatch</code> khác <code>canActivate</code> ở đâu, và khi nào
+              khác biệt đó quan trọng.
+            </li>
+            <li>Viết một guard factory nhận tham số.</li>
+            <li>
+              Nhận ra lỗ hổng open redirect trong một tham số <code>returnUrl</code>, và
+              viết hàm chặn nó.
+            </li>
+            <li>
+              Giải thích chính xác vì sao mọi guard trong bài này
+              <strong>không</strong> phải một biên bảo mật.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Spring Security <code>@PreAuthorize</code></td>
+                  <td><code>canActivate: [requirePermission(...)]</code></td>
+                  <td>
+                    <strong>Khác biệt lớn nhất của cả bài.</strong> Của bạn là một hàng rào
+                    thật: không qua được thì không có dữ liệu. Ở đây nó chỉ quyết định
+                    <em>hiện trang nào</em> — người dùng sửa bundle để nó trả
+                    <code>true</code> thì vào được một trang rỗng, vì API vẫn trả 401/403.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Filter chain</td>
+                  <td>Nhiều guard trên một route</td>
+                  <td>
+                    Gần giống về cơ chế: chạy lần lượt, một cái từ chối là dừng. Khác ở chỗ
+                    chúng chạy trên máy người dùng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có gì tương đương</td>
+                  <td><code>canDeactivate</code></td>
+                  <td>
+                    Backend không có khái niệm "người dùng đang rời khỏi màn hình". Guard
+                    này bảo vệ <em>công việc dở dang</em>, không bảo vệ dữ liệu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Feature toggle ở tầng routing</td>
+                  <td><code>canMatch</code></td>
+                  <td>
+                    Toggle của bạn thường trả 404. Ở đây route
+                    <em>thật sự không tồn tại</em> — và chunk code của nó không bao giờ được
+                    tải về.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--backend">
+            <span class="box__label">Câu phải nhớ trước khi đọc tiếp</span>
+            <p>
+              Repo nhắc điều này ba lần, ở ba file khác nhau, bằng ba cách diễn đạt:
+            </p>
+            <p>
+              <em>"This is a navigation-UX control, not a security boundary. Someone who
+              edits the bundle to make this return <code>true</code> reaches an empty shell
+              whose every request the API answers with 401."</em>
+            </p>
+            <p>
+              Một guard tiết kiệm cho người dùng một trang mà mọi hành động đều bị từ chối.
+              Nó <strong>không</strong> ngăn ai lấy dữ liệu. Nếu bạn mang đúng một câu từ
+              bài này sang dự án thật, mang câu này.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bốn loại, bốn câu hỏi</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Guard</th>
+                  <th>Loại</th>
+                  <th>Câu hỏi</th>
+                  <th>Đặt ở đâu</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>authGuard</code></td>
+                  <td><code>CanActivate</code></td>
+                  <td>Đã đăng nhập chưa?</td>
+                  <td>Một lần, trên nhánh shell</td>
+                </tr>
+                <tr>
+                  <td><code>requirePermission(p)</code></td>
+                  <td><code>CanActivate</code></td>
+                  <td>Có quyền <code>p</code> không?</td>
+                  <td>Trên route cha của feature, và trên trang ghi dữ liệu</td>
+                </tr>
+                <tr>
+                  <td><code>featureEnabled(f)</code></td>
+                  <td><code>CanMatch</code></td>
+                  <td>Tính năng <code>f</code> có bật không?</td>
+                  <td>Trên route của tính năng bật/tắt được</td>
+                </tr>
+                <tr>
+                  <td><code>unsavedChangesGuard</code></td>
+                  <td><code>CanDeactivate</code></td>
+                  <td>Có đang bỏ dở việc gì không?</td>
+                  <td>Trên hai trang form</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Guard là một hàm, và nó trả về bốn thứ</h3>
+
+          <div class="code">
+            <div class="code__file">hình dạng chung</div>
+            <pre><code>export const myGuard: CanActivateFn = (route, state) =&gt; {
+  // inject() được — guard chạy trong injection context
+  const something = inject(Something);
+
+  return true;                                    // cho vào
+  // hoặc false                                   // chặn, không đi đâu cả
+  // hoặc router.createUrlTree(['/somewhere'])     // chuyển hướng
+  // hoặc new RedirectCommand(urlTree, { … })      // chuyển hướng, có tuỳ chọn
+  // hoặc Observable/Promise của một trong bốn thứ trên
+};</code></pre>
+          </div>
+
+          <p>
+            Trả <code>false</code> khác với chuyển hướng: điều hướng đơn giản bị huỷ và
+            người dùng ở nguyên chỗ cũ. Với một guard quyền, đó thường là hành vi tệ — người
+            dùng bấm vào link và <em>không có gì xảy ra</em>.
+          </p>
+
+          <h3>3.3 <code>authGuard</code>: đợi, và đặt một lần</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/auth.guard.ts — toàn bộ</div>
+            <pre><code>/**
+ * Lets a signed-in user into the application shell, and sends everyone else to
+ * sign in with the address they asked for preserved.
+ *
+ * It is attached once, to the shell branch of the route tree, so every page
+ * inside it is covered - including ones added later - without anyone having to
+ * remember to add it.
+ *
+ * `restore()` is what makes a reload work: the guard runs before anything has
+ * asked the server who the user is, so it asks, once, and waits. Treating
+ * `unknown` as `anonymous` here would send a signed-in user to the login page
+ * on every refresh of the browser.
+ */
+export const authGuard: CanActivateFn = (_route, state) =&gt; {
+  const session = inject(SessionService);
+  const router = inject(Router);
+
+  return session.restore().pipe(
+    map((status) =&gt;
+      status === 'authenticated'
+        ? true
+        : router.createUrlTree([SIGN_IN_PATH], {
+            queryParams: { [RETURN_URL_PARAM]: state.url },
+          }),
+    ),
+  );
+};</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Trả về một <strong>Observable</strong></td>
+                  <td>
+                    Router chờ nó. Guard được phép bất đồng bộ, và đây là lý do chính:
+                    phải hỏi server trước khi trả lời được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>session.restore()</code></td>
+                  <td>
+                    Chạy khi tải lại trang, trước khi ai hỏi server người dùng là ai.
+                    <strong>Coi "chưa biết" là "ẩn danh" ở đây sẽ đá một người đã đăng nhập
+                    về trang login sau mỗi lần F5.</strong> Và nó là single-flight (bài 07),
+                    nên nhiều guard chạy cùng lúc chỉ tạo một request.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>queryParams: { returnUrl: state.url }</code></td>
+                  <td>
+                    Giữ lại chỗ người dùng định đến, để sau khi đăng nhập họ tới đúng đó —
+                    và đây là nơi lỗ hổng ở mục 3.6 sinh ra.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đặt <strong>một lần</strong> trên nhánh</td>
+                  <td>
+                    Trang thêm vào sau cũng được bảo vệ. Lặp guard trên từng route là một
+                    quy ước; đặt trên cha là một cấu trúc — và cấu trúc không quên.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.4 <code>requirePermission</code>: factory, và một chi tiết tinh tế về URL</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/permission.guard.ts</div>
+            <pre><code>export function requirePermission(permission: Permission): CanActivateFn {
+  return (_route, state) =&gt; {
+    const session = inject(SessionService);
+    const router = inject(Router);
+
+    return session.restore().pipe(
+      map((): boolean | RedirectCommand =&gt;
+        session.hasPermission(permission)
+          ? true
+          : new RedirectCommand(router.parseUrl(FORBIDDEN_PATH), {
+              browserUrl: state.url,
+            }),
+      ),
+    );
+  };
+}</code></pre>
+          </div>
+
+          <p>
+            Nó là một <strong>factory</strong>, nên quyền được khai ngay trên route và đọc
+            ra đúng nghĩa: <code>canActivate: [requirePermission('CUSTOMER_CREATE')]</code>.
+            Và chú thích thêm một luật: <em>"It asks for a permission, never a role: adding
+            a role must not mean editing every route that mentions one."</em>
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao thanh địa chỉ giữ URL bị từ chối</span>
+            <p>
+              <code>browserUrl: state.url</code> làm Angular <em>vẽ</em> trang
+              <code>/forbidden</code> trong khi <em>ghi</em> URL người dùng đã yêu cầu vào
+              thanh địa chỉ. Chú thích giải thích vì sao:
+              <em>"the first thing anyone debugging 'why can't I open this' needs is the URL
+              they could not open."</em>
+            </p>
+            <p>
+              Và nó nói luôn phương án trông giống mà sai:
+              <em>"<code>skipLocationChange</code> looks like the tool for this and is not:
+              on an in-app navigation it leaves the <strong>previous</strong> page's URL in
+              the bar, above content that says something else."</em>
+            </p>
+          </div>
+
+          <p>
+            Một chi tiết nữa trong chú thích, về thứ tự chạy: Angular khởi động các guard
+            của một lần điều hướng <strong>cùng lúc</strong> và tôn trọng câu trả lời của
+            cha trước. Nên guard này không được giả định rằng
+            <code>authGuard</code> đã lập xong phiên — nó cũng phải gọi
+            <code>restore()</code>. Single-flight làm hai lời gọi đó chỉ tốn một request.
+          </p>
+
+          <h3>3.5 <code>canMatch</code> và <code>canActivate</code>: khác biệt thật</h3>
+
+          <div class="code">
+            <div class="code__file">core/config/feature-flag.guard.ts — toàn bộ</div>
+            <pre><code>/**
+ * A route that exists only while a runtime flag is on (docs/feature-flags.md).
+ *
+ * `CanMatch` rather than `CanActivate`, and the difference matters twice:
+ *
+ *  - a route that does not *match* is not refused, it does not exist - the
+ *    URL falls through to the next route that matches (the wildcard's
+ *    not-found page, or `/customers/:id`'s "no such customer"), never a
+ *    redirect that hints at a hidden feature;
+ *  - Angular never loads the lazy chunk, so a switched-off feature costs
+ *    nothing to download.
+ */
+export function featureEnabled(flag: FeatureFlag): CanMatchFn {
+  return () =&gt; inject(FeatureFlags).isEnabled(flag);
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th><code>canActivate</code></th>
+                  <th><code>canMatch</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Khi trả <code>false</code></td>
+                  <td>Route <em>tồn tại</em> nhưng bị từ chối</td>
+                  <td>Route <em>không khớp</em> — router đi tiếp xuống dưới</td>
+                </tr>
+                <tr>
+                  <td>Chunk lazy</td>
+                  <td><strong>Đã được tải</strong> trước khi guard chạy xong</td>
+                  <td><strong>Không bao giờ tải</strong></td>
+                </tr>
+                <tr>
+                  <td>Người dùng thấy</td>
+                  <td>Trang "không có quyền", hoặc bị chuyển hướng</td>
+                  <td>404 bình thường — không gợi ý rằng có gì đó bị giấu</td>
+                </tr>
+                <tr>
+                  <td>Dùng cho</td>
+                  <td>Quyền — người dùng <em>biết</em> tính năng tồn tại</td>
+                  <td>Feature flag — tính năng chưa mở ở môi trường này</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Phân biệt này không chỉ là tối ưu. Một chuyển hướng tới "không có quyền"
+            <em>nói với người dùng rằng tính năng tồn tại</em>. Với một quyền thì điều đó
+            bình thường — họ biết có chức năng tạo khách hàng, chỉ là họ không được dùng. Với
+            một tính năng chưa mở thì không: 404 là câu trả lời đúng.
+          </p>
+
+          <h3>3.6 <code>canDeactivate</code>: component trả lời, không phải guard</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/unsaved-changes.guard.ts — toàn bộ</div>
+            <pre><code>export interface CanLeave {
+  /**
+   * `true` to leave immediately, or a stream that emits the user's answer.
+   *
+   * The component answers rather than the guard, because the question - "are
+   * there unsaved changes, and does the user want to keep them" - needs the
+   * form and a dialog, and both belong to the component. A guard that reached
+   * into the component to find out would be the same coupling written twice.
+   */
+  canLeave(): boolean | Observable&lt;boolean&gt;;
+}
+
+export const unsavedChangesGuard: CanDeactivateFn&lt;CanLeave | null&gt; = (component) =&gt;
+  // `component` is genuinely nullable at runtime whatever the type says: the
+  // router passes the outlet's component, and a route that was resolved but
+  // never rendered has none. Nothing can be unsaved in that case, so the
+  // answer is yes - and calling a method on null here would turn every
+  // navigation away from the form into an unhandled error.
+  component?.canLeave() ?? true;</code></pre>
+          </div>
+
+          <p>Ba bài học trong mười dòng:</p>
+
+          <ul>
+            <li>
+              <strong>Guard không tự trả lời.</strong> Nó hỏi component, vì câu hỏi cần form
+              và một hộp thoại — cả hai thuộc về component. Một guard thò tay vào component
+              để tự tìm hiểu là cùng một sự gắn kết, viết hai lần.
+            </li>
+            <li>
+              <strong>Một interface làm hợp đồng.</strong> <code>CanLeave</code> là thứ một
+              component phải cung cấp để được bảo vệ — và bất kỳ trang nào khác cũng dùng
+              lại được guard này bằng cách cài interface đó.
+            </li>
+            <li>
+              <strong><code>component?.</code> không phải thừa.</strong> Router truyền
+              component của outlet, và một route đã resolve nhưng chưa render thì không có
+              component. Gọi method trên <code>null</code> ở đây biến
+              <em>mọi</em> lần rời form thành một lỗi không ai bắt.
+            </li>
+          </ul>
+
+          <div class="box box--warn">
+            <span class="box__label">Guard này không phủ hết, và repo nói ra điều đó</span>
+            <p>
+              <em>"It covers navigation inside the application: a link, the back button, a
+              programmatic redirect. It does not cover closing the tab or typing a new
+              address."</em> Đóng tab cần <code>beforeunload</code>, một API của trình duyệt
+              — và trang form có nó, qua host binding:
+            </p>
+            <div class="code">
+              <pre><code>host: {
+  // Closing the tab, reloading or typing a new address is not a router
+  // navigation, so the guard below never hears of it (Phase 5).
+  '(window:beforeunload)': 'warnBeforeUnload($event)',
+},</code></pre>
+            </div>
+            <p>
+              Và chú thích kết lại bằng một câu rất đúng tinh thần repo:
+              <em>"it is a convenience, not a guarantee. Nothing here can prevent a lost edit
+              if the browser crashes, and describing it as protection would be the kind of
+              claim ANGULAR_PROJECT_CONTEXT.md 4.12 forbids."</em>
+            </p>
+          </div>
+
+          <h3>3.7 Open redirect: phần duy nhất thật sự là bảo mật</h3>
+
+          <p>
+            <code>authGuard</code> đặt <code>?returnUrl=/customers/42</code> vào URL trang
+            đăng nhập. Sau khi đăng nhập, trang đó chuyển người dùng tới giá trị ấy. Nhưng
+            <strong>URL đó ai cũng tự tạo được và gửi cho người khác</strong>.
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/auth/return-url.ts — chú thích đầu file</div>
+            <pre><code>`/login?returnUrl=...` is a URL anyone can construct and send to a user. If
+the value were followed blindly, `returnUrl=https://evil.test/login` would
+make this application's own sign-in form forward a freshly signed-in user to
+an attacker's look-alike page - an open redirect, and the classic phishing
+amplifier.
+
+So only a path inside this application is accepted. Everything else falls
+back to the default. The check is deliberately a small allowlist of shapes
+rather than a list of bad ones: a blocklist is always one encoding short.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>export function safeReturnUrl(candidate: string | null | undefined): string {
+  if (!candidate) {
+    return DEFAULT_AFTER_SIGN_IN;
+  }
+  const refused =
+    !candidate.startsWith('/') ||
+    candidate.startsWith('//') ||
+    candidate.includes('\\') ||
+    // Control characters (tab, newline) are stripped by URL parsers, which
+    // turns `/\t/evil.test` into `//evil.test`.
+    hasControlCharacter(candidate) ||
+    candidate === SIGN_IN_PATH ||
+    candidate.startsWith(`${SIGN_IN_PATH}?`) ||
+    candidate.startsWith(`${SIGN_IN_PATH}/`);
+  return refused ? DEFAULT_AFTER_SIGN_IN : candidate;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Điều kiện</th>
+                  <th>Chặn gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>!startsWith('/')</code></td>
+                  <td>
+                    <code>https://evil.test</code>, <code>javascript:alert(1)</code> — bất
+                    cứ gì có scheme hoặc host
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>startsWith('//')</code></td>
+                  <td>
+                    <code>//evil.test</code> — URL <em>khác origin</em> trông như một đường
+                    dẫn. Cùng cái bẫy đã gặp ở <code>csrfInterceptor</code> bài 09.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>includes('\\')</code></td>
+                  <td>
+                    <code>/\evil.test</code> — trình duyệt chuẩn hoá dấu chéo ngược thành
+                    dấu chéo xuôi, biến nó thành <code>//evil.test</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>hasControlCharacter</code></td>
+                  <td>
+                    <code>/[tab]/evil.test</code> — bộ phân tích URL
+                    <strong>loại bỏ</strong> ký tự điều khiển, nên chuỗi này cũng thành
+                    <code>//evil.test</code> sau khi bị lọc.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chính trang đăng nhập</td>
+                  <td>Vòng lặp: đăng nhập xong lại về trang đăng nhập.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Ba điều kiện giữa là ba cách viết cùng một tấn công</span>
+            <p>
+              <code>//evil.test</code>, <code>/\evil.test</code>,
+              <code>/[tab]/evil.test</code> — cả ba đều kết thúc là một URL tới host khác,
+              nhưng chỉ cái đầu <em>trông</em> đáng ngờ. Đó chính là ý của câu
+              <em>"a blocklist is always one encoding short"</em>: bạn chặn được ba cách này
+              nhưng còn cách thứ tư bạn chưa nghĩ ra.
+            </p>
+            <p>
+              Allowlist thì ngược lại: chỉ chấp nhận "bắt đầu bằng một dấu
+              <code>/</code> và không có gì đáng ngờ phía sau". Một dạng tấn công mới cũng
+              không lọt, vì nó không nằm trong danh sách được phép.
+            </p>
+          </div>
+
+          <h3>3.8 Và một lần nữa: đây không phải bảo mật</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Câu nhắc</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>auth.guard.ts</code></td>
+                  <td>
+                    "Someone who edits the bundle to make this return <code>true</code>
+                    reaches an empty shell whose every request the API answers with 401."
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>permission.guard.ts</code></td>
+                  <td>
+                    "The API checks the same permission on every request; this only spares
+                    the user a page whose every action would be refused."
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>feature-flag.guard.ts</code></td>
+                  <td>
+                    "A flag that hides import must be matched by the server refusing import,
+                    if it matters."
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba file, ba câu, cùng một ý — và đó là có chủ ý. Quy tắc 10 trong
+            <code>CLAUDE.md</code>: <em>"Never describe a frontend-only control as a security
+            boundary."</em> Bài 20 nói về lớp thật sự thi hành.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Dài</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/config/feature-flag.guard.ts</code></td>
+                  <td>~23 dòng</td>
+                  <td>
+                    <strong>Ngắn nhất, đọc trước.</strong> Guard factory, và phân biệt
+                    <code>canMatch</code> / <code>canActivate</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/auth.guard.ts</code></td>
+                  <td>~37 dòng</td>
+                  <td>Guard bất đồng bộ; vì sao phải <code>restore()</code> và chờ</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/permission.guard.ts</code></td>
+                  <td>~51 dòng</td>
+                  <td><code>RedirectCommand</code> + <code>browserUrl</code>; quyền chứ không vai trò</td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/unsaved-changes.guard.ts</code></td>
+                  <td>~39 dòng</td>
+                  <td>Component trả lời; interface làm hợp đồng; <code>?.</code> không thừa</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/return-url.ts</code></td>
+                  <td>~64 dòng</td>
+                  <td>
+                    <strong>Phần bảo mật thật.</strong> Open redirect, và allowlist thay vì
+                    blocklist
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một lần điều hướng bị từ chối</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng (vai viewer)
+    participant R as Router
+    participant M as canMatch
+    participant A as authGuard
+    participant P as requirePermission
+    participant S as SessionService
+    U->>R: /customers/new
+    R->>M: route có khớp không?
+    Note over M: không có flag nào ở route này → khớp
+    R->>A: canActivate (nhánh shell)
+    A->>S: restore()
+    S-->>A: authenticated
+    A-->>R: true
+    R->>P: canActivate CUSTOMER_CREATE
+    P->>S: restore()
+    Note over S: single-flight → không gửi request thứ hai
+    S-->>P: authenticated
+    P->>S: hasPermission('CUSTOMER_CREATE')
+    S-->>P: false
+    P-->>R: RedirectCommand(/forbidden, browserUrl: /customers/new)
+    R->>U: vẽ trang /forbidden
+    Note over U: thanh địa chỉ vẫn hiện /customers/new
+            </pre>
+            <figcaption>
+              Hai lần <code>restore()</code> ở bước 5 và 8 chỉ tốn
+              <strong>một</strong> request nhờ single-flight (bài 07 mục 3.6). Và bước cuối
+              là chi tiết tinh tế của <code>browserUrl</code>: người dùng — hoặc người hỗ
+              trợ họ — vẫn thấy URL đã bị từ chối.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Hỏi quyền, không hỏi vai trò — ADR-0018</h4>
+          <p>
+            Phương án bị loại: <code>requireRole('ADMIN')</code>. Bị loại vì thêm một vai trò
+            mới sẽ phải sửa mọi route có nhắc tới vai trò. Quyền thì ổn định hơn vai trò —
+            vai trò là một <em>bó</em> quyền, và bó đó thay đổi.
+          </p>
+
+          <h4><code>canMatch</code> cho flag, <code>canActivate</code> cho quyền</h4>
+          <p>
+            Phương án bị loại: dùng <code>canActivate</code> cho cả hai. Bị loại vì hai lý
+            do: chunk của tính năng bị tắt vẫn được tải, và một chuyển hướng
+            <em>tiết lộ rằng tính năng tồn tại</em>. Giá phải trả: phải nhớ hai API thay vì
+            một.
+          </p>
+
+          <h4>Component trả lời <code>canLeave</code>, không phải guard</h4>
+          <p>
+            Phương án bị loại: guard tự đọc form của component. Bị loại vì đó là cùng một sự
+            gắn kết, viết hai lần — và guard sẽ phải biết về cấu trúc nội bộ của mọi trang
+            nó bảo vệ.
+          </p>
+
+          <h4>Allowlist cho <code>returnUrl</code></h4>
+          <p>
+            Phương án bị loại: danh sách chặn (<code>javascript:</code>,
+            <code>http://</code>…). Bị loại bằng một câu:
+            <em>"a blocklist is always one encoding short."</em> Giá phải trả: một dạng URL
+            hợp lệ mà bạn chưa nghĩ tới cũng bị từ chối — nhưng hậu quả của việc đó là quay
+            về trang mặc định, không phải một lỗ hổng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Coi "chưa biết phiên" là "chưa đăng nhập"</span>
+            <p>
+              Người dùng F5 và bị đá về trang đăng nhập — mỗi lần. Guard chạy
+              <em>trước</em> khi ai hỏi server, nên trạng thái lúc đó là "chưa biết", không
+              phải "ẩn danh". Phải hỏi và chờ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Theo <code>returnUrl</code> mà không kiểm</span>
+            <p>
+              Một lỗ hổng open redirect thật: kẻ tấn công gửi
+              <code>/login?returnUrl=https://evil.test/login</code>, người dùng đăng nhập ở
+              trang <em>thật</em>, rồi bị chuyển sang một trang giả giống hệt — và lần này
+              họ tin nó, vì họ vừa đến từ trang thật.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Guard trả <code>false</code> cho một quyền</span>
+            <p>
+              Người dùng bấm link và <strong>không có gì xảy ra</strong>. Không trang mới,
+              không thông báo. Họ bấm lại, vài lần, rồi báo rằng ứng dụng hỏng. Chuyển hướng
+              tới một trang nói rõ lý do thì tốn một dòng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Quên <code>?.</code> trong <code>canDeactivate</code></span>
+            <p>
+              Component là <code>null</code> thật sự lúc chạy — một route đã resolve nhưng
+              chưa render thì không có component. Gọi method trên nó biến mọi lần rời form
+              thành một lỗi không ai bắt, và điều hướng đơn giản là không xảy ra.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. <code>skipLocationChange</code> cho trang "không có quyền"</span>
+            <p>
+              Thanh địa chỉ giữ URL của trang <em>trước đó</em>, trong khi nội dung nói về
+              một chuyện khác. Người dùng bấm F5 và quay về trang cũ, không hiểu gì.
+              <code>RedirectCommand</code> với <code>browserUrl</code> mới là công cụ đúng.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Tin rằng guard bảo vệ dữ liệu</span>
+            <p>
+              Nó không. Mở DevTools, sửa một dòng, và guard trả <code>true</code>. Thứ duy
+              nhất ngăn người dùng lấy dữ liệu là server từ chối. Nếu bạn thiết kế một hệ
+              thống mà guard là lớp bảo vệ duy nhất, bạn vừa publish API của mình cho mọi
+              người.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/auth/guards.spec.ts</code></td>
+                  <td>
+                    Chưa đăng nhập → chuyển tới login kèm <code>returnUrl</code>; thiếu
+                    quyền → <code>/forbidden</code>; phiên "chưa biết" thì guard
+                    <em>chờ</em> chứ không từ chối
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/return-url.spec.ts</code></td>
+                  <td>
+                    Mỗi dạng tấn công ở mục 3.7 bị từ chối — và một đường dẫn hợp lệ kèm
+                    query param thì được chấp nhận
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/config/feature-flag.guard.spec.ts</code></td>
+                  <td>Flag tắt → route không khớp</td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-authorization.spec.ts</code></td>
+                  <td>Ba vai trò, và trang nào mỗi vai trò vào được</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/auth.spec.ts</code></td>
+                  <td>
+                    Cả luồng thật: bị đá về login, đăng nhập, quay lại đúng trang đã yêu cầu
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một spec đáng mở ra xem</span>
+            <p>
+              <code>return-url.spec.ts</code> là ví dụ tốt về test một hàm bảo mật: mỗi dạng
+              tấn công là một <code>it(...)</code> riêng, với chuỗi tấn công viết thẳng vào
+              test. Khi ai đó phát hiện dạng thứ sáu, họ thêm một dòng — và test trở thành
+              tài liệu về những gì đã được nghĩ tới.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi muốn chặn một điều hướng"}
+
+    Q0 -->|"người dùng chưa đăng nhập"| G1["canActivate: authGuard<br/>MỘT lần trên nhánh shell<br/>phải restore() và CHỜ"]
+    Q0 -->|"thiếu quyền"| G2["canActivate: requirePermission(p)<br/>RedirectCommand + browserUrl<br/>hỏi QUYỀN, không hỏi vai trò"]
+    Q0 -->|"tính năng chưa mở"| G3["canMatch: featureEnabled(f)<br/>route KHÔNG TỒN TẠI<br/>chunk không tải"]
+    Q0 -->|"đang bỏ dở việc"| G4["canDeactivate<br/>COMPONENT trả lời, không phải guard<br/>nhớ dấu ?."]
+
+    G2 --> W1["Đừng trả false — người dùng<br/>bấm link và không có gì xảy ra"]
+    G3 --> W2["Đừng dùng canActivate — nó tiết lộ<br/>rằng tính năng tồn tại"]
+    G1 --> W3["returnUrl phải qua ALLOWLIST<br/>// · \\ · ký tự điều khiển · chính /login"]
+
+    ALL["MỌI guard ở đây là UX, không phải bảo mật.<br/>Server kiểm lại từng request."]
+            </pre>
+            <figcaption>
+              Bốn câu hỏi, bốn công cụ. Ô dưới cùng không nối vào nhánh nào vì nó áp cho tất
+              cả — và nó là điều duy nhất trong sơ đồ này mà quên đi sẽ gây hậu quả thật.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Ba vai trò, cùng một ứng dụng</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <p>
+              Mock backend có ba người dùng: <code>admin</code>, <code>manager</code>,
+              <code>viewer</code> — mật khẩu bất kỳ. Lần lượt đăng nhập bằng cả ba và ghi lại
+              bảng:
+            </p>
+            <ol>
+              <li>Nút "New customer" có hiện không?</li>
+              <li>Gõ thẳng <code>/customers/new</code> vào thanh địa chỉ — chuyện gì xảy ra?</li>
+              <li>Sau khi bị từ chối, <strong>thanh địa chỉ hiện gì</strong>?</li>
+              <li>Checkbox chọn dòng có hiện không? Vì sao?</li>
+              <li>
+                Với <code>viewer</code>: mở DevTools, gọi thẳng
+                <code>fetch('/api/customers', { method: 'POST', … })</code>. Server trả gì?
+              </li>
+            </ol>
+            <details>
+              <summary>Điều bước 5 chứng minh</summary>
+              <p>
+                403. Và đó là toàn bộ bài học của bài này: các bước 1–4 chỉ là trải nghiệm —
+                chúng tiết kiệm cho người dùng những màn hình vô ích. Bước 5 là
+                <strong>lớp duy nhất thật sự ngăn chặn</strong>.
+              </p>
+              <p>
+                Bước 3 đáng chú ý riêng: thanh địa chỉ vẫn hiện
+                <code>/customers/new</code> dù nội dung là trang "không có quyền". Đó là
+                <code>browserUrl</code>, và nó là thứ giúp người hỗ trợ biết người dùng đã
+                cố mở gì.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tự tạo một open redirect, rồi xem nó bị chặn</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>Đăng xuất. Mở <code>/login?returnUrl=/customers/new</code>, đăng nhập. Bạn tới đâu?</li>
+              <li>
+                Đăng xuất. Thử lần lượt các URL sau, đăng nhập mỗi lần, ghi lại điểm đến:
+                <ul>
+                  <li><code>/login?returnUrl=https://example.com</code></li>
+                  <li><code>/login?returnUrl=//example.com</code></li>
+                  <li><code>/login?returnUrl=/\example.com</code></li>
+                  <li><code>/login?returnUrl=/login</code></li>
+                </ul>
+              </li>
+              <li>
+                Mở <code>core/auth/return-url.ts</code> và nối từng URL ở trên với điều kiện
+                đã chặn nó.
+              </li>
+              <li>
+                Nghĩ ra một dạng thứ năm. Nó có bị chặn không? Vì sao?
+              </li>
+            </ol>
+            <details>
+              <summary>Về câu 4</summary>
+              <p>
+                Gần như chắc chắn là <strong>có</strong>, và đó là điểm mấu chốt. Allowlist
+                chỉ chấp nhận "bắt đầu bằng một dấu <code>/</code> đơn, không có dấu chéo
+                ngược, không có ký tự điều khiển, không phải trang login". Mọi dạng tấn công
+                — kể cả dạng chưa ai nghĩ ra — đều phải lọt qua cái phễu đó.
+              </p>
+              <p>
+                Nếu bạn tìm được một dạng <em>lọt</em>, đó là một phát hiện bảo mật thật.
+                Ghi vào <code>journal.md</code> và đối chiếu với
+                <code>return-url.spec.ts</code> xem nó đã được nghĩ tới chưa.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Đổi <code>canMatch</code> thành <code>canActivate</code></h3>
+            <p class="task__meta">~30 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Tắt flag <code>customerImport</code> trong
+                <code>public/config.json</code>. Mở <code>/customers/import</code>. Bạn thấy
+                gì?
+              </li>
+              <li>
+                DevTools → Network → lọc JS. Có chunk nào của trang import được tải không?
+              </li>
+              <li>
+                Trong <code>customers.routes.ts</code>, đổi
+                <code>canMatch: [featureEnabled('customerImport')]</code> thành
+                <code>canActivate: [featureEnabled('customerImport') as any]</code> (cần ép
+                kiểu vì hai interface khác nhau).
+              </li>
+              <li>Lặp lại bước 1 và 2. So sánh cả hai điểm: thấy gì, và tải gì.</li>
+              <li><code>git checkout</code> và bật lại flag.</li>
+            </ol>
+            <details>
+              <summary>Hai khác biệt</summary>
+              <p>
+                <strong>Thấy gì:</strong> với <code>canMatch</code>, URL rơi xuống route
+                tiếp theo — ở đây là <code>:id</code>, nên bạn thấy "không tìm thấy khách
+                hàng" (vì <code>"import"</code> không phải một id hợp lệ), hoặc trang 404
+                tuỳ cấu hình. Với <code>canActivate</code>, điều hướng bị huỷ và bạn ở
+                nguyên chỗ cũ — <em>không có gì xảy ra</em>.
+              </p>
+              <p>
+                <strong>Tải gì:</strong> với <code>canMatch</code>, không chunk nào được
+                tải. Với <code>canActivate</code>, chunk của trang import được tải
+                <em>trước</em> khi guard kịp từ chối. Một tính năng bị tắt vẫn tốn băng
+                thông của mọi người dùng.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Viết một guard mới</h3>
+            <p class="task__meta">~45 phút · branch <code>learning/*</code></p>
+            <p>
+              Viết <code>requireAnyPermission(...permissions)</code>: cho vào nếu người dùng
+              có <strong>ít nhất một</strong> trong các quyền được liệt kê.
+            </p>
+            <ul>
+              <li>Theo đúng khuôn factory của <code>requirePermission</code>.</li>
+              <li>Vẫn phải <code>restore()</code> và chờ.</li>
+              <li>Vẫn dùng <code>RedirectCommand</code> với <code>browserUrl</code>.</li>
+              <li>
+                Một spec: có một quyền thì vào được; không có quyền nào thì bị chuyển hướng;
+                phiên "chưa biết" thì chờ chứ không từ chối.
+              </li>
+            </ul>
+            <details>
+              <summary>Hai câu hỏi thiết kế, và một cảnh báo</summary>
+              <p>
+                <strong>1. Nó nên là <code>canActivate</code> hay <code>canMatch</code>?</strong>
+                <code>canActivate</code> — đây là chuyện quyền, và người dùng
+                <em>biết</em> tính năng tồn tại. Một 404 ở đây sẽ gây nhầm lẫn.
+              </p>
+              <p>
+                <strong>2. Nếu danh sách rỗng thì sao?</strong> Câu hỏi thật, và cách trả
+                lời tốt là làm nó không xảy ra được: khai tham số là
+                <code>[Permission, ...Permission[]]</code> — ít nhất một phần tử, trình biên
+                dịch cưỡng chế.
+              </p>
+              <p>
+                <strong>Cảnh báo:</strong> trước khi viết guard này, hỏi xem nó có cần tồn
+                tại không. Nếu một trang cần "một trong hai quyền" thì có thể quyền đang bị
+                chia quá nhỏ. Rule 8 trong <code>CLAUDE.md</code>: không trừu tượng hoá khi
+                chưa gọi tên được người gọi thứ hai.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. <code>canMatch</code> khác <code>canActivate</code> ở hai điểm nào?</summary>
+            <p>
+              Route không <em>tồn tại</em> thay vì bị từ chối — nên URL rơi xuống route tiếp
+              theo và không có chuyển hướng nào gợi ý rằng có gì bị giấu. Và chunk lazy
+              không bao giờ được tải.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>authGuard</code> phải gọi <code>restore()</code> và chờ?</summary>
+            <p>
+              Vì nó chạy trước khi bất cứ gì hỏi server người dùng là ai. Trạng thái lúc đó
+              là "chưa biết", không phải "ẩn danh" — coi hai cái là một sẽ đá người đã đăng
+              nhập về trang login sau mỗi lần F5.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. <code>browserUrl</code> trong <code>RedirectCommand</code> làm gì?</summary>
+            <p>
+              Vẽ trang <code>/forbidden</code> nhưng ghi URL người dùng đã yêu cầu vào thanh
+              địa chỉ — vì thứ đầu tiên người gỡ rối cần là URL họ không mở được.
+              <code>skipLocationChange</code> trông giống công cụ cho việc này nhưng để lại
+              URL của trang <em>trước đó</em>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao component trả lời <code>canLeave</code> chứ không phải guard?</summary>
+            <p>
+              Vì câu hỏi cần form và một hộp thoại, cả hai thuộc về component. Guard thò tay
+              vào component để tự tìm hiểu là cùng một sự gắn kết, viết hai lần — và guard
+              sẽ phải biết nội bộ của mọi trang nó bảo vệ.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Open redirect là gì, và vì sao allowlist thay vì blocklist?</summary>
+            <p>
+              Ứng dụng của bạn chuyển người dùng vừa đăng nhập tới một URL do kẻ tấn công
+              đặt — một trang giả, và lần này họ tin nó vì vừa đến từ trang thật. Allowlist
+              vì <em>"a blocklist is always one encoding short"</em>: ba cách viết cùng một
+              tấn công ở mục 3.7 cho thấy luôn còn cách thứ tư.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao guard hỏi quyền chứ không hỏi vai trò?</summary>
+            <p>
+              Vì vai trò là một bó quyền, và bó đó thay đổi. Thêm một vai trò mới mà phải sửa
+              mọi route có nhắc tên vai trò là một thay đổi lan rộng không cần thiết.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Guard có bảo vệ dữ liệu không?</summary>
+            <p>
+              Không. Nó chạy trên máy người dùng và sửa được. Lớp duy nhất ngăn chặn là server
+              từ chối từng request — và cả ba file guard trong repo đều nói thẳng điều đó,
+              bằng ba cách diễn đạt khác nhau.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 17 quay lại một ý đã xuất hiện từ bài 01 và bây giờ mới được mổ kỹ:
+              <strong>URL là state</strong> — ai sở hữu cái gì trên một màn hình danh sách,
+              và vì sao tiêu chí lọc sống trong thanh địa chỉ chứ không trong component.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="15-router.html">← Bài 15</a></span>
+            <span><a href="17-url-la-state.html">Bài 17 — URL là state →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

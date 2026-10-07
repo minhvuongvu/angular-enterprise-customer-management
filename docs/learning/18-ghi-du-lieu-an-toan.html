@@ -1,0 +1,1317 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 18 — Ghi dữ liệu an toàn</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 18 ◆
+        </p>
+        <h1>Ghi dữ liệu an toàn</h1>
+        <p class="lede">
+          Form của người dùng mở trong hai mươi phút. Trong khoảng đó, đồng nghiệp của họ
+          cũng sửa đúng bản ghi ấy. Bài này về cơ chế ngăn một người ghi đè lên công việc
+          của người kia — và về chỗ sai một dòng khiến chính cơ chế đó trở thành thủ phạm.
+          Đây là phần tinh vi nhất trong cả repo.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · <strong>Mốc 3</strong></li>
+          <li class="tag">◆ có máy trạng thái</li>
+          <li class="tag">~3 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Optimistic concurrency</strong></td>
+                  <td>
+                    Không khoá bản ghi. Cho mọi người sửa, rồi
+                    <em>phát hiện</em> xung đột lúc ghi bằng một số phiên bản.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>version</code></td>
+                  <td>
+                    Số server tăng sau <strong>mỗi</strong> lần ghi. Client gửi số nó đã
+                    thấy; server so.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Lost update</strong></td>
+                  <td>
+                    Hai người cùng sửa, người lưu sau ghi đè công việc của người lưu trước
+                    mà không ai biết. Đây là thứ cả bài tồn tại để ngăn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>baseline</code></td>
+                  <td>
+                    Bản ghi mà form <strong>được điền từ đó</strong>. Chênh lệch giữa nó và
+                    form chính là thứ người này đã đổi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>latest</code></td>
+                  <td>
+                    Bản ghi <strong>mới nhất client biết</strong>. Chỉ dùng để lấy
+                    <code>version</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>PATCH vs PUT</td>
+                  <td>
+                    PATCH gửi <em>phần đã đổi</em>; PUT gửi <em>cả bản ghi</em>. Khác biệt
+                    này là cả bài.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Idempotent</strong></td>
+                  <td>
+                    Chạy hai lần cho kết quả như chạy một lần. Lệnh tạo thì
+                    <em>không</em> — nên không bao giờ được retry tự động.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Per-item result</strong></td>
+                  <td>
+                    Một thao tác hàng loạt trả về kết quả cho <em>từng</em> bản ghi, không
+                    phải một kết cục chung.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Giải thích được vì sao cần <strong>hai</strong> điểm tham chiếu chứ không phải
+              một — và chuyện gì xảy ra nếu dùng nhầm.
+            </li>
+            <li>Thiết kế một luồng xung đột không bắt người dùng chọn giữa hai bản họ không thấy.</li>
+            <li>Nói được vì sao gửi cả bản ghi lên là sai, vĩnh viễn.</li>
+            <li>Thiết kế một thao tác hàng loạt báo kết quả theo từng item.</li>
+            <li>Hoàn thành <strong>Mốc 3</strong>.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>JPA <code>@Version</code></td>
+                  <td>Trường <code>version</code> trong contract</td>
+                  <td>
+                    Cơ chế giống hệt. Khác ở chỗ
+                    <strong>xung đột phải hiển thị ra cho người dùng quyết định</strong>, chứ
+                    không phải một <code>OptimisticLockException</code> ném lên log.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Transaction</td>
+                  <td>Không có gì tương đương</td>
+                  <td>
+                    <strong>Khác biệt lớn nhất.</strong> Transaction của bạn kéo dài vài
+                    mili giây. "Transaction" ở đây là
+                    <em>khoảng thời gian form mở</em> — có thể hai mươi phút, có thể qua giờ
+                    nghỉ trưa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>SELECT … FOR UPDATE</code></td>
+                  <td>Không dùng, và cố ý</td>
+                  <td>
+                    Khoá bi quan trên một form người dùng đang mở nghĩa là một người quên
+                    đóng tab sẽ khoá bản ghi cho cả công ty.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Batch update trả về số dòng</td>
+                  <td>Kết quả theo <em>từng</em> item</td>
+                  <td>
+                    "5 trên 10 thành công" không đủ. Người dùng cần biết
+                    <em>5 cái nào</em> — để thử lại đúng chúng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bài toán, phát biểu chính xác</h3>
+
+          <p>
+            09:00 — An mở form sửa khách hàng X. Bản ghi có <code>version: 7</code>, tên
+            "Nguyễn Văn A", điện thoại trống.
+          </p>
+          <p>09:05 — Bình cũng mở X, điền số điện thoại, lưu. Bản ghi thành <code>version: 8</code>.</p>
+          <p>09:20 — An sửa tên thành "Nguyễn Văn An" và bấm Lưu.</p>
+
+          <p>Ba cách hệ thống có thể cư xử:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cách</th>
+                  <th>Kết quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Không có version, gửi cả bản ghi (PUT)</td>
+                  <td>
+                    <strong>Số điện thoại Bình vừa nhập biến mất.</strong> Không ai biết.
+                    Đây là <em>lost update</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Có version, gửi cả bản ghi</td>
+                  <td>
+                    409. An được báo. Nhưng nếu An tải lại rồi lưu, số của Bình vẫn mất — vì
+                    payload vẫn chứa "điện thoại: trống".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Có version, gửi phần đã đổi (PATCH)</strong></td>
+                  <td>
+                    409. An tải lại <em>giữ nguyên chữ đã gõ</em>, lưu lại — payload chỉ có
+                    <code>fullName</code>. <strong>Cả hai thay đổi đều sống.</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Cách thứ ba là thứ repo làm, và nó cần đúng hai thứ: một con số, và một quyết
+            định về <em>đo chênh lệch với cái gì</em>.
+          </p>
+
+          <h3>3.2 Hai điểm tham chiếu ◆</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts — chú thích</div>
+            <pre><code>The update payload: only what this user changed, based on a stated version.
+
+Two different records are involved, and keeping them apart is the whole
+point:
+
+ - **`baseline`** is the record the form was *filled from*. The difference
+   between it and the form is, by definition, what this user changed.
+ - **`version`** comes from the newest record the client knows about, which
+   after a conflict reload is not the same record at all.
+
+Measuring the diff against the newest record instead would be subtly wrong
+in exactly the case that matters: after reloading from a conflict, every
+field the *other* person changed now differs from what is in this form, so
+it would be included in the patch and their work would be overwritten - by
+a mechanism whose entire purpose is to prevent that.
+
+Sending the whole record back has the same fault, permanently. That is why
+this is a PATCH.</code></pre>
+          </div>
+
+          <p>Đọc chậm đoạn giữa. Đây là tình huống, bằng số:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th><code>fullName</code></th>
+                  <th><code>phone</code></th>
+                  <th><code>version</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>baseline</code> — bản An mở lúc 09:00</td>
+                  <td>Nguyễn Văn A</td>
+                  <td><em>trống</em></td>
+                  <td>7</td>
+                </tr>
+                <tr>
+                  <td><code>latest</code> — sau khi tải lại vì 409</td>
+                  <td>Nguyễn Văn A</td>
+                  <td><strong>0901234567</strong></td>
+                  <td>8</td>
+                </tr>
+                <tr>
+                  <td>Form của An lúc này</td>
+                  <td><strong>Nguyễn Văn An</strong></td>
+                  <td><em>trống</em></td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Đo chênh lệch với</th>
+                  <th>Payload gửi đi</th>
+                  <th>Hậu quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>baseline</code> (đúng)</td>
+                  <td><code>{ fullName: "Nguyễn Văn An", version: 8 }</code></td>
+                  <td>
+                    Số điện thoại không có trong payload →
+                    <strong>công việc của Bình sống sót</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>latest</code> (sai)</td>
+                  <td>
+                    <code>{ fullName: "Nguyễn Văn An", phone: null, version: 8 }</code>
+                  </td>
+                  <td>
+                    <code>phone</code> lọt vào payload vì form trống còn
+                    <code>latest</code> có số →
+                    <strong>số của Bình bị xoá</strong>, bởi chính cơ chế chống ghi đè
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Vì sao đây là bug tinh vi nhất trong repo</span>
+            <p>
+              Dùng <code>latest</code> cho cả hai việc là lựa chọn
+              <em>tự nhiên hơn</em>: chỉ có một biến, và "so với bản mới nhất" nghe đúng.
+              Code chạy. Test cơ bản xanh. Và nó sai <strong>chỉ trong đúng tình huống mà cơ
+              chế tồn tại để xử lý</strong> — sau một lần tải lại từ xung đột.
+            </p>
+            <p>
+              Tức là: bạn xây một cơ chế chống ghi đè, nó hoạt động hoàn hảo ở mọi trường
+              hợp bình thường, và ở trường hợp duy nhất nó được gọi đến, nó ghi đè.
+            </p>
+          </div>
+
+          <h3>3.3 <code>toUpdateRequest</code>, từng dòng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-model.ts</div>
+            <pre><code>export function toUpdateRequest(
+  baseline: Customer,
+  form: CustomerForm,
+  version: number,
+): UpdateCustomerRequest {
+  const original = baseline;
+  const next = toCreateRequest(form);       // form → hình dạng payload
+  const patch: UpdateCustomerRequest = { version };
+
+  if (next.fullName !== original.fullName) {
+    patch.fullName = next.fullName;
+  }
+  if (next.email !== original.email) {
+    patch.email = next.email;
+  }
+  if (next.phone !== original.phone) {
+    patch.phone = next.phone;
+  }
+  // … dateOfBirth, gender, status
+  if (!sameTags(next.tags, original.tags)) {
+    patch.tags = next.tags;
+  }
+  if (!sameAddress(next.address, original.address)) {
+    patch.address = next.address;
+  }
+
+  return patch;
+}
+
+/** True when nothing but the version would be sent. */
+export function isEmptyPatch(patch: UpdateCustomerRequest): boolean {
+  return Object.keys(patch).length === 1;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ba tham số, không phải hai</td>
+                  <td>
+                    <code>baseline</code> và <code>version</code> tách rời chính là mục 3.2.
+                    Nếu hàm chỉ nhận <code>baseline</code> và tự lấy
+                    <code>baseline.version</code>, nó sẽ gửi version cũ và luôn nhận 409.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>toCreateRequest(form)</code> dùng lại</td>
+                  <td>
+                    Form được chuyển sang hình dạng payload <em>trước</em>, nên phép so sánh
+                    diễn ra giữa hai thứ cùng loại — <code>''</code> đã thành
+                    <code>null</code>, chuỗi tag đã thành mảng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>So sánh từng field thủ công</td>
+                  <td>
+                    Dài dòng, và cố ý. Một vòng lặp chung sẽ cần so sánh sâu cho
+                    <code>address</code> và <code>tags</code> — hai hàm riêng ở cuối file
+                    làm việc đó, và đọc ra rõ hơn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>isEmptyPatch</code> kiểm <code>length === 1</code></td>
+                  <td>
+                    Một là chính <code>version</code>. Nếu chỉ còn nó thì không có gì đổi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.4 Không gửi một PATCH rỗng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>const patch = toUpdateRequest(baseline, this.form, latest.version);
+if (isEmptyPatch(patch)) {
+  // Nothing changed. Sending an empty PATCH would bump the version and
+  // write an audit entry recording that nobody did anything.
+  this.saving.set(false);
+  this.form.markAsPristine();
+  void this.router.navigate(['/customers', baseline.id]);
+  return;
+}</code></pre>
+          </div>
+
+          <p>
+            Hai hậu quả của việc gửi một PATCH rỗng, và cái thứ hai tệ hơn:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Version tăng</strong> — nên bất kỳ ai khác đang mở form với bản cũ sẽ
+              nhận 409, vì một thao tác không thay đổi gì.
+            </li>
+            <li>
+              <strong>Một dòng trong nhật ký kiểm toán</strong> ghi rằng ai đó đã sửa bản
+              ghi — trong khi họ chỉ mở form rồi bấm Lưu. Nhật ký kiểm toán mất giá trị đúng
+              bằng số dòng rác trong nó.
+            </li>
+          </ul>
+
+          <h3>3.5 Khi 409 tới: bốn ca, bốn chỗ trả lời</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>/**
+ * Turns a failed save into something the form can show.
+ *
+ * Four cases, and each one is answered in the place the user is looking:
+ * field errors on the fields, a stale write as a conflict panel, a duplicate
+ * email on the email control, and anything else as one message above the
+ * form.
+ */
+private handleFailure(error: unknown): void {
+  this.saving.set(false);
+
+  if (!isAppError(error)) {
+    this.submitError.set('errors.unknown');
+    return;
+  }
+
+  if (error.kind === 'validation') {
+    const unmatched = applyServerFieldErrors(this.form, error.fieldErrors, error.fieldIssues);
+    this.submitError.set(
+      unmatched.length &gt; 0 ? 'errors.validation' : 'pages.customers.form.fixFields',
+    );
+    this.focusFirstInvalidField();
+    return;
+  }
+
+  if (error.kind === 'conflict') {
+    if (error.currentVersion === undefined) {
+      // A conflict with no version is the other thing 409 means here: the
+      // email address is taken.
+      this.form.controls.email.setErrors({ emailTaken: true });
+      this.form.controls.email.markAsTouched();
+      this.submitError.set('pages.customers.form.fixFields');
+      this.focusFirstInvalidField();
+      return;
+    }
+    this.conflict.set(true);
+    return;
+  }
+
+  this.submitError.set(messageKeyOf(error));
+}</code></pre>
+          </div>
+
+          <p>
+            Đây là bài 10 mục 3.4 được dùng thật: <code>currentVersion</code> là thứ phân
+            biệt hai nghĩa của cùng một 409, và hai nghĩa đó dẫn tới
+            <strong>hai chỗ hiển thị khác nhau</strong> — một ô input, hay một panel toàn
+            form.
+          </p>
+
+          <h3>3.6 Tải lại mà giữ chữ đã gõ ◆</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts — chú thích đầu class</div>
+            <pre><code>## The conflict path
+
+A 409 carrying `currentVersion` means someone saved while this form was
+open. The page does not offer to force the write. It offers to **reload the
+newest record while keeping the values in the form**, and then to save
+again - which works because the update is a PATCH computed against the
+record the form was filled from: fields the other person changed and this
+user did not are simply not in the payload, so their work survives. That is
+optimistic concurrency doing what it is for, rather than a dialog asking a
+user to choose between two edits they cannot see.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>protected reloadKeepingChanges(): void {
+  this.conflict.set(false);
+  this.awaitingReload.set(true);
+  this.store.refreshDetail();
+}</code></pre>
+          </div>
+
+          <p>
+            Ba dòng, và chúng <strong>không chạm vào form</strong>. Bản ghi mới về sẽ cập
+            nhật <code>latest</code> (để lấy version mới) nhưng
+            <strong>không</strong> ghi đè các ô. Chữ An đã gõ vẫn là chữ An đã gõ.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Hộp thoại mà repo <em>không</em> hiện</span>
+            <p>
+              Cách thường thấy: "Bản ghi đã bị thay đổi. Giữ phiên bản của bạn hay của họ?"
+              — và người dùng phải chọn giữa hai thứ họ không nhìn thấy.
+            </p>
+            <p>
+              Chú thích gọi đúng tên vấn đề:
+              <em>"rather than a dialog asking a user to choose between two edits they cannot
+              see."</em> Với PATCH đo theo <code>baseline</code>, câu hỏi đó
+              <strong>không cần đặt ra</strong> — hai thay đổi không đụng nhau thì cả hai
+              cùng sống.
+            </p>
+          </div>
+
+          <h3>3.7 Cảnh báo <em>trước</em> khi 409 xảy ra</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts — template</div>
+            <pre><code>@if (remoteChange(); as change) {
+  &lt;!-- Realtime news about the record being edited. The form is not
+       touched: the user's typing is theirs. What they are offered
+       is the same reload the conflict panel offers - their fields
+       kept, everyone else's refreshed (ADR-0015) - before saving,
+       instead of a 409 after. --&gt;
+  &lt;div class="conflict" role="status" data-testid="remote-change"&gt;
+    &lt;p class="conflict__heading"&gt;{{ t('pages.customers.form.remote.' + change + 'Heading') }}&lt;/p&gt;
+    &lt;p&gt;{{ t('pages.customers.form.remote.' + change + 'Body') }}&lt;/p&gt;
+    @if (change !== 'deleted') {
+      &lt;app-button variant="secondary" (click)="reloadKeepingChanges()"&gt;
+        {{ t('pages.customers.form.conflictReload') }}
+      &lt;/app-button&gt;
+    }
+  &lt;/div&gt;
+}</code></pre>
+          </div>
+
+          <p>
+            Khi luồng sự kiện realtime báo rằng ai đó vừa sửa bản ghi An đang mở, form
+            <strong>không bị đụng vào</strong> — nhưng An được báo ngay, kèm đúng nút tải
+            lại mà panel xung đột sẽ đưa. Xung đột được xử lý <em>trước</em> khi nó thành
+            một lần lưu thất bại.
+          </p>
+
+          <p>
+            Và chú ý <code>@if (change !== 'deleted')</code>: nếu bản ghi đã bị
+            <em>xoá</em> thì không có gì để tải lại. Nút biến mất, chỉ còn thông báo.
+          </p>
+
+          <h3>3.8 Lệnh ghi đã bắt đầu thì phải kết thúc</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts — chú thích</div>
+            <pre><code>// Every write below runs to completion once started (`runToCompletion`):
+// the caller's subscription decides who hears the outcome, not whether the
+// store applies it. Reads are the opposite - cancelling them is the point.</code></pre>
+          </div>
+
+          <p>
+            Đây là một trong năm defect mà đợt review phase 8 tìm ra
+            (<code>docs/enterprise-review.md</code> §3, defect D1): vòng đời của một lệnh
+            ghi từng bị gắn với component khởi xướng nó. Nếu người dùng bấm Lưu rồi điều
+            hướng đi ngay, component bị huỷ, subscription bị huỷ — và
+            <strong>request bị abort giữa chừng</strong>.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Đọc</th>
+                  <th>Ghi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Huỷ khi có việc mới</td>
+                  <td><strong>Có</strong> — đó là mục đích (<code>switchMap</code>, bài 12)</td>
+                  <td><strong>Không bao giờ</strong></td>
+                </tr>
+                <tr>
+                  <td>Lý do</td>
+                  <td>Kết quả cũ không còn nghĩa</td>
+                  <td>
+                    Hậu quả đã xảy ra trên server, hoặc sẽ xảy ra. Bỏ dở nghĩa là không ai
+                    biết nó có xảy ra hay không.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ai nghe kết quả</td>
+                  <td>Người đang subscribe</td>
+                  <td>
+                    Người đang subscribe — nhưng store
+                    <em>vẫn áp dụng</em> kết quả dù không ai nghe
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.9 Hàng loạt: kết quả theo từng item</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>/**
+ * Runs a bulk action and keeps whatever failed selected.
+ *
+ * Clearing the selection on completion would be simpler and would throw away
+ * the only thing the user needs: which records still have a problem. The
+ * successes leave the selection; the failures stay in it, ready for a retry.
+ */
+protected runBulk(action: BulkAction): void {
+  // …
+  this.store.runBulk(action, ids).subscribe({
+    next: (response) =&gt; {
+      this.bulkRunning.set(false);
+      this.bulkResult.set(response);
+      this.selectedIds.set(
+        new Set(
+          response.results
+            .filter((result) =&gt; result.outcome === 'FAILED')
+            .map((result) =&gt; result.id),
+        ),
+      );
+    },
+    error: (error: unknown) =&gt; {
+      // A transport failure is not a per-item outcome, so it is reported
+      // as one failure for the whole batch rather than faked per record.
+      this.bulkResult.set({
+        requested: ids.length,
+        succeeded: 0,
+        failed: ids.length,
+        results: ids.map((id) =&gt; ({ id, outcome: 'FAILED' as const, errorCode: 'INTERNAL_ERROR' as const })),
+      });
+      // …
+    },
+  });
+}</code></pre>
+          </div>
+
+          <p>Hai quyết định, và cả hai đều về việc <em>người dùng làm gì tiếp theo</em>:</p>
+
+          <ul>
+            <li>
+              <strong>Những cái hỏng vẫn được chọn.</strong> Xoá hết lựa chọn thì đơn giản
+              hơn — và vứt đi thứ duy nhất người dùng cần: bản ghi nào còn vấn đề. Giữ lại
+              nghĩa là họ bấm "Thử lại" và chỉ thử đúng chúng.
+            </li>
+            <li>
+              <strong>Lỗi transport không bị giả làm kết quả từng item.</strong> Mạng hỏng
+              không có nghĩa là "mười bản ghi đều thất bại vì lý do riêng" — nó là một thất
+              bại cho cả lô. Code dựng một kết quả nói đúng điều đó thay vì bịa ra mười lý
+              do.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File / tài liệu</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form/customer-form-model.ts</code> → <code>toUpdateRequest</code></td>
+                  <td><strong>Đọc trước.</strong> Hai điểm tham chiếu, và chú thích giải thích vì sao</td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/customer-form-page.ts</code></td>
+                  <td>
+                    Chú thích "The conflict path"; <code>handleFailure</code> bốn ca;
+                    <code>reloadKeepingChanges</code>; cảnh báo realtime
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/src/customer.ts</code></td>
+                  <td>
+                    <code>updateCustomerRequestSchema</code>: mọi field optional,
+                    <code>version</code> bắt buộc
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>docs/decisions/0015-losing-write-keeps-both-edits.md</code></td>
+                  <td>ADR cho toàn bộ cơ chế này</td>
+                </tr>
+                <tr>
+                  <td><code>docs/decisions/0043-writes-run-to-completion.md</code></td>
+                  <td>Vì sao lệnh ghi không bị huỷ cùng component</td>
+                </tr>
+                <tr>
+                  <td><code>docs/enterprise-review.md</code> §3, defect D1</td>
+                  <td>Chính lỗi đó, khi nó còn tồn tại, và cách nó được tìm ra</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của một lần lưu ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> DangSua
+    DangSua --> KiemTraPending: bấm Lưu
+
+    KiemTraPending --> ChoAsync: form.pending
+    ChoAsync --> DungPatch: validator trả lời
+    KiemTraPending --> DungPatch: không pending
+
+    DungPatch --> KhongDoi: isEmptyPatch
+    KhongDoi --> [*]: điều hướng, KHÔNG gửi gì
+
+    DungPatch --> DangGui: có thay đổi
+    DangGui --> Xong: 200
+    DangGui --> LoiField: 422
+    DangGui --> TrungEmail: 409 KHÔNG có currentVersion
+    DangGui --> XungDot: 409 CÓ currentVersion
+    DangGui --> LoiKhac: mọi lỗi khác
+
+    LoiField --> DangSua: đánh dấu field + focus ô đầu tiên
+    TrungEmail --> DangSua: lỗi trên ô email
+    LoiKhac --> DangSua: một thông báo trên form
+
+    XungDot --> TaiLai: bấm "Tải bản mới nhất"
+    TaiLai --> DangSua: latest cập nhật<br/><b>form KHÔNG bị đụng</b>
+    DangSua --> DangGui: Lưu lại → patch mới, version mới
+
+    Xong --> [*]: điều hướng về trang chi tiết
+
+    state "Đang sửa" as DangSua
+    state "Kiểm tra PENDING" as KiemTraPending
+    state "Chờ async validator" as ChoAsync
+    state "Dựng patch từ baseline" as DungPatch
+    state "Không có gì đổi" as KhongDoi
+    state "Đang gửi PATCH" as DangGui
+    state "Lỗi field (422)" as LoiField
+    state "Email trùng (409)" as TrungEmail
+    state "Xung đột (409 + version)" as XungDot
+    state "Đã tải lại" as TaiLai
+    state "Lỗi khác" as LoiKhac
+
+    note right of TaiLai
+        Chữ người dùng gõ được giữ.
+        Chỉ latest.version đổi.
+    end note
+            </pre>
+            <figcaption>
+              Năm nhánh thất bại, và bốn trong số đó quay về "Đang sửa" với chữ còn nguyên.
+              Nhánh <strong>Xung đột</strong> là nhánh duy nhất đi qua một bước trung gian —
+              và bước đó không chạm vào form.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Cuộc đua, với số liệu</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor A as An
+    actor B as Bình
+    participant S as Server
+    Note over S: X: tên="Nguyễn Văn A", phone=trống, version=7
+    A->>S: GET X
+    S-->>A: baseline = version 7
+    B->>S: GET X
+    S-->>B: version 7
+    B->>B: điền phone
+    B->>S: PATCH { phone, version: 7 }
+    S-->>B: 200 → version 8
+    Note over S: X: phone="0901234567", version=8
+    A->>A: sửa tên
+    A->>S: PATCH { fullName, version: 7 }
+    S-->>A: 409 + currentVersion 8
+    A->>A: bấm "Tải bản mới nhất"
+    A->>S: GET X
+    S-->>A: latest = version 8 (có phone)
+    Note over A: baseline VẪN là bản version 7<br/>form VẪN giữ tên An đã gõ
+    A->>S: PATCH { fullName, version: 8 }
+    S-->>A: 200 → version 9
+    Note over S: X: tên mới CỦA AN + phone CỦA BÌNH
+            </pre>
+            <figcaption>
+              Bước 15 là cả bài: payload chỉ có <code>fullName</code>, vì chênh lệch được đo
+              với <code>baseline</code> (version 7) — nơi An chỉ đổi tên. Đo với
+              <code>latest</code> thì <code>phone</code> cũng lọt vào, và bước 17 sẽ xoá số
+              của Bình.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>PATCH với hai điểm tham chiếu — ADR-0015</h4>
+          <p>
+            Phương án bị loại: PUT cả bản ghi. Chú thích nói nó có cùng lỗi
+            <strong>vĩnh viễn</strong> — mọi field người khác đổi đều nằm trong payload, ở
+            mọi lần lưu, không chỉ sau xung đột. Giá phải trả: phải giữ hai bản ghi trong bộ
+            nhớ và phải viết một hàm diff.
+          </p>
+
+          <h4>Không hỏi người dùng "giữ bản nào"</h4>
+          <p>
+            Phương án bị loại: hộp thoại ba lựa chọn. Bị loại vì nó bắt người dùng chọn giữa
+            hai bản họ không nhìn thấy — và vì trong phần lớn trường hợp,
+            <em>không cần chọn gì cả</em>: hai thay đổi không đụng nhau.
+          </p>
+
+          <h4>Khoá lạc quan, không khoá bi quan</h4>
+          <p>
+            Phương án bị loại: khoá bản ghi khi ai đó mở form. Bị loại vì một người quên
+            đóng tab sẽ khoá bản ghi cho cả công ty, và vì nó cần một cơ chế giải phóng khoá
+            mà không có cách nào đúng hoàn toàn.
+          </p>
+
+          <h4>Lệnh ghi chạy tới cùng — ADR-0043</h4>
+          <p>
+            Phương án bị loại: gắn vòng đời lệnh ghi với component (hành vi mặc định của
+            <code>takeUntilDestroyed</code>). Bị loại sau khi review phase 8 phát hiện nó:
+            bấm Lưu rồi điều hướng ngay làm request bị abort, và không ai biết lệnh ghi có
+            xảy ra hay không.
+          </p>
+
+          <h4>Kết quả hàng loạt theo từng item</h4>
+          <p>
+            Phương án bị loại: một kết cục chung cho cả lô. Bị loại vì "5 trên 10 thành
+            công" không cho người dùng biết phải làm gì tiếp — và vì những cái hỏng cần ở
+            lại trong lựa chọn để thử lại.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Đo chênh lệch với bản mới nhất</span>
+            <p>
+              Cơ chế chống ghi đè trở thành thứ ghi đè — và chỉ trong đúng tình huống nó tồn
+              tại để xử lý. Mục 3.2. Nếu bạn nhớ một điều từ bài này, nhớ điều này.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Gửi cả bản ghi (PUT)</span>
+            <p>
+              Cùng lỗi, nhưng <strong>vĩnh viễn</strong> chứ không chỉ sau xung đột. Mọi lần
+              lưu đều mang theo giá trị của mọi field — kể cả field người này chưa bao giờ
+              nhìn thấy, đọc từ vài phút trước.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Ghi đè form khi tải lại</span>
+            <p>
+              Người dùng gõ mười phút, nhận 409, bấm "Tải lại" — và mọi thứ họ gõ biến mất,
+              thay bằng bản của người khác. Họ sẽ không bấm nút đó lần thứ hai, và sẽ bắt
+              đầu copy nội dung ra notepad trước khi lưu.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Gửi PATCH rỗng</span>
+            <p>
+              Version tăng vì một thao tác không đổi gì, nên người khác đang mở form nhận
+              409 vô cớ. Và nhật ký kiểm toán có một dòng nói ai đó đã sửa bản ghi — một
+              dòng sai, trong đúng cái hồ sơ tồn tại để làm bằng chứng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Huỷ lệnh ghi khi component bị huỷ</span>
+            <p>
+              Người dùng bấm Lưu rồi bấm ngay vào một link. Request bị abort. Bản ghi có
+              thể đã được lưu, có thể chưa — <strong>không ai biết</strong>, kể cả hệ thống.
+              Đây là defect D1 trong repo, đã được tìm ra và sửa.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Xoá lựa chọn sau một thao tác hàng loạt</span>
+            <p>
+              Năm trên mười thành công, và lựa chọn bị xoá sạch. Người dùng phải tự nhớ năm
+              cái nào hỏng, tìm lại chúng trong danh sách, chọn lại. Hoặc họ chạy lại cả
+              mười — và năm cái đã thành công bị tác động lần thứ hai.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-form/customer-form-model.spec.ts</code></td>
+                  <td>
+                    <code>toUpdateRequest</code> chỉ chứa field đã đổi; version lấy từ tham
+                    số thứ ba; không đổi gì thì patch chỉ có version
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-form/customer-form-page.spec.ts</code></td>
+                  <td>
+                    409 có version → panel xung đột; 409 không version → lỗi trên ô email;
+                    tải lại <strong>không</strong> ghi đè form
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>Lệnh ghi chạy tới cùng dù người gọi đã huỷ đăng ký</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    <strong>Cuộc đua thật, không giả lập:</strong> một tab khác sửa bản ghi
+                    ngoài luồng, rồi lưu, rồi khẳng định
+                    <em>cả hai thay đổi đều sống</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Test e2e này đáng mở ra đọc</span>
+            <p>
+              Trong <code>customer-crud.spec.ts</code>, khối
+              <em>"optimistic concurrency"</em> dựng đúng tình huống ở mục 5.2:
+              <code>updateCustomerOutOfBand</code> sửa bản ghi từ một context khác —
+              <em>"no scenario header, no stubbing; the record's version genuinely moves
+              on"</em> — rồi test khẳng định cả tên mới lẫn số điện thoại của "người kia"
+              đều có mặt sau khi lưu.
+            </p>
+            <p>
+              Và nó kết thúc bằng việc <em>đặt tên về như cũ</em> để lần chạy sau bắt đầu từ
+              cùng một chỗ, nhưng <strong>giữ lại số điện thoại</strong> — "because that is
+              exactly what surviving the merge means".
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi đang viết một lệnh GHI"}
+
+    Q0 --> R1["Gửi PHẦN ĐÃ ĐỔI, không gửi cả bản ghi<br/>PATCH, không PUT"]
+    R1 --> R1a["Đo chênh lệch với BASELINE<br/>bản mà form được điền từ đó"]
+    R1 --> R1b["Lấy version từ LATEST<br/>bản mới nhất client biết"]
+    R1a --> WARN["Dùng latest cho cả hai =<br/>cơ chế chống ghi đè tự ghi đè"]
+
+    Q0 --> R2["Không có gì đổi → KHÔNG gửi<br/>tránh bump version và một dòng audit sai"]
+
+    Q0 --> R3{"409 trả về gì?"}
+    R3 -->|"có currentVersion"| C1["panel xung đột + nút tải lại<br/>KHÔNG đụng vào form"]
+    R3 -->|"không có"| C2["lỗi trên đúng ô gây ra nó"]
+
+    Q0 --> R4["Đã bắt đầu thì phải KẾT THÚC<br/>không huỷ theo component"]
+    Q0 --> R5["Không bao giờ retry tự động<br/>'mạng hỏng' và 'đã xong nhưng mất response'<br/>trông giống hệt nhau"]
+
+    Q0 --> R6{"Hàng loạt?"}
+    R6 -->|"có"| B1["kết quả theo TỪNG item<br/>cái hỏng ở lại trong lựa chọn"]
+    B1 --> B2["lỗi transport = MỘT thất bại cho cả lô,<br/>đừng bịa lý do cho từng bản ghi"]
+            </pre>
+            <figcaption>
+              Nhánh đầu là cả bài. Ô <strong>WARN</strong> là chỗ duy nhất trong bộ tài liệu
+              này mà một lựa chọn trông tự nhiên hơn lại biến một tính năng an toàn thành
+              nguyên nhân của chính vấn đề nó giải quyết.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Dựng lại cuộc đua bằng hai tab</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>Mở hai cửa sổ trình duyệt, đăng nhập cả hai bằng <code>admin</code>.</li>
+              <li>Cả hai mở form sửa <em>cùng một</em> khách hàng.</li>
+              <li>Cửa sổ 1: điền số điện thoại, bấm Lưu.</li>
+              <li>
+                Cửa sổ 2: quan sát — có thông báo gì xuất hiện <em>trước khi</em> bạn bấm
+                Lưu không?
+              </li>
+              <li>Cửa sổ 2: đổi tên, bấm Lưu. Chuyện gì xảy ra?</li>
+              <li>Bấm "Tải bản mới nhất". Tên bạn vừa gõ còn không?</li>
+              <li>Bấm Lưu lần nữa. Mở trang chi tiết: có cả tên mới lẫn số điện thoại không?</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì ở bước 4 và 7</summary>
+              <p>
+                (4): một thông báo realtime nói rằng bản ghi vừa được người khác sửa, kèm
+                nút tải lại. <strong>Form không bị đụng vào.</strong> Đây là mục 3.7 — xung
+                đột được báo trước khi nó thành một lần lưu thất bại.
+              </p>
+              <p>
+                (7): <strong>có cả hai</strong>. Đó là toàn bộ mục đích của bài. Nếu bạn mất
+                một trong hai, hoặc repo có bug, hoặc bạn đã sửa gì đó — kiểm tra
+                <code>git status</code>.
+              </p>
+              <p>
+                Nếu bước 4 không hiện gì, kiểm tra xem mock API có đang chạy luồng sự kiện
+                không — <code>docs/realtime.md</code>.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tự tay tạo ra lost update</h3>
+            <p class="task__meta">~40 phút · sửa rồi hoàn nguyên · bài quan trọng nhất cả bài</p>
+            <ol>
+              <li>
+                Trong <code>customer-form-page.ts</code>, tìm lời gọi
+                <code>toUpdateRequest(baseline, this.form, latest.version)</code> và đổi
+                tham số đầu thành <code>latest</code>:
+                <div class="code">
+                  <pre><code>const patch = toUpdateRequest(latest, this.form, latest.version);</code></pre>
+                </div>
+              </li>
+              <li>Lặp lại <strong>toàn bộ</strong> bài tập 1.</li>
+              <li>
+                Ở bước 7, mở DevTools → Network và xem payload của PATCH thứ hai.
+                <strong>Nó chứa những field nào?</strong>
+              </li>
+              <li>Mở trang chi tiết. Số điện thoại còn không?</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Điều bạn vừa chứng minh, và vì sao nó đáng 40 phút</summary>
+              <p>
+                Payload chứa <code>phone: null</code> — vì form trống còn
+                <code>latest</code> có số, nên phép so sánh thấy "khác" và đưa nó vào patch.
+                Số điện thoại của người kia bị xoá.
+              </p>
+              <p>
+                Đáng 40 phút vì ba lý do. Một: bạn vừa tận mắt thấy một tính năng an toàn
+                trở thành nguyên nhân của chính vấn đề nó giải quyết. Hai: thay đổi bạn vừa
+                làm <em>trông hợp lý hơn</em> bản gốc — một biến thay vì hai. Ba: ứng dụng
+                không hề báo lỗi, test cơ bản vẫn xanh, và bạn chỉ phát hiện nếu
+                <strong>dựng đúng tình huống bốn bước</strong> ở bài tập 1.
+              </p>
+              <p>
+                Bây giờ hãy kiểm: có test nào trong repo bắt được thay đổi này không? Chạy
+                <code>npm test --workspace @ecm/web</code> với bản sửa, và ghi lại câu trả
+                lời vào <code>journal.md</code>.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Hai nghĩa của 409</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>
+                Tạo một khách hàng mới với email <code>test-409@example.test</code>.
+              </li>
+              <li>
+                Tạo khách hàng thứ hai với <em>cùng</em> email đó. Lỗi hiện ở đâu, nói gì?
+              </li>
+              <li>Bây giờ dựng lại cuộc đua ở bài tập 1. Lỗi hiện ở đâu, nói gì?</li>
+              <li>
+                Cả hai đều là 409. Mở <code>handleFailure</code> và chỉ ra dòng nào phân
+                biệt chúng.
+              </li>
+              <li>
+                Giả sử <code>currentVersion</code> bị bỏ khỏi envelope lỗi. Người dùng ở
+                tình huống (3) sẽ thấy gì?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án câu 5</summary>
+              <p>
+                Họ sẽ thấy <strong>lỗi "email đã được dùng" trên ô email</strong> — vì nhánh
+                <code>currentVersion === undefined</code> là nhánh mặc định. Một thông báo
+                hoàn toàn sai, trên một ô họ không hề đụng tới.
+              </p>
+              <p>
+                Đây là lý do bài 10 nói <code>currentVersion</code> là "bản lề": nó không
+                phải dữ liệu bổ sung cho đẹp, nó là thứ phân biệt hai tình huống mà API diễn
+                đạt bằng cùng một status code.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Mốc 3</h3>
+            <p class="task__meta">~2,5 giờ · branch <code>learning/*</code> · tốt nghiệp chặng 3</p>
+            <p>
+              Thêm một field <strong>mới</strong> xuyên suốt hệ thống:
+              <code>jobTitle</code> (chức danh, tuỳ chọn, tối đa 100 ký tự).
+            </p>
+            <ol>
+              <li>
+                <strong>Contract:</strong> thêm vào <code>customerSchema</code>,
+                <code>createCustomerRequestSchema</code>,
+                <code>updateCustomerRequestSchema</code>. Chạy
+                <code>npm run build:contracts</code>.
+              </li>
+              <li>
+                <strong>Mock API:</strong> seed sinh ra giá trị cho nó; handler tạo và sửa
+                chấp nhận nó.
+              </li>
+              <li>
+                <strong>Form model:</strong> control, validator độ dài, cả hai phép chuyển
+                đổi, <strong>và <code>toUpdateRequest</code></strong>.
+              </li>
+              <li><strong>UI:</strong> ô trong form, và hiển thị trong trang chi tiết.</li>
+              <li><strong>Dịch:</strong> khoá trong cả <code>en.json</code> và <code>vi.json</code>.</li>
+              <li>
+                <strong>Test:</strong> ít nhất ba — một cho schema, một cho
+                <code>toUpdateRequest</code> (chỉ gửi khi đổi), một cho form model.
+              </li>
+              <li><code>npm run verify</code> — toàn bộ, không bỏ bước nào.</li>
+            </ol>
+            <details>
+              <summary>Năm chỗ dễ quên, và cách tự kiểm</summary>
+              <ol>
+                <li>
+                  <strong><code>toUpdateRequest</code>.</strong> Quên nó thì field mới
+                  <em>không bao giờ</em> được gửi khi sửa — form hiển thị đúng, lưu "thành
+                  công", và giá trị không đổi. Không lỗi nào.
+                </li>
+                <li>
+                  <strong><code>toFormValue</code>.</strong> Quên thì mở form sửa sẽ thấy ô
+                  trống dù bản ghi có giá trị — và lưu sẽ xoá nó.
+                </li>
+                <li>
+                  <strong><code>''</code> → <code>null</code>.</strong> Field tuỳ chọn, nên
+                  <code>blankToNull</code>.
+                </li>
+                <li>
+                  <strong>Cả hai file dịch.</strong> Có một test so sánh khoá giữa hai file —
+                  nó sẽ bắt bạn.
+                </li>
+                <li>
+                  <strong><code>build:contracts</code>.</strong> Quên thì
+                  <code>does not provide an export named</code>.
+                </li>
+              </ol>
+              <p>
+                <strong>Tự kiểm bằng một tình huống, không phải bằng một checklist:</strong>
+                mở hai tab, tab 1 sửa <em>chức danh</em>, tab 2 sửa <em>tên</em>. Lưu tab 1
+                trước, rồi tab 2, tải lại khi gặp 409, lưu lại. Nếu cả hai thay đổi đều
+                sống, bạn đã nối field mới vào đúng mọi mắt xích — kể cả mắt xích tinh vi
+                nhất.
+              </p>
+              <p>
+                <strong>Qua được thì bạn đã đạt Mốc 3.</strong> Ghi ngày vào
+                <code>README.md</code> §4 và commit. Theo lộ trình, đây là mốc mà
+                <em>"đủ tự tin nhận việc Angular thật"</em> — và nếu bạn chỉ học được cuối
+                tuần, đây cũng là chỗ nên dừng để đi làm, vì chặng 4 học trong công việc
+                hiệu quả hơn.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao cần hai điểm tham chiếu chứ không phải một?</summary>
+            <p>
+              <code>baseline</code> trả lời "người này đã đổi gì" — chênh lệch giữa nó và
+              form. <code>latest</code> trả lời "server đang ở version nào". Sau một lần tải
+              lại từ xung đột, chúng là <strong>hai bản ghi khác nhau</strong>, và dùng
+              <code>latest</code> cho cả hai sẽ đưa thay đổi của người khác vào payload của
+              bạn.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao PUT sai vĩnh viễn còn PATCH-đo-sai chỉ sai sau xung đột?</summary>
+            <p>
+              PUT luôn mang cả bản ghi, nên mọi field người khác đổi đều bị ghi đè ở
+              <em>mọi</em> lần lưu. PATCH đo với <code>latest</code> chỉ sai khi
+              <code>latest</code> khác <code>baseline</code> — tức là sau một lần tải lại.
+              Cả hai đều là lost update; cái sau chỉ hiếm hơn và khó tìm hơn.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao không gửi PATCH rỗng?</summary>
+            <p>
+              Nó tăng version — nên người khác đang mở form nhận 409 vô cớ — và ghi một dòng
+              nhật ký kiểm toán nói rằng ai đó đã sửa bản ghi, trong khi họ chỉ mở form rồi
+              bấm Lưu.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Khi gặp 409 có <code>currentVersion</code>, repo làm gì?</summary>
+            <p>
+              Hiện một panel kèm nút tải lại, và nút đó
+              <strong>không chạm vào form</strong> — chỉ cập nhật <code>latest</code>. Lưu
+              lại lần nữa sẽ gửi một patch tính theo <code>baseline</code> cũ với version
+              mới, nên thay đổi của cả hai người cùng sống.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao lệnh ghi không bị huỷ cùng component, còn lệnh đọc thì có?</summary>
+            <p>
+              Lệnh đọc bị huỷ vì kết quả cũ không còn nghĩa — đó là mục đích của
+              <code>switchMap</code>. Lệnh ghi thì hậu quả đã hoặc sẽ xảy ra trên server; bỏ
+              dở nghĩa là không ai biết nó có xảy ra hay không. Đây là defect D1 của repo, đã
+              được tìm ra và sửa.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao những bản ghi thất bại vẫn được giữ trong lựa chọn?</summary>
+            <p>
+              Vì đó là thứ duy nhất người dùng cần sau một thao tác hàng loạt: bản ghi nào
+              còn vấn đề. Xoá hết lựa chọn thì đơn giản hơn và buộc họ hoặc tự nhớ, hoặc
+              chạy lại cả lô — tác động lần hai lên những cái đã thành công.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao lỗi mạng trong một thao tác hàng loạt không được báo theo từng item?</summary>
+            <p>
+              Vì nó không phải kết quả của từng item — không bản ghi nào được server xem xét
+              riêng. Bịa ra mười lý do thất bại là nói sai về chuyện đã xảy ra. Nó là
+              <strong>một</strong> thất bại cho cả lô.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Hết chặng 3 — và đây là mốc quan trọng nhất</span>
+            <p>
+              Bạn đã đi hết phần chiếm 80% việc thật: form, validation, routing, guard, URL
+              là state, và ghi dữ liệu khi có người khác cùng sửa.
+              <strong>Bài tập 4 ở trên là Mốc 3.</strong>
+            </p>
+            <p>
+              Chặng 4 (bài 19–24) là về làm việc trong một team có CI: auth, phân quyền
+              nhiều lớp, i18n như một quy tắc build, accessibility, kiến trúc test, và các
+              cổng chặn. Nó kết thúc ở Mốc 4 — ship một feature qua toàn bộ
+              <code>npm run verify</code>.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="17-url-la-state.html">← Bài 17</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ ◆</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 17 — URL là state</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb"><a href="index.html">Lộ trình</a> → Chặng 3 — Form &amp; routing → Bài 17</p>
+        <h1>URL là state</h1>
+        <p class="lede">
+          Một màn hình danh sách có bốn loại state, và câu hỏi khó không phải "lưu ở đâu"
+          mà <strong>"cái nào phải sống sót qua cái gì"</strong>. Bài này về quyết định đặt
+          tiêu chí lọc vào thanh địa chỉ — và về bốn thứ bạn được tặng kèm khi làm vậy, cộng
+          một thứ cố ý <em>không</em> được đặt vào đó.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 3 · hướng tới Mốc 3</li>
+          <li class="tag">~2 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Query param</strong></td>
+                  <td>Phần sau dấu <code>?</code> trong URL: <code>?page=2&amp;size=20</code>.</td>
+                </tr>
+                <tr>
+                  <td><strong>Nguồn sự thật</strong></td>
+                  <td>
+                    Chỗ duy nhất giữ một giá trị. Mọi chỗ khác chỉ <em>đọc</em> nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Deep link</strong></td>
+                  <td>
+                    URL dẫn thẳng tới một trạng thái cụ thể, không chỉ tới một trang.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>History entry</strong></td>
+                  <td>
+                    Một nấc trong lịch sử trình duyệt. Mỗi lần điều hướng tạo một nấc — và
+                    nấc vô nghĩa làm nút Back trở nên khó chịu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>queryParamsHandling: 'merge'</code></td>
+                  <td>
+                    Giữ các query param hiện có, chỉ ghi đè những cái được truyền vào.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>null</code> trong queryParams</td>
+                  <td>
+                    Với router, <code>null</code> nghĩa là <strong>xoá</strong> tham số đó —
+                    không phải gán nó bằng rỗng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Chuẩn hoá</strong></td>
+                  <td>
+                    Đưa về một dạng duy nhất khi <em>đọc</em>; bỏ bớt dạng mặc định khi
+                    <em>ghi</em>. Hai chiều, hai luật.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Quyết định được một mẩu state thuộc về URL, về component, về store, hay về
+              form — và nói được tiêu chí.
+            </li>
+            <li>Viết một hàm đọc query param chịu được mọi thứ người dùng gõ vào.</li>
+            <li>
+              Giữ URL ngắn mà vẫn đầy đủ, và biết vì sao điều đó không phải chuyện thẩm mỹ.
+            </li>
+            <li>
+              Giải thích được vì sao danh sách dòng đang chọn <strong>không</strong> được
+              vào URL.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@RequestParam</code></td>
+                  <td>Query param bind vào <code>input()</code></td>
+                  <td>
+                    Của bạn tới một lần rồi hết. Ở đây nó là
+                    <strong>state sống lâu nhất trong ứng dụng</strong> — nó sống sót qua
+                    F5, qua nút Back, qua việc gửi link cho đồng nghiệp.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Validate tham số request</td>
+                  <td><code>readCriteria</code></td>
+                  <td>
+                    Cùng tinh thần, khác hậu quả: của bạn trả 400. Ở đây một tham số rác
+                    phải <em>rơi về mặc định</em>, vì người dùng có thể vừa dán một URL bị
+                    chat cắt mất đuôi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Session / server-side state</td>
+                  <td>URL</td>
+                  <td>
+                    Session của bạn vô hình và gắn với một người. URL thì
+                    <strong>nhìn thấy được, sửa được, gửi được</strong> — đó vừa là sức mạnh
+                    vừa là lý do nó phải được kiểm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có gì tương đương</td>
+                  <td>Nút Back</td>
+                  <td>
+                    Backend không có khái niệm "hoàn tác thao tác vừa rồi". Ở đây nút Back
+                    là một tính năng của <em>trình duyệt</em> mà bạn được tặng miễn phí nếu
+                    thiết kế đúng — hoặc phá hỏng nếu thiết kế sai.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bốn loại state trên một màn hình</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — chú thích đầu class</div>
+            <pre><code>This page is the place where the four kinds of state in this feature meet,
+and keeping them apart is most of its job:
+
+| State              | Lives in                  | Survives a reload |
+| ------------------ | ------------------------- | ----------------- |
+| criteria           | the URL                   | yes               |
+| the page of rows   | `CustomerStore` + cache   | no                |
+| which rows are set | a signal here             | no                |
+| the bulk report    | a signal here             | no                |</code></pre>
+          </div>
+
+          <p>
+            Cột thứ ba là tiêu chí quyết định. Không phải "lưu ở đâu cho tiện" mà
+            <strong>"cái này có phải sống sót qua một lần F5 không"</strong>. Trả lời được
+            câu đó là đặt đúng chỗ.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Câu hỏi</th>
+                  <th>Nếu "có"</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Phải sống qua F5, Back, và gửi link được?</td>
+                  <td><strong>URL</strong></td>
+                </tr>
+                <tr>
+                  <td>Là bản sao dữ liệu server, dùng lại được giữa các trang?</td>
+                  <td><strong>Store</strong> (bài 11)</td>
+                </tr>
+                <tr>
+                  <td>Chỉ có nghĩa với màn hình này, và chết cùng nó?</td>
+                  <td><strong>Signal trong component</strong></td>
+                </tr>
+                <tr>
+                  <td>Là thứ người dùng đang gõ dở?</td>
+                  <td><strong>Form model</strong> (bài 13)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Bốn thứ được tặng kèm khi đặt tiêu chí vào URL</h3>
+
+          <ul>
+            <li>
+              <strong>F5 không mất gì.</strong> Người dùng lọc, sắp xếp, sang trang 7, rồi
+              nhấn F5 — và vẫn ở trang 7 với đúng bộ lọc đó.
+            </li>
+            <li>
+              <strong>Nút Back hoàn tác đúng thao tác cuối.</strong> Mỗi lần đổi bộ lọc là
+              một nấc lịch sử, nên Back = "quay về bộ lọc trước".
+            </li>
+            <li>
+              <strong>Link gửi được.</strong> "Xem giúp mình danh sách khách hàng Hà Nội
+              chưa active" là một URL dán vào chat.
+            </li>
+            <li>
+              <strong>Bookmark được.</strong> Một báo cáo thường xem trở thành một dấu trang.
+            </li>
+          </ul>
+
+          <p>
+            Không cái nào trong bốn thứ này cần code riêng. Chúng là
+            <em>hệ quả</em> của việc chọn đúng nguồn sự thật — và đó là lý do quyết định này
+            đáng giá hơn vẻ ngoài của nó.
+          </p>
+
+          <h3>3.3 Một hình dạng, bốn người dùng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer-list-criteria.ts</div>
+            <pre><code>/**
+ * What the customer list is currently showing, as a normalised value.
+ *
+ * This is the single shape that the URL, the filter controls, the cache key and
+ * the outgoing request all agree on. Without it each of the four grows its own
+ * slightly different idea of "no status filter" - `undefined`, `null`, `''`,
+ * `'ALL'` - and the cache starts missing on queries that are actually equal.
+ *
+ * Absent values are the empty string rather than `undefined`, because that is
+ * what an unset `&lt;select&gt;` and an empty text field produce.
+ */
+export interface CustomerListCriteria {
+  readonly page: number;
+  readonly size: number;
+  readonly sort: string;
+  readonly search: string;
+  readonly status: CustomerStatus | '';
+  readonly gender: Gender | '';
+  readonly createdFrom: string;
+  readonly createdTo: string;
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">"Bốn ý tưởng hơi khác nhau về <em>không lọc</em>"</span>
+            <p>
+              Đây là loại bug chỉ xuất hiện khi hệ thống lớn lên. URL dùng chuỗi rỗng, ô
+              select dùng <code>null</code>, khoá cache dùng <code>undefined</code>, request
+              dùng <code>'ALL'</code>. Mọi thứ vẫn chạy — cho tới khi cache
+              <em>trượt</em> trên hai truy vấn thật ra giống hệt nhau, và không ai hiểu vì
+              sao.
+            </p>
+            <p>
+              Một interface dùng chung giải quyết nó bằng cách làm cho câu hỏi không tồn tại:
+              chỉ có một cách viết "không lọc theo trạng thái", và đó là
+              <code>''</code>.
+            </p>
+          </div>
+
+          <p>
+            Chú ý lựa chọn <code>''</code> thay vì <code>undefined</code>: lý do rất thực
+            tế — đó là thứ một <code>&lt;select&gt;</code> chưa chọn và một ô text rỗng tạo
+            ra. Chuyển sang "bỏ hẳn tham số" xảy ra <strong>một lần, ở mỗi biên</strong>:
+            lúc ghi URL và lúc dựng request.
+          </p>
+
+          <h3>3.4 Đọc vào: query string là dữ liệu người dùng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer-list-criteria.ts</div>
+            <pre><code>/**
+ * Reads criteria out of the URL, falling back rather than failing.
+ *
+ * A query string is user input: it is typed by hand, edited in a bookmark, and
+ * truncated by chat clients. Every value is therefore validated against the
+ * contract's own schemas, and anything that does not pass is replaced with the
+ * default instead of being forwarded to the server. A hand-edited
+ * `?status=DELETED` must render the unfiltered list, not a 422.
+ */
+export function readCriteria(raw: RawCriteria): CustomerListCriteria {
+  return {
+    page: positiveInteger(raw.page, DEFAULT_CRITERIA.page),
+    size: clampedSize(raw.size),
+    sort: validSort(raw.sort),
+    search: text(raw.search).slice(0, 100),
+    status: member(customerStatusSchema.options, raw.status),
+    gender: member(genderSchema.options, raw.gender),
+    createdFrom: calendarDate(raw.createdFrom),
+    createdTo: calendarDate(raw.createdTo),
+  };
+}</code></pre>
+          </div>
+
+          <p>
+            Câu <em>"truncated by chat clients"</em> là một quan sát rất thực tế: người ta
+            dán URL vào chat, ứng dụng chat cắt nó, người nhận bấm vào và nhận một query
+            string hỏng. Phản ứng đúng không phải báo lỗi mà là
+            <strong>hiện danh sách</strong>.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Người dùng gõ</th>
+                  <th>Kết quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>?page=abc</code></td>
+                  <td>Trang 1 — <code>positiveInteger</code> kẹp về mặc định</td>
+                </tr>
+                <tr>
+                  <td><code>?page=-5</code></td>
+                  <td>Trang 1</td>
+                </tr>
+                <tr>
+                  <td><code>?size=999999</code></td>
+                  <td>Kẹp về <code>MAX_PAGE_SIZE</code> của contract</td>
+                </tr>
+                <tr>
+                  <td><code>?status=DELETED</code></td>
+                  <td>
+                    Không lọc — <code>member()</code> kiểm theo
+                    <code>customerStatusSchema.options</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>?sort=; DROP TABLE</code></td>
+                  <td>
+                    Sắp xếp mặc định — <code>validSort</code> kiểm theo danh sách field API
+                    chấp nhận
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chuỗi tìm kiếm 5000 ký tự</td>
+                  <td>Cắt còn 100</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý <code>validSort</code> đặc biệt: giá trị đó đi
+            <em>thẳng vào query gửi lên server</em>. Nếu không kiểm, client sẽ chuyển tiếp
+            một tên field tuỳ tiện. Server vẫn phải tự kiểm (bài 08 mục 3.8), nhưng kiểm ở
+            đây biến một 422 khó hiểu thành một danh sách bình thường.
+          </p>
+
+          <h3>3.5 Ghi ra: bỏ bớt, và <code>null</code> để xoá</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/customer-list-criteria.ts</div>
+            <pre><code>/**
+ * The query parameters that express these criteria.
+ *
+ * Values equal to the default are omitted, so `/customers` stays `/customers`
+ * rather than becoming a URL with eight parameters that all say "unchanged".
+ * A short URL is not cosmetic: it is the one a person will actually paste into
+ * a message, and it keeps the back button's history readable.
+ *
+ * `null` means "remove this parameter" to the router, which is what makes
+ * resetting a filter a real removal rather than `?status=`.
+ */
+export function criteriaToQueryParams(
+  criteria: CustomerListCriteria,
+): Record&lt;string, string | number | null&gt; { … }</code></pre>
+          </div>
+
+          <p>
+            Hai luật ngược chiều nhau, và cả hai đều cần:
+            <strong>đọc vào thì điền đầy mặc định</strong> (để mọi chỗ làm việc với một hình
+            dạng đầy đủ), <strong>ghi ra thì bỏ mặc định đi</strong> (để URL ngắn).
+          </p>
+
+          <p>
+            Và <code>null</code> là một chi tiết dễ bỏ sót: với router,
+            <code>null</code> nghĩa là <em>xoá hẳn tham số</em>. Không có nó, bấm "Xoá bộ
+            lọc" sẽ cho ra <code>?status=&amp;gender=&amp;search=</code> — một URL dài, xấu,
+            và nói rằng có bộ lọc đang bật trong khi không có.
+          </p>
+
+          <h3>3.6 Mọi thay đổi là một lần điều hướng</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>/**
+ * Every change to the list goes through here, and every one of them is a
+ * navigation.
+ *
+ * That is what makes the back button undo the last thing the user did,
+ * whether it was a page, a filter or a sort - and what makes the state on
+ * screen reconstructible from the address bar alone.
+ */
+protected applyCriteria(criteria: CustomerListCriteria, focusSelector?: string): void {
+  if (focusSelector) {
+    this.returnFocusTo(focusSelector, criteria);
+  }
+  this.router.navigate([], {
+    relativeTo: this.route,
+    queryParams: criteriaToQueryParams(criteria),
+    // Merge, so a parameter this page does not own survives. A `null` value
+    // removes the parameter, which is how a reset produces a clean URL
+    // instead of `?status=&gender=`.
+    queryParamsHandling: 'merge',
+  });
+}</code></pre>
+          </div>
+
+          <p>
+            <strong>Một cửa ra duy nhất.</strong> Đổi trang, đổi bộ lọc, đổi sắp xếp, đổi cỡ
+            trang — tất cả đều gọi hàm này. Không có đường nào khác để state của danh sách
+            thay đổi, nên không có cách nào để nó lệch khỏi URL.
+          </p>
+
+          <p>
+            <code>queryParamsHandling: 'merge'</code> giữ lại tham số mà trang này không sở
+            hữu. Nếu một ngày có một tham số chung cho cả ứng dụng — ví dụ một chế độ gỡ rối
+            — nó sẽ không bị mất mỗi lần người dùng đổi bộ lọc.
+          </p>
+
+          <h3>3.7 Vòng tròn đi qua thanh địa chỉ</h3>
+
+          <p>
+            Đây là phần đáng nhớ nhất của bài. Trạng thái <strong>không</strong> đi thẳng từ
+            ô lọc tới store. Nó đi vòng qua URL:
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    F["Ô lọc<br/>người dùng gõ"] -->|"debounce + distinctUntilChanged"| E["criteriaChange"]
+    E --> AC["applyCriteria()"]
+    AC -->|"router.navigate"| URL["URL<br/><b>NGUỒN SỰ THẬT</b>"]
+    URL -->|"withComponentInputBinding"| IN["8 input() trên page"]
+    IN -->|"computed + readCriteria"| CRI["criteria()"]
+    CRI -->|"effect"| ST["store.setCriteria()"]
+    CRI -->|"[criteria]"| F
+    ST --> ROWS["bảng kết quả"]
+            </pre>
+            <figcaption>
+              Ô lọc vừa là <em>nguồn phát</em> vừa là <em>người nhận</em> — nó hiển thị giá
+              trị đọc từ URL, chứ không giữ giá trị của riêng nó. Nhờ vậy nút Back cập nhật
+              cả ô lọc, mà không ai viết code cho việc đó.
+            </figcaption>
+          </figure>
+
+          <p>
+            Đi đường vòng này nghe thừa cho tới khi bạn thử nút Back: URL đổi → input đổi →
+            <code>criteria()</code> tính lại → ô lọc hiển thị giá trị cũ → store được hỏi
+            trang cũ. <strong>Một thao tác của trình duyệt, và cả màn hình đi theo</strong>,
+            không một dòng code xử lý sự kiện <code>popstate</code>.
+          </p>
+
+          <h3>3.8 Debounce ở ô lọc, không ở store</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-filters.ts</div>
+            <pre><code>this.searchControl.valueChanges
+  .pipe(
+    debounceTime(SEARCH_DEBOUNCE_MS),
+    // Without this, blurring a field or an external write that happens to
+    // match would emit a change that changes nothing - and push a history
+    // entry for it.
+    distinctUntilChanged(),
+    takeUntilDestroyed(),
+  )
+  .subscribe((value) =&gt; this.emit({ search: value.trim() }));
+
+this.immediate(this.statusControl, (value) =&gt; ({ status: … }));
+this.immediate(this.genderControl, (value) =&gt; ({ gender: … }));</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Điều khiển</th>
+                  <th>Cách phát</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ô tìm kiếm</td>
+                  <td>Debounce 300ms + <code>distinctUntilChanged</code></td>
+                  <td>
+                    Gõ là một chuỗi thao tác dở dang. Mỗi phím một nấc lịch sử thì nút Back
+                    phải bấm hai mươi lần.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Select trạng thái, giới tính, ngày</td>
+                  <td><strong>Ngay lập tức</strong></td>
+                  <td>
+                    Chọn một mục trong dropdown là một <em>quyết định đã xong</em>. Hoãn nó
+                    là độ trễ không ai yêu cầu.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            <code>distinctUntilChanged</code> ở đây không phải tối ưu mà là
+            <strong>sửa một lỗi về lịch sử</strong>: rời khỏi ô input mà không đổi gì vẫn
+            phát một giá trị, và nếu để nó đi tiếp thì có một nấc Back vô nghĩa. Người dùng
+            bấm Back và màn hình không đổi — họ bấm lại, hai lần, rồi bỏ cuộc.
+          </p>
+
+          <h3>3.9 Thứ cố ý <em>không</em> vào URL</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts — chú thích đầu class</div>
+            <pre><code>**Selection is local, and resets with the criteria.** It is not in the URL -
+a link that carries twenty ids is not a link anyone shares, and restoring a
+selection made against a different page of results is how the wrong records
+get deleted. Changing page, filter or sort clears it, on purpose.</code></pre>
+          </div>
+
+          <p>Hai lập luận, và cái thứ hai là cái quan trọng:</p>
+
+          <ul>
+            <li>
+              <strong>Không ai chia sẻ một link chứa hai mươi id.</strong> Lợi ích chính của
+              việc đưa state vào URL biến mất.
+            </li>
+            <li>
+              <strong>Khôi phục một selection được tạo trên một tập kết quả khác là cách
+              xoá nhầm bản ghi.</strong> Người dùng mở lại bookmark, bộ lọc đã khác (dữ liệu
+              đã đổi), hai mươi id vẫn được tick, họ bấm Xoá.
+            </li>
+          </ul>
+
+          <p>
+            Và vì cùng lý do thứ hai, selection bị <strong>xoá khi tiêu chí đổi</strong> —
+            không phải một hạn chế, mà là một biện pháp an toàn, thực hiện trong cùng
+            <code>effect</code> đẩy tiêu chí xuống store (bài 01 chặng 4), theo đúng thứ tự
+            để selection biến mất <em>trước</em> khi trang mới được hỏi.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/data/customer-list-criteria.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> Một hình dạng cho bốn người dùng; đọc vào
+                    thì chuẩn hoá, ghi ra thì bỏ bớt; khoá cache
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.ts</code></td>
+                  <td>
+                    Bảng bốn loại state ở đầu class; <code>applyCriteria</code> là cửa ra
+                    duy nhất; lập luận về selection
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-filters.ts</code></td>
+                  <td>
+                    Debounce cạnh bàn phím; ô nào ngay, ô nào chờ; và effect ghi ngược giá
+                    trị từ URL vào control
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>docs/state-management.md</code></td>
+                  <td>Toàn cảnh: ai sở hữu state nào trong cả ứng dụng</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một chi tiết trong <code>customer-filters.ts</code></span>
+            <p>
+              Có một <code>effect</code> ghi giá trị từ <code>criteria()</code>
+              <em>ngược</em> vào các control, kèm hàm <code>writeIfChanged</code>. Nó cần
+              thiết vì vòng tròn ở mục 3.7 đi qua URL: khi người dùng bấm Back, ô lọc phải
+              cập nhật theo. Và <code>writeIfChanged</code> — chỉ ghi khi giá trị thật sự
+              khác — là thứ ngăn vòng tròn đó tự quay mãi.
+            </p>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Bản đồ sở hữu state của một màn hình</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    subgraph URLBOX["URL — sống lâu nhất"]
+      C1["page · size · sort"]
+      C2["search · status · gender"]
+      C3["createdFrom · createdTo"]
+    end
+
+    subgraph STORE["CustomerStore — sống bằng tuổi của feature"]
+      S1["trang kết quả + RemoteData"]
+      S2["cache: pages + entities"]
+      S3["khách hàng đang mở"]
+    end
+
+    subgraph PAGE["Signal trong trang — chết cùng màn hình"]
+      P1["selectedIds"]
+      P2["bulkRunning · bulkResult"]
+      P3["exportProgress"]
+      P4["focusReturn"]
+    end
+
+    subgraph FORM["Form model — chết cùng form"]
+      F1["giá trị đang gõ"]
+      F2["dirty · touched · PENDING"]
+    end
+
+    URLBOX -->|"readCriteria"| STORE
+    URLBOX -.->|"tiêu chí đổi → XOÁ"| P1
+    STORE --> PAGE
+            </pre>
+            <figcaption>
+              Bốn vùng, bốn tuổi thọ, và mũi tên nét đứt là một quyết định an toàn: tiêu chí
+              đổi thì selection bị xoá, vì nó được tạo trên một tập kết quả khác.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Nút Back, và vì sao nó hoạt động</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant B as Trình duyệt
+    participant R as Router
+    participant P as CustomerListPage
+    participant F as CustomerFilters
+    participant S as CustomerStore
+    U->>F: gõ "nguyen" vào ô tìm kiếm
+    Note over F: debounce 300ms + distinctUntilChanged
+    F->>P: criteriaChange
+    P->>R: navigate(?search=nguyen)
+    R->>B: đẩy một nấc lịch sử
+    B->>P: input search="nguyen"
+    P->>S: setCriteria
+    U->>B: bấm Back
+    B->>R: URL quay về trạng thái trước
+    R->>P: input search=""
+    P->>P: criteria() tính lại
+    P->>F: [criteria] → effect ghi ngược vào control
+    P->>S: setCriteria (tiêu chí cũ)
+    Note over S: criteriaKey đã có trong cache → refreshing, không nháy
+            </pre>
+            <figcaption>
+              Không một dòng code nào xử lý sự kiện Back. Nó hoạt động vì URL là nguồn sự
+              thật và mọi thứ khác đọc từ đó. Bước 11 là chỗ ô lọc tự cập nhật — và bước
+              cuối là cache của bài 12 làm cho nó mượt.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Tiêu chí ở URL, không ở component</h4>
+          <p>
+            Phương án bị loại: giữ <code>page</code>, <code>search</code>… làm signal trong
+            trang. Chú thích nói thẳng: <em>"There is deliberately no <code>page</code> field
+            on this class: a second copy would be the thing that gets out of step with the
+            URL."</em> Giá phải trả: mỗi thay đổi là một lần điều hướng — nặng hơn gán một
+            biến, và tạo ra một nấc lịch sử phải cân nhắc.
+          </p>
+
+          <h4>Chuỗi rỗng thay vì <code>undefined</code> cho "không lọc"</h4>
+          <p>
+            Phương án bị loại: <code>undefined</code>, hoặc bỏ hẳn field. Bị loại vì đó
+            không phải thứ một <code>&lt;select&gt;</code> chưa chọn tạo ra, nên sẽ phải
+            chuyển đổi ở nhiều chỗ. Giá phải trả: phải nhớ chuyển <code>''</code> thành "bỏ
+            tham số" ở hai biên — và việc đó được gom vào đúng hai hàm.
+          </p>
+
+          <h4>Selection không vào URL</h4>
+          <p>
+            Phương án bị loại: <code>?selected=id1,id2,…</code>. Bị loại vì không ai chia sẻ
+            một link như vậy, và vì khôi phục nó trên một tập kết quả khác là cách xoá nhầm
+            bản ghi.
+          </p>
+
+          <h4>Debounce chỉ cho ô text</h4>
+          <p>
+            Phương án bị loại: debounce mọi điều khiển cho nhất quán. Bị loại vì chọn một
+            mục trong dropdown là một quyết định đã xong — hoãn nó 300ms là độ trễ thuần
+            tuý.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Giữ một bản sao tiêu chí trong component</span>
+            <p>
+              Hai nguồn sự thật. Chúng lệch nhau lúc bấm Back, lúc dán URL, lúc một luồng
+              nào đó navigate mà quên cập nhật biến. Triệu chứng: "thỉnh thoảng bộ lọc hiển
+              thị một đằng, kết quả một nẻo".
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Tin query param</span>
+            <p>
+              <code>?size=999999</code> gửi thẳng lên server. Hoặc tệ hơn,
+              <code>?sort=&lt;tên field tuỳ ý&gt;</code> — client trở thành kẻ chuyển tiếp dữ
+              liệu chưa kiểm. Server vẫn phải tự kiểm, nhưng kiểm ở đây biến một 422 khó
+              hiểu thành một danh sách bình thường.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Ghi mọi tham số, kể cả mặc định</span>
+            <p>
+              <code>/customers</code> thành
+              <code>/customers?page=1&amp;size=20&amp;sort=updatedAt,desc&amp;search=&amp;status=&amp;gender=&amp;createdFrom=&amp;createdTo=</code>.
+              Không ai dán URL đó vào chat, và lịch sử trình duyệt thành một danh sách không
+              đọc được.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Gán <code>''</code> thay vì <code>null</code> khi xoá bộ lọc</span>
+            <p>
+              URL thành <code>?status=&amp;gender=</code>. Nó <em>trông</em> như có bộ lọc
+              đang bật, và nếu khoá cache được dựng từ query string thô thì đây là một khoá
+              khác với URL sạch — cache trượt.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Debounce mọi thứ, hoặc không debounce gì</span>
+            <p>
+              Debounce ô select: người dùng chọn "ACTIVE" và chờ nửa giây không lý do.
+              Không debounce ô text: mỗi phím một nấc lịch sử, và nút Back phải bấm hai mươi
+              lần để quay lại trạng thái trước.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Quên <code>distinctUntilChanged</code></span>
+            <p>
+              Rời khỏi ô input mà không sửa gì vẫn phát một giá trị, tạo một nấc lịch sử
+              không thay đổi gì. Người dùng bấm Back, màn hình đứng yên, họ bấm lại. Lỗi này
+              không ai báo — họ chỉ kết luận rằng nút Back của ứng dụng "bị hỏng".
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/data/customer-list-criteria.spec.ts</code></td>
+                  <td>
+                    Mọi dạng rác rơi về mặc định; hai URL khác thứ tự tham số cho cùng khoá;
+                    mặc định bị bỏ khi ghi ra
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-list-page.spec.ts</code></td>
+                  <td>
+                    Mọi thay đổi là một lần navigate; selection bị xoá khi tiêu chí đổi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customers/customer-list/customer-filters.spec.ts</code></td>
+                  <td>
+                    Gõ nhanh chỉ phát một lần sau khi lặng; select phát ngay; giá trị không
+                    đổi không phát
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    Từ khoá tìm kiếm xuất hiện trong URL, <strong>một lần</strong>, sau khi
+                    gõ xong
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Test nút Back cần một thứ đặc biệt</span>
+            <p>
+              <code>provideLocationMocks()</code> cho phép test điều khiển lịch sử trình
+              duyệt — tiến, lùi — trong một unit test. Kết hợp với
+              <code>RouterTestingHarness</code>, bạn khẳng định được rằng Back thật sự khôi
+              phục trạng thái, thay vì chỉ hy vọng. Bài 23.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Một mẩu state mới. Nó sống ở đâu?"}
+    Q0 -->|"phải sống qua F5, Back,<br/>và gửi link được"| URL["URL query param"]
+    Q0 -->|"bản sao dữ liệu server"| ST["Store — bài 11"]
+    Q0 -->|"chỉ có nghĩa với màn hình này"| SIG["signal trong component"]
+    Q0 -->|"người dùng đang gõ dở"| FM["form model — bài 13"]
+
+    URL --> R1["ĐỌC VÀO: chuẩn hoá + kẹp về mặc định<br/>query string là dữ liệu người dùng"]
+    URL --> R2["GHI RA: bỏ mặc định, null để XOÁ<br/>URL ngắn là URL người ta dán được"]
+    URL --> R3["MỘT cửa ra duy nhất: applyCriteria()<br/>mọi thay đổi là một navigate"]
+    URL --> R4["Gõ phím → debounce + distinctUntilChanged<br/>Chọn dropdown → ngay lập tức"]
+
+    SIG --> W["KHÔNG đưa selection vào URL:<br/>không ai chia sẻ, và khôi phục nó trên<br/>tập kết quả khác là xoá nhầm bản ghi"]
+            </pre>
+            <figcaption>
+              Câu hỏi trên cùng chỉ có một tiêu chí thật: <em>cái này phải sống sót qua cái
+              gì?</em> Bốn luật của nhánh URL là bốn thứ phải nhớ khi chọn nó — và ô bên
+              phải là lời nhắc rằng "đưa hết vào URL" không phải câu trả lời đúng.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Bốn thứ được tặng kèm</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>
+                Vào <code>/customers</code>, lọc theo trạng thái ACTIVE, tìm "nguyen", sang
+                trang 3. Nhìn URL.
+              </li>
+              <li>F5. Màn hình có giữ nguyên không?</li>
+              <li>
+                Bấm Back ba lần, chậm rãi. Mỗi lần, ghi lại: URL đổi gì, ô lọc đổi gì, bảng
+                đổi gì.
+              </li>
+              <li>Copy URL, mở tab ẩn danh, dán vào. Chuyện gì xảy ra?</li>
+              <li>
+                Bây giờ bấm "Xoá bộ lọc". URL trở thành gì — có
+                <code>?status=</code> không?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (3): mỗi lần Back lùi đúng <strong>một</strong> thao tác, và
+                <strong>ô lọc tự cập nhật theo</strong> — không ai viết code cho điều đó, nó
+                là hệ quả của việc ô lọc đọc từ <code>criteria()</code>.
+              </p>
+              <p>
+                (4): tab ẩn danh chưa đăng nhập, nên bạn bị đưa tới trang login
+                <em>kèm <code>returnUrl</code></em> — và sau khi đăng nhập, bạn tới đúng màn
+                hình đã lọc. Hai cơ chế của hai bài khác nhau hợp tác, và không cái nào biết
+                về cái kia.
+              </p>
+              <p>
+                (5): không có <code>?status=</code>. URL trở về
+                <code>/customers</code> sạch, nhờ <code>null</code> nghĩa là xoá tham số.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Thử phá bằng thanh địa chỉ</h3>
+            <p class="task__meta">~20 phút · không sửa code</p>
+            <p>Gõ thẳng từng URL sau và ghi lại kết quả:</p>
+            <ol>
+              <li><code>/customers?page=abc</code></li>
+              <li><code>/customers?page=-5</code></li>
+              <li><code>/customers?size=999999</code></li>
+              <li><code>/customers?status=DELETED</code></li>
+              <li><code>/customers?sort=; DROP TABLE customers</code></li>
+              <li><code>/customers?size=20&amp;page=2</code> rồi <code>/customers?page=2&amp;size=20</code></li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và điều quan trọng nhất</summary>
+              <p>
+                Mọi trường hợp: một danh sách bình thường. <strong>Không lỗi nào, không 422
+                nào, không trang trắng nào.</strong> Và (6) phải trúng cache ở lần thứ hai —
+                hai URL khác nhau, cùng một câu hỏi.
+              </p>
+              <p>
+                Điều quan trọng nhất là trường hợp (5): giá trị đó đi thẳng vào query gửi
+                lên server nếu không ai kiểm. Nó <em>không</em> phải lỗ hổng SQL injection —
+                server dùng dữ liệu trong bộ nhớ, và server thật cũng sẽ tự kiểm. Nhưng nó
+                cho thấy nguyên tắc: <strong>dữ liệu từ URL là dữ liệu người lạ</strong>, và
+                nó đi qua đúng một cửa.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Phá <code>distinctUntilChanged</code> và nghe nút Back kêu</h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>customer-filters.ts</code>, xoá
+                <code>distinctUntilChanged()</code> khỏi pipeline của ô tìm kiếm.
+              </li>
+              <li>
+                Vào danh sách, bấm vào ô tìm kiếm, bấm ra ngoài — lặp lại năm lần, không gõ
+                gì.
+              </li>
+              <li>Bây giờ bấm Back. Màn hình đổi không? Phải bấm bao nhiêu lần?</li>
+              <li>
+                Hoàn nguyên, và thử lại bước 2–3.
+              </li>
+            </ol>
+            <details>
+              <summary>Bài học</summary>
+              <p>
+                Không có <code>distinctUntilChanged</code>, mỗi lần blur đẩy một nấc lịch sử
+                <em>giống hệt nấc trước</em>. Bấm Back thì URL đổi nhưng màn hình không —
+                năm lần liền.
+              </p>
+              <p>
+                Đây là một bug không ai báo cáo đúng tên. Người dùng sẽ nói "nút Back của
+                ứng dụng bị hỏng", và bạn sẽ đi tìm trong router. Nguyên nhân thật nằm ở ba
+                chữ trong một pipeline của ô lọc.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Thêm một tiêu chí lọc mới, đầu đến cuối</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm bộ lọc <strong>theo thành phố</strong> (<code>city</code>) vào danh sách
+              khách hàng.
+            </p>
+            <ol>
+              <li>
+                Thêm vào <code>CustomerListCriteria</code>,
+                <code>DEFAULT_CRITERIA</code>, <code>readCriteria</code>,
+                <code>criteriaToQueryParams</code>, <code>criteriaKey</code> và
+                <code>hasActiveFilters</code>.
+              </li>
+              <li>Thêm input tương ứng vào trang, và một ô vào <code>CustomerFilters</code>.</li>
+              <li>Thêm vào <code>toHttpParams</code> trong <code>CustomerApi</code>.</li>
+              <li>
+                Quyết định: ô này debounce hay phát ngay? Viết lý do.
+              </li>
+              <li>
+                Server: contract và mock API có hỗ trợ lọc theo <code>city</code> không? Nếu
+                không, bạn làm gì?
+              </li>
+              <li>Spec cho <code>readCriteria</code> và <code>criteriaKey</code>.</li>
+            </ol>
+            <details>
+              <summary>Hai câu trả lời, và một bài kiểm tra bạn tự làm được</summary>
+              <p>
+                <strong>(4):</strong> nếu là ô text tự do thì debounce, giống
+                <code>search</code>. Nếu là dropdown chọn từ danh sách thành phố thì phát
+                ngay. Tiêu chí: người dùng đang <em>gõ dở</em> hay đã <em>quyết định xong</em>.
+              </p>
+              <p>
+                <strong>(5):</strong> giống bài 13 bài tập 3 — nếu API chưa hỗ trợ, một bộ
+                lọc gửi tham số server bỏ qua là một bộ lọc
+                <em>không hoạt động nhưng trông như hoạt động</em>. Tệ hơn là không có nó.
+                Thêm vào contract và mock API, hoặc dừng lại.
+              </p>
+              <p>
+                <strong>Tự kiểm tra:</strong> sau khi làm xong, mở
+                <code>/customers?city=Hanoi&amp;page=2</code>, bấm Back, F5, và copy URL sang
+                tab khác. Nếu cả bốn hoạt động mà bạn không viết dòng code nào cho chúng,
+                bạn đã đặt state đúng chỗ.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Tiêu chí quyết định một mẩu state thuộc về đâu?</summary>
+            <p>
+              <strong>Nó phải sống sót qua cái gì?</strong> Qua F5 và chia sẻ link → URL. Là
+              bản sao dữ liệu server → store. Chỉ có nghĩa với màn hình này → signal trong
+              component. Đang gõ dở → form model.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Bốn thứ được tặng kèm khi đặt tiêu chí vào URL?</summary>
+            <p>
+              F5 không mất gì; nút Back hoàn tác đúng thao tác cuối; link gửi được; bookmark
+              được. Không cái nào cần code riêng — chúng là hệ quả của việc chọn đúng nguồn
+              sự thật.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao "không lọc" là <code>''</code> chứ không phải <code>undefined</code>?</summary>
+            <p>
+              Vì đó là thứ một <code>&lt;select&gt;</code> chưa chọn và một ô text rỗng tạo
+              ra. Và vì bốn người dùng của hình dạng này — URL, ô lọc, khoá cache, request —
+              phải đồng ý với nhau; bốn ý tưởng hơi khác nhau về "không lọc" làm cache trượt
+              trên hai truy vấn thật ra giống hệt.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Hai luật ngược chiều khi đọc và khi ghi URL là gì?</summary>
+            <p>
+              Đọc vào: điền đầy mặc định và kẹp mọi giá trị rác, để mọi chỗ làm việc với một
+              hình dạng đầy đủ. Ghi ra: bỏ mặc định đi, để URL ngắn — và dùng
+              <code>null</code> để <em>xoá</em> tham số chứ không gán rỗng.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao mọi thay đổi của danh sách phải đi qua một hàm duy nhất?</summary>
+            <p>
+              Vì nếu có đường thứ hai thì state trên màn hình lệch được khỏi URL. Một cửa ra
+              duy nhất (<code>applyCriteria</code>) nghĩa là không có cách nào để chúng khác
+              nhau — và đó là thứ làm nút Back và F5 hoạt động.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Ô nào debounce, ô nào không, và tiêu chí?</summary>
+            <p>
+              Ô gõ tự do thì debounce — gõ là một chuỗi thao tác dở dang. Dropdown và ô ngày
+              thì phát ngay — chọn một mục là một quyết định đã xong, hoãn nó là độ trễ
+              thuần tuý.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao selection không vào URL?</summary>
+            <p>
+              Hai lý do: không ai chia sẻ một link chứa hai mươi id, nên lợi ích chính biến
+              mất; và khôi phục một selection được tạo trên một tập kết quả khác là cách xoá
+              nhầm bản ghi. Vì lý do thứ hai, nó còn bị xoá mỗi khi tiêu chí đổi.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 18 là bài cuối chặng 3, và là bài khó nhất: ghi dữ liệu khi có người khác
+              cùng sửa. Nó chứa bug tinh vi nhất trong cả repo — một cơ chế chống ghi đè mà
+              nếu cài sai một chỗ thì chính nó sẽ ghi đè.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="16-guard.html">← Bài 16</a></span>
+            <span><a href="18-ghi-du-lieu-an-toan.html">Bài 18 — Ghi dữ liệu an toàn ◆ →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
