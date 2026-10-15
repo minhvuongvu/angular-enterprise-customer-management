@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 21 — i18n như một quy tắc build</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 21
+        </p>
+        <h1>i18n như một quy tắc build</h1>
+        <p class="lede">
+          Đa ngôn ngữ không phải một tính năng thêm vào sau. Nó là một
+          <strong>quy tắc viết code</strong> được cưỡng chế từ dòng đầu tiên — kể cả khi chỉ
+          có một ngôn ngữ. Bài này về lý do của lựa chọn đó, và về bốn thứ phải đi qua
+          <code>Intl</code> chứ không qua phép nối chuỗi.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · hướng tới Mốc 4</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>i18n</strong></td>
+                  <td>
+                    <em>internationalization</em> — 18 chữ giữa i và n. Làm cho ứng dụng
+                    <em>có thể</em> dịch được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Language</strong> vs <strong>locale</strong></td>
+                  <td>
+                    <code>vi</code> là ngôn ngữ (khoá của file dịch);
+                    <code>vi-VN</code> là locale (<code>Intl</code> dùng để định dạng số,
+                    ngày, tiền).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Translation key</strong></td>
+                  <td>
+                    <code>pages.customers.list.heading</code> — định danh một câu, không
+                    phải chính câu đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Interpolation</strong></td>
+                  <td>
+                    Tham số nhúng trong câu dịch:
+                    <code>"Showing {{shown}} of {{count}}"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Plural category</strong></td>
+                  <td>
+                    Nhóm số nhiều của một ngôn ngữ theo CLDR: tiếng Anh có
+                    <code>one</code>/<code>other</code>, tiếng Việt chỉ có
+                    <code>other</code>, tiếng Ả Rập có sáu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>Intl</code></td>
+                  <td>
+                    API chuẩn của trình duyệt để định dạng số, ngày, tiền, và chọn nhóm số
+                    nhiều — theo locale.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Impure pipe</strong></td>
+                  <td>
+                    Pipe chạy lại ở mỗi lần change detection thay vì nhớ kết quả theo tham
+                    số. Mục 3.5.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>RTL</strong></td>
+                  <td>
+                    Right-to-left — tiếng Ả Rập, tiếng Do Thái. Giao diện lật ngược chiều
+                    ngang.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Viết một tính năng mới mà không để lọt một chuỗi cứng nào — kể cả trong
+              <code>aria-label</code>.
+            </li>
+            <li>
+              Định dạng số, tiền, thời điểm và ngày lịch đúng cách, và biết vì sao bốn thứ
+              đó khác nhau.
+            </li>
+            <li>Viết một câu có số nhiều mà không giả định ngôn ngữ nào.</li>
+            <li>
+              Giải thích được vì sao các pipe định dạng của repo đều là
+              <code>pure: false</code>.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>messages.properties</code> + <code>MessageSource</code></td>
+                  <td>File JSON + Transloco</td>
+                  <td>
+                    Rất gần về ý tưởng. Khác ở chỗ ngôn ngữ đổi
+                    <strong>lúc chạy, không tải lại trang</strong> — nên mọi thứ đã render
+                    phải tự cập nhật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>Locale</code> từ header <code>Accept-Language</code></td>
+                  <td>Lựa chọn của người dùng, lưu trong <code>localStorage</code></td>
+                  <td>
+                    Của bạn đến theo request. Ở đây nó là một
+                    <em>trạng thái sống</em> trong tab, đồng bộ giữa các tab, và phải sống
+                    sót qua F5.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>NumberFormat</code> của Java</td>
+                  <td><code>Intl.NumberFormat</code></td>
+                  <td>
+                    Gần như một-một. Khác ở chỗ bạn phải nhớ <em>dùng</em> nó — không có
+                    gì ngăn bạn nối chuỗi, trừ một luật lint.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có gì tương đương</td>
+                  <td>Quy tắc "không chuỗi cứng" được lint cưỡng chế</td>
+                  <td>
+                    Backend hiếm khi cần: message của bạn thường đã ở trong properties vì
+                    framework bắt thế. Ở đây không gì bắt — nên repo tự bắt.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Quy tắc, và vì sao nó được cưỡng chế từ ngày đầu</h3>
+
+          <p>
+            Quy tắc 1 trong <code>CLAUDE.md</code>:
+            <em>"No hardcoded user-facing strings. Every string a user can read goes through
+            the translation layer, from the first line of code — even while only
+            <code>en</code> exists."</em>
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao "kể cả khi chỉ có một ngôn ngữ"</span>
+            <p>
+              <code>docs/development-guide.md</code> trả lời:
+              <em>"đi gom chuỗi về sau là việc không bao giờ ai làm."</em> Một ứng dụng viết
+              hai năm với chuỗi rải khắp template thì việc quốc tế hoá nó là một dự án
+              riêng, với một đợt rà soát mà không có cách nào biết đã xong hay chưa.
+            </p>
+            <p>
+              Cưỡng chế từ dòng đầu biến nó thành một thói quen tốn
+              <em>không gì cả</em> — bạn gõ một khoá thay vì gõ một câu.
+            </p>
+          </div>
+
+          <p>
+            Và quy tắc này tính cả <strong>thuộc tính</strong>, từ phase 1:
+          </p>
+
+          <div class="code">
+            <div class="code__file">docs/development-guide.md</div>
+            <pre><code>Since Phase 1 this covers **attributes** as well as text, because `aria-label`,
+`placeholder` and `title` are read out to screen-reader users and are exactly the
+strings that get missed — they do not look like copy. A binding satisfies the
+rule; a static value does not. Attributes that are not copy (`data-testid`, ARIA
+state values, SVG presentation) are named explicitly in `eslint.config.js`, and
+that list is the only place they may be excused.</code></pre>
+          </div>
+
+          <p>
+            Câu <em>"they do not look like copy"</em> là quan sát chính xác. Khi rà soát
+            thủ công, mắt người tìm những chuỗi nằm <em>giữa hai thẻ</em> — còn
+            <code>aria-label="Delete customer"</code> trông như một thuộc tính kỹ thuật. Và
+            nó lại chính là chuỗi mà người dùng screen reader
+            <strong>nghe thấy</strong>.
+          </p>
+
+          <h3>3.2 Đổi ngôn ngữ lúc chạy, không tải lại trang</h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/language.service.ts — chú thích</div>
+            <pre><code>Switching loads the new language's chunk *before* making it active. The
+other order would re-render every translated template against a dictionary
+that is not there yet, and flash raw keys for the length of a download.
+
+No page reload is involved, which is the requirement that ruled out
+`@angular/localize` in ADR-0001.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th><code>@angular/localize</code></th>
+                  <th>Transloco (đang dùng)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cách hoạt động</td>
+                  <td>
+                    Một <strong>bản build riêng cho mỗi ngôn ngữ</strong>; chuỗi được thay
+                    lúc biên dịch
+                  </td>
+                  <td>Một bản build; file dịch nạp lúc chạy</td>
+                </tr>
+                <tr>
+                  <td>Đổi ngôn ngữ</td>
+                  <td>Tải lại trang, sang một URL khác</td>
+                  <td><strong>Ngay lập tức</strong>, không mất state</td>
+                </tr>
+                <tr>
+                  <td>Hiệu năng</td>
+                  <td>Tốt hơn — không có lớp tra cứu lúc chạy</td>
+                  <td>Một chunk nhỏ phải tải</td>
+                </tr>
+                <tr>
+                  <td>Vì sao repo chọn</td>
+                  <td>—</td>
+                  <td>
+                    Yêu cầu là đổi ngôn ngữ <em>không tải lại trang</em>. Đó là thứ loại
+                    phương án kia.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code">
+            <div class="code__file">core/i18n/language.service.ts</div>
+            <pre><code>private async activate(code: string): Promise&lt;void&gt; {
+  if (code === this.transloco.getActiveLang()) {
+    return;
+  }
+  this.loading.set(true);
+  try {
+    await firstValueFrom(this.transloco.load(code));   // TẢI trước
+    this.transloco.setActiveLang(code);                 // rồi mới KÍCH HOẠT
+  } finally {
+    this.loading.set(false);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Hai dòng, đúng thứ tự đó. Đảo lại thì mọi template được vẽ lại với một từ điển
+            chưa có — và người dùng thấy <code>pages.customers.list.heading</code> hiện trên
+            màn hình trong suốt thời gian tải.
+          </p>
+
+          <h3>3.3 Ngôn ngữ và locale là hai thứ</h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/languages.ts — chú thích đầu file</div>
+            <pre><code>A *language* (`vi`) is what a translation file is keyed by. A *locale*
+(`vi-VN`) is what `Intl` formats with: it also decides the digit grouping,
+the date order and the first day of the week. They are kept apart on
+purpose - one translation can serve several locales…
+
+`direction` is here for right-to-left languages. Both shipped languages are
+left-to-right, so it is always `ltr` today; it exists so that adding Arabic
+is one entry here plus a translation file, not a hunt through the layout.</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>export interface LanguageDefinition {
+  /** Translation file key, and the value of `&lt;html lang&gt;`. */
+  readonly code: string;
+  /** BCP 47 locale handed to every `Intl` formatter. */
+  readonly locale: string;
+  readonly direction: TextDirection;
+}
+
+export const SUPPORTED_LANGUAGES: readonly LanguageDefinition[] = [
+  { code: 'en', locale: 'en-US', direction: 'ltr' },
+  { code: 'vi', locale: 'vi-VN', direction: 'ltr' },
+];</code></pre>
+          </div>
+
+          <p>
+            Ba thông tin về mỗi ngôn ngữ mà <em>không phải</em> bản dịch. Và cấu trúc này là
+            thứ biến "thêm tiếng Ả Rập" thành
+            <strong>một dòng ở đây cộng một file dịch</strong> — thay vì một cuộc rà soát
+            toàn bộ stylesheet, vì CSS đã dùng hướng logic từ đầu (bài 06 mục 3.6).
+          </p>
+
+          <h3>3.4 Bốn thứ phải đi qua <code>Intl</code></h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pipe</th>
+                  <th>Dùng cho</th>
+                  <th>Vì sao không nối chuỗi được</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>| appNumber</code></td>
+                  <td>Số</td>
+                  <td>
+                    <code>1,234.5</code> ở Mỹ là <code>1.234,5</code> ở Đức. Dấu phân cách
+                    nhóm và dấu thập phân đổi chỗ cho nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>| appCurrency: 'USD'</code></td>
+                  <td>Tiền</td>
+                  <td>
+                    Ký hiệu, vị trí của nó, và số chữ số thập phân — cả ba đều theo locale
+                    <em>và</em> theo loại tiền.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>| appInstant: 'short'</code></td>
+                  <td>Một thời điểm</td>
+                  <td>
+                    Phải hiện theo <strong>múi giờ của người xem</strong>, và theo thứ tự
+                    ngày/tháng của locale họ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>| appDateOnly</code></td>
+                  <td>Một ngày lịch</td>
+                  <td>
+                    <strong>Không bao giờ được đổi theo múi giờ.</strong> Sinh nhật
+                    <code>1990-01-01</code> là ngày đó ở mọi nơi — bài 08 mục 3.4.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>| appPlural: count</code></td>
+                  <td>Câu có số nhiều</td>
+                  <td>Mục 3.6.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Hai dòng cuối cùng của bảng là lý do <code>Instant</code> và
+            <code>DateOnly</code> là hai branded type khác nhau (bài 08). Trình biên dịch
+            không cho bạn đưa một <code>DateOnly</code> vào <code>appInstant</code> — nên
+            cái bẫy "sinh nhật lùi một ngày" bị chặn ở mức kiểu.
+          </p>
+
+          <h3>3.5 Vì sao mọi pipe đều <code>pure: false</code></h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/locale-pipes.ts — chú thích đầu file</div>
+            <pre><code>All five are `pure: false`, and that is a decision rather than an
+oversight. A pure pipe is memoised on its arguments; the language is not an
+argument, so a pure `{{ at | appInstant }}` would keep the old language's
+output after a switch. Impure pipes run on every change detection of their
+view - cheap here, because the formatters are cached, the views are OnPush
+and the application is zoneless, so "every change detection" is rare.
+
+The alternative - passing the locale into every pipe call - is correct too,
+and moves the burden onto a hundred call sites that each have to remember.</code></pre>
+          </div>
+
+          <p>
+            Đây là một đánh đổi đáng đọc kỹ, vì "impure pipe" thường bị dạy là điều cần
+            tránh:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phương án</th>
+                  <th>Vấn đề</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>pure: true</code> (mặc định)</td>
+                  <td>
+                    Pipe nhớ kết quả theo tham số, mà ngôn ngữ <em>không phải</em> tham số →
+                    đổi ngôn ngữ xong, ngày tháng vẫn định dạng theo ngôn ngữ cũ
+                  </td>
+                </tr>
+                <tr>
+                  <td>Truyền locale vào mỗi lời gọi</td>
+                  <td>
+                    Đúng về mặt kỹ thuật, nhưng đẩy gánh nặng sang một trăm chỗ gọi — và
+                    mỗi chỗ đều có thể quên
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>pure: false</code></strong></td>
+                  <td>
+                    Chạy lại ở mỗi lần change detection — <strong>rẻ ở đây</strong>, vì
+                    formatter được cache, view là <code>OnPush</code>, và app zoneless nên
+                    "mỗi lần change detection" là hiếm
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý lập luận: <code>pure: false</code> đắt trong một app zone.js với component
+            mặc định, nơi change detection chạy liên tục. Trong app này thì không —
+            <strong>bài 03 trả công cho bài 21</strong>.
+          </p>
+
+          <h3>3.6 Số nhiều theo CLDR, không theo trực giác</h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/translations/en.json</div>
+            <pre><code>"summary": {
+  "one": "Showing {{shown}} of {{count}} customer.",
+  "other": "Showing {{shown}} of {{count}} customers."
+}</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cách dùng</div>
+            <pre><code>{{ 'pages.customers.list.summary' | appPlural: totalItems() : { shown: (rows().length | appNumber) } }}</code></pre>
+          </div>
+
+          <p>
+            Pipe chọn <strong>nhóm số nhiều</strong> theo
+            <code>Intl.PluralRules</code> của locale đang dùng — không theo luật "nếu bằng 1
+            thì số ít". Khác biệt đó quan trọng vì các ngôn ngữ chia nhóm rất khác nhau:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ngôn ngữ</th>
+                  <th>Các nhóm</th>
+                  <th>Ghi chú</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tiếng Việt</td>
+                  <td><code>other</code></td>
+                  <td>
+                    Chỉ một nhóm — "1 khách hàng" và "5 khách hàng" dùng cùng một câu
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tiếng Anh</td>
+                  <td><code>one</code>, <code>other</code></td>
+                  <td>Hai nhóm</td>
+                </tr>
+                <tr>
+                  <td>Tiếng Ba Lan</td>
+                  <td><code>one</code>, <code>few</code>, <code>many</code>, <code>other</code></td>
+                  <td>Bốn — và luật phụ thuộc vào chữ số cuối</td>
+                </tr>
+                <tr>
+                  <td>Tiếng Ả Rập</td>
+                  <td>Sáu nhóm</td>
+                  <td>Kể cả <code>zero</code> và <code>two</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Vì sao <code>count === 1 ? 'khách hàng' : 'khách hàng'</code> là sai</span>
+            <p>
+              Không phải vì nó sai với tiếng Việt — nó đúng. Nó sai vì
+              <strong>nó mã hoá luật của một ngôn ngữ vào code</strong>. Thêm tiếng Ba Lan
+              thì mọi chỗ như vậy phải viết lại, và không ai biết có bao nhiêu chỗ.
+            </p>
+            <p>
+              File dịch tiếng Việt chỉ cần <code>other</code>. File tiếng Anh cần
+              <code>one</code> và <code>other</code>. Code thì không biết gì về cả hai — nó
+              hỏi <code>Intl</code>.
+            </p>
+          </div>
+
+          <h3>3.7 Bốn cổng canh file dịch</h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/translations.spec.ts — tên các test</div>
+            <pre><code>it('ships a file for every supported language, and no other')
+it('has the same keys in every language')
+it('uses the same interpolation parameters for each key')
+it('keeps plural entries plural, and uses only categories the language has')
+it('leaves no value empty')</code></pre>
+          </div>
+
+          <p>
+            Năm test, và mỗi cái bắt một lỗi khác nhau mà con người không bắt được khi đọc:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Bắt lỗi gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Đủ file, không thừa</td>
+                  <td>
+                    Thêm ngôn ngữ vào <code>languages.ts</code> mà quên tạo file dịch
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cùng bộ khoá</td>
+                  <td>
+                    Thêm một câu vào <code>en.json</code> mà quên <code>vi.json</code> —
+                    người dùng tiếng Việt thấy khoá thô
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cùng tham số nội suy</td>
+                  <td>
+                    <code>"{{count}}"</code> ở file này, <code>"{{total}}"</code> ở file kia
+                    — câu dịch hiện ra thiếu số
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nhóm số nhiều hợp lệ</td>
+                  <td>
+                    Một mục có <code>one</code> trong file tiếng Việt — một nhóm ngôn ngữ đó
+                    <em>không có</em>, nên nhánh đó không bao giờ chạy
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không giá trị rỗng</td>
+                  <td>Một khoá được thêm vào nhưng chưa dịch, và nó hiện ra là khoảng trắng</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Đây là mẫu mực của "một luật phải có cách kiểm"</span>
+            <p>
+              "Hai file dịch phải khớp nhau" là một quy ước mà con người
+              <em>không thể</em> giữ bằng kỷ luật — hai file JSON ba trăm khoá, sửa bởi
+              nhiều người, trong nhiều tháng.
+            </p>
+            <p>
+              Năm test biến nó thành một cổng. Và chú ý: chúng không test
+              <em>nội dung</em> bản dịch (không ai test được điều đó bằng máy) mà test
+              <em>cấu trúc</em> — đúng phần máy làm tốt hơn người.
+            </p>
+          </div>
+
+          <h3>3.8 Đồng bộ giữa các tab, và một lần nữa là <code>storage</code></h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/language.service.ts</div>
+            <pre><code>private followOtherTabs(): void {
+  const win = inject(WINDOW);
+  if (!win) {
+    return;
+  }
+  const onStorage = (event: StorageEvent): void =&gt; {
+    if (event.key !== STORAGE_KEY) {
+      return;
+    }
+    const language = findLanguage(event.newValue);
+    if (language) {
+      void this.activate(language.code);
+    }
+  };
+  win.addEventListener('storage', onStorage);
+  inject(DestroyRef).onDestroy(() =&gt; win.removeEventListener('storage', onStorage));
+}</code></pre>
+          </div>
+
+          <p>
+            Giống hệt khuôn của <code>ThemeService</code> ở bài 03 mục 3.6 — và đó là chủ ý.
+            Sự kiện <code>storage</code> là cơ chế đa tab duy nhất
+            <strong>không cần code ở tab gửi</strong>: trình duyệt tự bắn nó ở mọi tab
+            <em>khác</em> của cùng origin khi <code>localStorage</code> đổi.
+          </p>
+
+          <p>
+            Nó đúng cho loại state này — một tuỳ chọn vốn đã nằm trong storage — và sai cho
+            thông điệp, vốn phải ghi vào storage chỉ để được chú ý. Đó là việc của
+            <code>TabChannel</code> (brief chặng 5).
+          </p>
+
+          <h3>3.9 Prerender luôn ở ngôn ngữ mặc định</h3>
+
+          <div class="code">
+            <div class="code__file">core/i18n/language.service.ts</div>
+            <pre><code>/**
+ * Chooses the starting language: the stored choice, else the deployment's
+ * default. Browser only - prerendered HTML is always in the default
+ * language, because it is shared by every visitor and must not carry one
+ * user's preference.
+ */
+async restore(defaultLanguage: string): Promise&lt;void&gt; {
+  if (!this.isBrowser) {
+    return;
+  }
+  …
+}</code></pre>
+          </div>
+
+          <p>
+            Cùng một lập luận với theme ở bài 03: HTML render sẵn được
+            <strong>chia sẻ cho mọi người</strong>, nên nó không được mang tuỳ chọn của một
+            ai. Trình duyệt cấu hình lại khi hydrate.
+          </p>
+
+          <p>
+            Và nhớ lại bài 05 mục 3.6: việc chọn ngôn ngữ nằm
+            <em>trong</em> initializer đọc cấu hình, không phải một initializer riêng — vì
+            ngôn ngữ mặc định đến từ cấu hình, và các initializer khởi động cùng lúc.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/i18n/languages.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> Ngôn ngữ vs locale vs direction, và chuẩn bị
+                    cho RTL
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/language.service.ts</code></td>
+                  <td>Tải trước rồi mới kích hoạt; đồng bộ đa tab; prerender dùng mặc định</td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/locale-pipes.ts</code></td>
+                  <td>Năm pipe, và lập luận <code>pure: false</code></td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/locale-format.ts</code></td>
+                  <td>Chỗ <code>Intl</code> được gọi, và formatter được cache</td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/translations.spec.ts</code></td>
+                  <td>Năm cổng canh hai file dịch</td>
+                </tr>
+                <tr>
+                  <td><code>docs/i18n.md</code></td>
+                  <td>Toàn cảnh, kể cả chính sách thời gian và mức sẵn sàng cho RTL</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một chuỗi đi từ code tới màn hình</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    DEV["Lập trình viên viết<br/>t('pages.customers.list.heading')"] --> LINT{"lint: có chuỗi cứng không?"}
+    LINT -->|"có"| FAIL["BUILD ĐỔ"]
+    LINT -->|"không"| KEY["khoá dịch"]
+
+    KEY --> TR["Transloco tra từ điển đang hoạt động"]
+    LANG["LanguageService.active<br/><i>signal</i>"] --> TR
+    STORE["localStorage ecm.language"] --> LANG
+    TAB["sự kiện storage từ tab khác"] --> LANG
+    CFG["config.json defaultLanguage"] --> LANG
+
+    TR --> TEXT["câu đã dịch"]
+
+    NUM["số · tiền · thời điểm · ngày"] --> PIPE["pipe pure:false"]
+    LANG -->|"locale"| PIPE
+    PIPE --> INTL["Intl.NumberFormat · DateTimeFormat · PluralRules"]
+    INTL --> TEXT
+
+    TEXT --> DOM(["Màn hình"])
+            </pre>
+            <figcaption>
+              Hai luồng gặp nhau ở ô cuối: <em>chữ</em> đi qua từ điển, <em>số và ngày</em>
+              đi qua <code>Intl</code>. Cả hai đều nhận locale từ cùng một signal — nên đổi
+              ngôn ngữ làm cả hai cập nhật cùng lúc.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Transloco thay vì <code>@angular/localize</code> — ADR-0001, ADR-0004</h4>
+          <p>
+            Phương án bị loại: build riêng cho mỗi ngôn ngữ, cách chính chủ của Angular. Bị
+            loại vì nó đòi tải lại trang để đổi ngôn ngữ. Giá phải trả: một lớp tra cứu lúc
+            chạy, và một chunk từ điển phải tải.
+          </p>
+
+          <h4>Từ điển đóng gói sẵn, không fetch rời</h4>
+          <p>
+            ADR-0004: các file dịch được đóng vào bundle theo ngôn ngữ thay vì fetch như dữ
+            liệu. Đổi lại một chút dung lượng, lấy được sự chắc chắn rằng ngôn ngữ đang hoạt
+            động luôn có từ điển của nó.
+          </p>
+
+          <h4>Mọi pipe định dạng là <code>pure: false</code></h4>
+          <p>
+            Phương án bị loại: truyền locale vào từng lời gọi. Chú thích nói nó
+            <em>cũng đúng</em>, nhưng "moves the burden onto a hundred call sites that each
+            have to remember". Giá phải trả: pipe chạy lại ở mỗi lần change detection — rẻ
+            vì <code>OnPush</code> + zoneless.
+          </p>
+
+          <h4><code>direction</code> có mặt dù chưa dùng</h4>
+          <p>
+            Cả hai ngôn ngữ đều là <code>ltr</code>, nên trường này luôn có cùng giá trị.
+            Nó tồn tại để thêm tiếng Ả Rập là <strong>một dòng</strong> — và nửa còn lại của
+            sự chuẩn bị đó là luật "chỉ dùng hướng logic" trong CSS (bài 06), được lint
+            cưỡng chế.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Nối chuỗi để tạo câu</span>
+            <p>
+              <code>'Có ' + count + ' khách hàng'</code> — ba vấn đề cùng lúc: chuỗi cứng,
+              trật tự từ giả định theo một ngôn ngữ (có ngôn ngữ đặt số sau danh từ), và số
+              chưa được định dạng theo locale.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Bỏ sót <code>aria-label</code></span>
+            <p>
+              Chuỗi duy nhất mà người dùng screen reader nghe, và là chuỗi dễ quên nhất —
+              vì nó trông như một thuộc tính kỹ thuật. Lint chặn, và đó là lý do nó được
+              thêm vào luật từ phase 1.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Pipe <code>pure: true</code> cho ngày tháng</span>
+            <p>
+              Đổi ngôn ngữ xong, mọi chữ đổi theo nhưng
+              <strong>ngày tháng và số thì không</strong> — chúng giữ định dạng của ngôn ngữ
+              cũ cho tới khi giá trị thay đổi. Một giao diện nửa tiếng Việt nửa tiếng Anh,
+              và không có lỗi nào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Kích hoạt ngôn ngữ trước khi tải từ điển</span>
+            <p>
+              Màn hình hiện <code>pages.customers.list.heading</code> ở mọi chỗ trong suốt
+              thời gian tải chunk. Trên mạng chậm, đó là vài giây một giao diện trông như
+              hỏng hoàn toàn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Viết luật số nhiều vào code</span>
+            <p>
+              <code>count === 1 ? 'customer' : 'customers'</code> mã hoá luật tiếng Anh. Với
+              tiếng Ba Lan (bốn nhóm) hoặc tiếng Ả Rập (sáu), nó sai — và mọi chỗ như vậy
+              phải tìm lại bằng tay.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Đưa <code>DateOnly</code> qua múi giờ</span>
+            <p>
+              Sinh nhật lùi một ngày cho người dùng ở phía tây UTC. Bài 08 mục 3.4 — và lý do
+              repo có hai branded type riêng là để trình biên dịch chặn chuyện này trước khi
+              nó thành một ticket.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/i18n/translations.spec.ts</code></td>
+                  <td>Năm cổng ở mục 3.7 — cấu trúc hai file dịch luôn khớp</td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/locale-format.spec.ts</code></td>
+                  <td>
+                    Số, tiền, thời điểm, ngày định dạng đúng theo từng locale; nhóm số nhiều
+                    chọn đúng
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/i18n/language.service.spec.ts</code></td>
+                  <td>
+                    Tải trước rồi kích hoạt; mã lạ bị bỏ qua; đổi ngôn ngữ ở tab khác được
+                    theo
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lint/styles.ts</code> + ESLint</td>
+                  <td>
+                    Không chuỗi cứng nào trong template, kể cả trong thuộc tính — bản build
+                    đổ nếu có
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/i18n.spec.ts</code></td>
+                  <td>
+                    Đổi ngôn ngữ thật trong trình duyệt thật, và kiểm rằng
+                    <em>cả chữ lẫn số/ngày</em> đổi theo
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi sắp đưa một thứ lên màn hình"}
+
+    Q0 -->|"chữ"| T1["KHOÁ DỊCH, không bao giờ là câu<br/>kể cả trong aria-label · placeholder · title"]
+    T1 --> T2["Thêm vào CẢ HAI file dịch<br/>— test so khoá sẽ bắt bạn"]
+
+    Q0 -->|"một số"| N["| appNumber"]
+    Q0 -->|"một khoản tiền"| C["| appCurrency: 'USD'"]
+    Q0 -->|"một thời điểm"| I["| appInstant — theo múi giờ người xem"]
+    Q0 -->|"một ngày lịch"| D["| appDateOnly — KHÔNG BAO GIỜ qua múi giờ"]
+    Q0 -->|"câu có số lượng"| P["| appPlural — Intl.PluralRules chọn nhóm,<br/>đừng viết luật ngôn ngữ vào code"]
+
+    Q0 -->|"một khoảng cách ngang trong CSS"| L["hướng logic — bài 06<br/>nửa còn lại của việc sẵn sàng RTL"]
+
+    RULE["Pipe định dạng đều pure:false<br/>vì ngôn ngữ không phải tham số của pipe"]
+            </pre>
+            <figcaption>
+              Năm nhánh giữa là năm thứ <em>không</em> được nối chuỗi. Và hai nhánh ngoài
+              cùng cho thấy i18n không chỉ là dịch chữ: nó chạm vào cả định dạng số lẫn bố
+              cục CSS.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đổi ngôn ngữ và quan sát kỹ</h3>
+            <p class="task__meta">~25 phút · không sửa code</p>
+            <ol>
+              <li>Vào <code>/customers</code>. Ghi lại: tiêu đề tab, một ngày trong bảng, dòng tóm tắt.</li>
+              <li>Đổi sang tiếng Việt bằng công tắc ngôn ngữ. So sánh cả ba.</li>
+              <li>
+                <strong>Ngày tháng có đổi định dạng không?</strong> Nếu có, đổi thế nào?
+              </li>
+              <li>Mở một tab thứ hai. Đổi ngôn ngữ ở tab 1. Tab 2 phản ứng thế nào?</li>
+              <li>F5. Ngôn ngữ có giữ không? Nó được lưu ở đâu?</li>
+              <li>
+                Mở DevTools → Network trong lúc đổi ngôn ngữ. Có file nào được tải không?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (3) Có — đó là <code>pure: false</code> làm việc. Nếu ngày tháng
+                <em>không</em> đổi, bạn vừa tìm thấy chính cái bẫy ở mục 7 điểm 3.
+              </p>
+              <p>
+                (4) Tab 2 đổi theo, không cần tải lại — sự kiện <code>storage</code>, mục
+                3.8.
+              </p>
+              <p>
+                (6) Một chunk từ điển được tải <strong>trước khi</strong> giao diện đổi. Nếu
+                bạn thấy khoá thô hiện ra một nhịp, thứ tự ở mục 3.2 đã bị đảo.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Để lint dạy bạn quy tắc 1</h3>
+            <p class="task__meta">~25 phút · sửa rồi hoàn nguyên</p>
+            <p>
+              Trong <code>apps/web/src/app/not-found/not-found-page.ts</code>, thêm lần lượt
+              từng thứ sau vào template, chạy <code>npm run lint</code> sau mỗi lần, rồi xoá:
+            </p>
+            <ol>
+              <li><code>&lt;p&gt;Nothing here&lt;/p&gt;</code></li>
+              <li><code>&lt;button aria-label="Close"&gt;×&lt;/button&gt;</code></li>
+              <li><code>&lt;input placeholder="Search" /&gt;</code></li>
+              <li><code>&lt;div data-testid="empty"&gt;&lt;/div&gt;</code></li>
+              <li>
+                <code>&lt;button [attr.aria-label]="t('common.close')"&gt;×&lt;/button&gt;</code>
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và vì sao (4) và (5) không bị chặn</summary>
+              <p>
+                (1), (2), (3) bị chặn. (4) không — <code>data-testid</code> không phải chữ
+                người dùng đọc, và nó nằm trong danh sách miễn trừ tường minh ở
+                <code>eslint.config.js</code>. (5) không — một
+                <strong>binding</strong> thoả mãn luật; chỉ giá trị tĩnh mới không.
+              </p>
+              <p>
+                Mở <code>eslint.config.js</code> và đọc danh sách miễn trừ. Chú ý nó là
+                danh sách <em>tường minh</em>, và tài liệu nói đó là "the only place they may
+                be excused" — tức là thêm một ngoại lệ là một quyết định có chỗ ghi, không
+                phải một lần bỏ qua lặng lẽ.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Phá một trong năm cổng</h3>
+            <p class="task__meta">~30 phút · sửa rồi hoàn nguyên sau mỗi bước</p>
+            <p>Làm từng cái, chạy <code>npm test --workspace @ecm/web</code>, rồi hoàn nguyên:</p>
+            <ol>
+              <li>Thêm một khoá vào <code>en.json</code> mà không thêm vào <code>vi.json</code>.</li>
+              <li>
+                Đổi một tham số nội suy ở một file:
+                <code>{{count}}</code> → <code>{{total}}</code>.
+              </li>
+              <li>Thêm nhóm <code>"one"</code> vào một mục số nhiều trong <code>vi.json</code>.</li>
+              <li>Để một giá trị thành chuỗi rỗng.</li>
+            </ol>
+            <details>
+              <summary>Bốn thông báo lỗi, và cái thứ ba là cái hay nhất</summary>
+              <p>
+                Cả bốn đều bị bắt, mỗi cái bởi một test khác nhau. Cái thứ ba đáng chú ý:
+                tiếng Việt <strong>không có</strong> nhóm <code>one</code> theo CLDR, nên
+                nhánh đó sẽ không bao giờ được chọn — một bản dịch chết, trông hoàn toàn hợp
+                lý với người viết nó.
+              </p>
+              <p>
+                Không có test đó, lỗi này sống sót vĩnh viễn: nó không gây ra triệu chứng
+                nào, chỉ là một câu không ai thấy.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Thêm ngôn ngữ thứ ba</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm tiếng Nhật (<code>ja</code>, locale <code>ja-JP</code>). Không cần dịch
+              đúng — copy tiếng Anh và thêm tiền tố <code>[JA] </code> để nhìn thấy được.
+            </p>
+            <ol>
+              <li>Một dòng trong <code>SUPPORTED_LANGUAGES</code>.</li>
+              <li>Một file <code>ja.json</code>.</li>
+              <li>
+                Chạy <code>npm test</code> <strong>ngay</strong>. Bao nhiêu test đổ, và
+                chúng nói gì?
+              </li>
+              <li>Sửa cho tới khi xanh.</li>
+              <li>
+                Chạy app, đổi sang tiếng Nhật, và quan sát <strong>ngày tháng và số</strong>.
+              </li>
+              <li>
+                Câu hỏi: tiếng Nhật có mấy nhóm số nhiều? Các mục plural của bạn có đúng
+                không?
+              </li>
+            </ol>
+            <details>
+              <summary>Đáp án câu 6, và điều bước 3 chứng minh</summary>
+              <p>
+                Tiếng Nhật có <strong>một</strong> nhóm — chỉ <code>other</code>, giống
+                tiếng Việt. Nếu bạn copy nguyên từ <code>en.json</code> thì mọi mục plural
+                đều có <code>one</code>, và test thứ tư sẽ bắt.
+              </p>
+              <p>
+                Bước 3 là phần đáng giá: bạn chưa viết dòng code nào ngoài hai thay đổi khai
+                báo, và bộ test đã dẫn bạn đi khắp những chỗ cần sửa. Đó là thứ một quy tắc
+                <em>được cưỡng chế</em> mua lại — so với một quy ước mà bạn phải tự nhớ.
+              </p>
+              <p>
+                Bước 5: ngày tháng hiện theo định dạng Nhật, số theo nhóm Nhật —
+                <strong>mà không file dịch nào nói gì về chúng</strong>. Đó là
+                <code>Intl</code> làm việc, từ một trường <code>locale</code> duy nhất.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao cưỡng chế quy tắc không-chuỗi-cứng từ khi chỉ có một ngôn ngữ?</summary>
+            <p>
+              Vì đi gom chuỗi về sau là việc không bao giờ ai làm — và không có cách nào biết
+              đã gom xong. Cưỡng chế từ đầu tốn gần như không gì: bạn gõ một khoá thay vì gõ
+              một câu.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>aria-label</code> là chuỗi hay bị bỏ sót nhất?</summary>
+            <p>
+              Vì nó <em>không trông giống nội dung</em> — mắt người rà soát tìm chữ giữa hai
+              thẻ. Mà nó lại chính là chuỗi người dùng screen reader nghe thấy.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Ngôn ngữ khác locale ở đâu?</summary>
+            <p>
+              Ngôn ngữ (<code>vi</code>) là khoá của file dịch. Locale
+              (<code>vi-VN</code>) là thứ <code>Intl</code> dùng để quyết định nhóm chữ số,
+              thứ tự ngày tháng, ngày đầu tuần. Một bản dịch có thể phục vụ nhiều locale.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao các pipe định dạng là <code>pure: false</code>?</summary>
+            <p>
+              Vì pipe thuần nhớ kết quả theo <em>tham số</em>, mà ngôn ngữ không phải tham
+              số — nên sau khi đổi ngôn ngữ, chúng sẽ giữ định dạng cũ. Chi phí chạy lại rẻ
+              ở đây vì <code>OnPush</code> và zoneless làm change detection hiếm.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao phải tải từ điển trước khi kích hoạt ngôn ngữ?</summary>
+            <p>
+              Vì thứ tự ngược lại vẽ lại mọi template với một từ điển chưa có — và người dùng
+              thấy khoá thô hiện trên màn hình suốt thời gian tải.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao không viết <code>count === 1 ? … : …</code>?</summary>
+            <p>
+              Vì nó mã hoá luật số nhiều của <em>một</em> ngôn ngữ vào code. Tiếng Việt có
+              một nhóm, tiếng Anh hai, tiếng Ba Lan bốn, tiếng Ả Rập sáu.
+              <code>Intl.PluralRules</code> biết tất cả; code thì không cần biết gì.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Năm test trong <code>translations.spec.ts</code> canh điều gì?</summary>
+            <p>
+              <strong>Cấu trúc</strong>, không phải nội dung: đủ file, cùng bộ khoá, cùng
+              tham số nội suy, nhóm số nhiều hợp lệ cho từng ngôn ngữ, và không giá trị rỗng.
+              Đó là phần máy làm tốt hơn người — và là thứ con người không giữ nổi bằng kỷ
+              luật trên hai file ba trăm khoá.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 22 là về nhóm người dùng mà bài này vừa chạm tới ở
+              <code>aria-label</code>: người dùng bàn phím và người dùng screen reader — và
+              cách repo biến accessibility từ một đợt rà soát thành một cổng chạy trên mọi
+              route, trong cả hai theme.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="20-phan-quyen-nhieu-lop.html">← Bài 20</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

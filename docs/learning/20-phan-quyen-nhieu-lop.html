@@ -1,0 +1,1098 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 20 — Phân quyền nhiều lớp</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 20
+        </p>
+        <h1>Phân quyền nhiều lớp</h1>
+        <p class="lede">
+          Cùng một câu hỏi — "người này có được làm việc này không?" — được hỏi ở
+          <strong>bốn</strong> chỗ trong hệ thống. Ba trong số đó không ngăn được gì cả, và
+          vẫn đáng tồn tại. Bài này về việc phân biệt rạch ròi chúng, và về điều gì xảy ra
+          khi một team nhầm lẫn giữa "ẩn đi" và "bảo vệ".
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · hướng tới Mốc 4</li>
+          <li class="tag">~2,5 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Authentication</strong></td>
+                  <td>"Bạn là ai?" — bài 19.</td>
+                </tr>
+                <tr>
+                  <td><strong>Authorization</strong></td>
+                  <td>"Bạn được làm gì?" — bài này.</td>
+                </tr>
+                <tr>
+                  <td><strong>Permission</strong></td>
+                  <td>
+                    Một hành động cụ thể: <code>CUSTOMER_CREATE</code>,
+                    <code>CUSTOMER_DELETE</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Role</strong></td>
+                  <td>
+                    Một <em>bó</em> quyền: <code>ADMIN</code>, <code>MANAGER</code>,
+                    <code>VIEWER</code>. Bó này thay đổi theo thời gian.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Security boundary</strong></td>
+                  <td>
+                    Chỗ mà vượt qua được nghĩa là thật sự lấy được thứ không thuộc về mình.
+                    Trong cả hệ thống này có đúng <strong>một</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Action authorization</strong></td>
+                  <td>
+                    Kiểm quyền tại <em>hành động</em> thay vì tại từng nút bấm dẫn tới nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Structural directive</strong></td>
+                  <td>
+                    Directive quyết định một thẻ <em>có tồn tại hay không</em> — dấu
+                    <code>*</code>. Bài 02.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>Chỉ ra được <strong>đúng một</strong> lớp trong hệ thống là biên bảo mật.</li>
+            <li>
+              Biện minh được sự tồn tại của ba lớp còn lại — mà không gọi chúng là bảo mật.
+            </li>
+            <li>
+              Nói được vì sao một nút không được phép bấm thì nên <em>biến mất</em> chứ
+              không nên <em>mờ đi</em>.
+            </li>
+            <li>
+              Giải thích được vì sao client không tự tính quyền từ vai trò, dù nó hoàn toàn
+              có thể.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="box box--backend">
+            <span class="box__label">Đây là bài mà phản xạ backend của bạn đúng nhất — và nguy hiểm nhất</span>
+            <p>
+              Ở backend, <em>mọi</em> chỗ bạn viết kiểm tra quyền đều là một hàng rào thật.
+              <code>@PreAuthorize</code>, một <code>if</code> trong service, một ràng buộc ở
+              tầng dữ liệu — vượt qua cái nào cũng khó như nhau.
+            </p>
+            <p>
+              Ở frontend, <strong>không có cái nào là hàng rào</strong>. Chúng đều chạy trên
+              máy người dùng, trong code họ sửa được. Phản xạ "tôi đã kiểm ở ba chỗ, vậy nó
+              an toàn" là phản xạ đúng ở backend và sai hoàn toàn ở đây — và nó sai theo cách
+              khiến người ta <em>tự tin</em>.
+            </p>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Defense in depth</td>
+                  <td>Bốn lớp — nhưng chỉ một là phòng thủ</td>
+                  <td>
+                    Defense in depth nghĩa là nhiều lớp <em>đều</em> ngăn chặn được. Ở đây ba
+                    lớp đầu chỉ là trải nghiệm; gọi chúng là phòng thủ là tự lừa mình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@PreAuthorize("hasRole('ADMIN')")</code></td>
+                  <td><code>requirePermission('CUSTOMER_CREATE')</code></td>
+                  <td>
+                    Cú pháp giống. Hỏi <strong>quyền</strong> chứ không hỏi vai trò — và
+                    phiên bản ở client không ngăn được gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hiển thị theo quyền trong Thymeleaf</td>
+                  <td><code>*appIfPermitted</code></td>
+                  <td>
+                    Của bạn render trên server, nên HTML gửi đi
+                    <em>thật sự</em> không chứa nút đó. Ở đây nút không có trong DOM, nhưng
+                    code để tạo nó nằm trong bundle người dùng tải về.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bốn lớp, và chỉ một là thật</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Lớp</th>
+                  <th>Ở đâu</th>
+                  <th>Ngăn được gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td>Route guard</td>
+                  <td><code>requirePermission()</code> trên route</td>
+                  <td>
+                    Một trang mà <em>mọi</em> hành động đều bị từ chối. Trải nghiệm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td>Directive UI</td>
+                  <td><code>*appIfPermitted</code> trên nút</td>
+                  <td>Một nút bấm vào sẽ thất bại. Trải nghiệm.</td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td>Action authorization</td>
+                  <td><code>refuseUnless()</code> trong store</td>
+                  <td>Một request chắc chắn bị từ chối. Trải nghiệm + sạch log.</td>
+                </tr>
+                <tr>
+                  <td><strong>4</strong></td>
+                  <td><strong>Middleware server</strong></td>
+                  <td><code>requirePermission()</code> trong mock API</td>
+                  <td>
+                    <strong>Mọi thứ. Đây là biên bảo mật duy nhất.</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Lớp 1 — Route guard</h3>
+
+          <p>
+            Đã đọc ở bài 16. Một dòng trong file route, và nó tiết kiệm cho người dùng việc
+            mở một trang chỉ để thấy mọi nút trên đó không bấm được:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customers.routes.ts</div>
+            <pre><code>// Route authorization. Reading is the floor for the whole section; the two
+// pages that exist only to write ask for the permission to write. Each
+// guard names a permission, never a role. UX only - the API checks the
+// same permission on every request (ADR-0018).
+canActivate: [requirePermission('CUSTOMER_READ')],</code></pre>
+          </div>
+
+          <h3>3.3 Lớp 2 — Ẩn, không phải vô hiệu hoá</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/if-permitted.directive.ts</div>
+            <pre><code>/**
+ * UI authorization: renders its content only for a user who holds the
+ * permission.
+ *
+ *     &lt;app-button *appIfPermitted="'CUSTOMER_DELETE'" ...&gt;Delete&lt;/app-button&gt;
+ *
+ * ## Hidden, not disabled
+ *
+ * An action the user can never perform is removed rather than shown greyed
+ * out. A disabled button with no explanation reads as "broken" or "try again
+ * later"; disabled is for conditions that change while the user watches - a
+ * form still saving, nothing selected yet.
+ */
+@Directive({ selector: '[appIfPermitted]' })
+export class IfPermitted {
+  readonly appIfPermitted = input.required&lt;Permission&gt;();
+
+  private readonly session = inject(SessionService);
+  private readonly template = inject&lt;TemplateRef&lt;unknown&gt;&gt;(TemplateRef);
+  private readonly container = inject(ViewContainerRef);
+  private rendered = false;
+
+  constructor() {
+    effect(() =&gt; {
+      const allowed = this.session.hasPermission(this.appIfPermitted());
+      if (allowed &amp;&amp; !this.rendered) {
+        this.container.createEmbeddedView(this.template);
+        this.rendered = true;
+      } else if (!allowed &amp;&amp; this.rendered) {
+        this.container.clear();
+        this.rendered = false;
+      }
+    });
+  }
+}</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Ẩn hay làm mờ — một quy tắc đáng mang đi</span>
+            <p>
+              <strong>Disabled</strong> dành cho điều kiện <em>thay đổi trong lúc người dùng
+              nhìn</em>: form đang lưu, chưa chọn dòng nào. Người dùng hiểu rằng chờ một chút
+              là bấm được.
+            </p>
+            <p>
+              <strong>Ẩn</strong> dành cho thứ người dùng <em>không bao giờ</em> làm được.
+              Một nút mờ vĩnh viễn, không kèm lời giải thích, được đọc là "hỏng" hoặc "thử
+              lại sau" — và người dùng sẽ thử lại sau, nhiều lần.
+            </p>
+          </div>
+
+          <p>Ba chi tiết kỹ thuật trong directive này đáng chú ý:</p>
+
+          <ul>
+            <li>
+              <strong>Nó là structural directive</strong> — nhận
+              <code>TemplateRef</code> và <code>ViewContainerRef</code>, nên thẻ
+              <em>không tồn tại</em> trong DOM chứ không bị ẩn bằng CSS. Bài 06 mục 3.9: ẩn
+              bằng CSS thì thẻ vẫn trong thứ tự Tab hoặc vẫn chạy code bên trong.
+            </li>
+            <li>
+              <strong>Nó dùng <code>effect</code></strong>, nên nó
+              <em>phản ứng</em> khi phiên đổi. Người dùng được cấp thêm quyền trong lúc đang
+              mở app thì nút xuất hiện — không cần tải lại trang.
+            </li>
+            <li>
+              <strong>Cờ <code>rendered</code></strong> ngăn việc dựng lại view khi effect
+              chạy lại mà kết quả không đổi.
+            </li>
+          </ul>
+
+          <h3>3.4 Lớp 3 — Kiểm tại hành động, không tại từng nút</h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.ts</div>
+            <pre><code>/**
+ * Action authorization: a write the user may not perform fails here, as the
+ * same `authorization` error the server would have produced, and no request
+ * is sent.
+ *
+ * The buttons for these actions are already hidden from users who lack the
+ * permission, so this looks redundant, and the difference is the point. A
+ * hidden button is one route to an action; a keyboard shortcut, a bulk bar,
+ * a future "duplicate" menu entry are others. Checking at the action rather
+ * than at each control means a new control cannot forget to.
+ *
+ * It is still not security - the server refuses the request on its own - but
+ * it keeps a denied action from costing a round trip and a 403 in the logs.
+ */
+private refuseUnless(permission: Permission): Observable&lt;never&gt; | null {
+  return this.session.hasPermission(permission)
+    ? null
+    : throwError(() =&gt; appError('authorization'));
+}</code></pre>
+          </div>
+
+          <p>
+            Đây là lớp dễ bị cho là thừa nhất, và chú thích đưa ra lập luận chính xác:
+            <strong>một nút bị ẩn là một đường dẫn tới hành động; còn có những đường
+            khác.</strong> Một phím tắt, một thanh thao tác hàng loạt, một mục menu "nhân
+            bản" thêm vào sáu tháng sau.
+          </p>
+
+          <p>
+            Kiểm tại <em>hành động</em> nghĩa là một điều khiển mới
+            <strong>không thể quên</strong>. Đó là khác biệt giữa một quy ước và một cấu
+            trúc — cùng lập luận với việc đặt <code>authGuard</code> một lần trên nhánh
+            (bài 16).
+          </p>
+
+          <p>
+            Và câu cuối nói rõ giá trị thật của nó: nó không bảo vệ gì cả, nó
+            <em>giữ cho log sạch</em>. Một hành động bị từ chối không tốn một vòng gọi mạng
+            và một dòng 403 — mà một dòng 403 trong log là thứ người vận hành
+            <em>nên</em> để ý, nên đừng tạo ra nó khi biết trước kết quả.
+          </p>
+
+          <h3>3.5 Lớp 4 — Biên bảo mật</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/auth.ts — chú thích đầu file</div>
+            <pre><code>/**
+ * Authentication and authorization, enforced here and nowhere else that counts.
+ *
+ * The Angular application also checks permissions, to decide what to show. That
+ * is a user-experience decision. **This** is the security boundary: every
+ * request is checked again, against the session's role, regardless of what the
+ * client believed it was allowed to do. A client can be modified; this cannot.
+ *
+ * ANGULAR_PROJECT_CONTEXT.md 3.2 requires that separation, and the tests prove
+ * it by calling the API directly with a VIEWER session and no UI involved.
+ */</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">cùng file</div>
+            <pre><code>export function requirePermission(permission: Permission): RequestHandler {
+  return (req, _res, next) =&gt; {
+    const user = req.authUser;
+    if (!user) {
+      next(unauthenticated());
+      return;
+    }
+    if (!roleHasPermission(user.role, permission)) {
+      next(forbidden(`Role ${user.role} does not have ${permission}.`));
+      return;
+    }
+    next();
+  };
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>req.authUser</code></td>
+                  <td>
+                    Do middleware <code>authenticate</code> đặt, từ
+                    <strong>cookie</strong> — không từ bất cứ thứ gì client gửi lên trong
+                    body hay header tuỳ ý.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>roleHasPermission(user.role, permission)</code></td>
+                  <td>
+                    Server tự tra ma trận từ vai trò <em>của phiên</em>. Nó không tin danh
+                    sách quyền nào client gửi lên — vì client không gửi lên.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Kiểm <strong>lại</strong> trên mọi request</td>
+                  <td>
+                    Không có khái niệm "client đã kiểm rồi nên bỏ qua". Mọi request, mỗi
+                    lần.
+                  </td>
+                </tr>
+                <tr>
+                  <td><em>"A client can be modified; this cannot."</em></td>
+                  <td>Một câu, và nó là toàn bộ sự khác biệt giữa lớp 4 và ba lớp kia.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.6 Client không tự tính quyền, dù nó có thể</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>/**
+ * What the signed-in user may do, as the **server** derived it.
+ *
+ * The client never computes permissions from the role, although the matrix
+ * is in `@ecm/contracts` and it could: a client that decided its own
+ * permissions would be deciding what it is allowed to do. It reads the list
+ * the session response carries, and the server checks again on every call.
+ */
+private readonly permissions = computed(
+  () =&gt; new Set&lt;Permission&gt;(this.state().user?.permissions ?? []),
+);</code></pre>
+          </div>
+
+          <p>
+            Chi tiết này tinh tế và đáng dừng lại. Ma trận vai trò → quyền
+            <strong>nằm trong <code>@ecm/contracts</code></strong>, tức là client có đủ
+            thông tin để tự tính. Nó cố ý không làm.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao điều đó quan trọng dù client không phải biên bảo mật</span>
+            <p>
+              Câu chú thích: <em>"a client that decided its own permissions would be deciding
+              what it is allowed to do."</em> Nghe triết lý, nhưng hệ quả rất thực tế:
+            </p>
+            <ul>
+              <li>
+                Nếu một ngày server cấp quyền theo thứ khác ngoài vai trò — một flag trên
+                tài khoản, một hợp đồng, một giới hạn theo phòng ban — thì client tính theo
+                vai trò sẽ <strong>sai</strong>, và sai một cách im lặng: hiện nút cho người
+                không có quyền, hoặc ẩn nút của người có.
+              </li>
+              <li>
+                Có <em>một</em> chỗ quyết định quyền là ai, và nó nằm cạnh chỗ thi hành
+                quyền. Hai chỗ tính độc lập là hai chỗ sẽ lệch.
+              </li>
+            </ul>
+          </div>
+
+          <h3>3.7 Quyền, không phải vai trò — ADR-0018</h3>
+
+          <p>
+            Mọi lớp trong bài này hỏi <code>CUSTOMER_CREATE</code>, không hỏi
+            <code>ADMIN</code>. Chú thích trong <code>permission.guard.ts</code> nói lý do:
+            <em>"adding a role must not mean editing every route that mentions one."</em>
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Hỏi vai trò</th>
+                  <th>Hỏi quyền</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Thêm vai trò <code>AUDITOR</code></td>
+                  <td>
+                    Sửa mọi chỗ có <code>hasRole('ADMIN') || hasRole('MANAGER')</code> —
+                    hàng chục chỗ, và chỗ nào quên thì sai im lặng
+                  </td>
+                  <td>
+                    Sửa <strong>một</strong> chỗ: ma trận vai trò → quyền
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đọc code</td>
+                  <td>"Chỉ ADMIN mới vào được" — <em>vì sao?</em></td>
+                  <td>"Cần quyền tạo khách hàng" — tự nó giải thích</td>
+                </tr>
+                <tr>
+                  <td>Ổn định</td>
+                  <td>
+                    Vai trò là một <em>bó</em> quyền, và bó đó thay đổi theo nhu cầu kinh
+                    doanh
+                  </td>
+                  <td>Một quyền tương ứng một hành động — ít thay đổi hơn nhiều</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lớp</th>
+                  <th>File</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1 — Route</td>
+                  <td>
+                    <code>core/auth/permission.guard.ts</code>,
+                    <code>customers/customers.routes.ts</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>2 — UI</td>
+                  <td><code>core/auth/if-permitted.directive.ts</code></td>
+                </tr>
+                <tr>
+                  <td>3 — Hành động</td>
+                  <td><code>customers/state/customer-store.ts</code> → <code>refuseUnless</code></td>
+                </tr>
+                <tr>
+                  <td><strong>4 — Server</strong></td>
+                  <td>
+                    <strong><code>apps/mock-api/src/middleware/auth.ts</code></strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nguồn của quyền</td>
+                  <td>
+                    <code>packages/contracts</code> → ma trận vai trò,
+                    <code>roleHasPermission</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Toàn cảnh</td>
+                  <td><code>docs/security.md</code> — ai bảo vệ cái gì</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Bốn lớp, một hàng rào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    U(["Người dùng vai VIEWER<br/>muốn xoá một khách hàng"]) --> L1
+
+    L1{"Lớp 1 — Route guard<br/><i>trải nghiệm</i>"}
+    L1 -->|"sửa bundle để bỏ qua"| L2
+    L1 -->|"bình thường"| X1["/forbidden"]
+
+    L2{"Lớp 2 — appIfPermitted<br/><i>trải nghiệm</i>"}
+    L2 -->|"gọi method bằng console"| L3
+    L2 -->|"bình thường"| X2["nút không có trên màn hình"]
+
+    L3{"Lớp 3 — refuseUnless<br/><i>trải nghiệm + log sạch</i>"}
+    L3 -->|"gọi thẳng CustomerApi"| L4
+    L3 -->|"bình thường"| X3["lỗi authorization, KHÔNG gửi request"]
+
+    L4{"Lớp 4 — middleware server<br/><b>BIÊN BẢO MẬT</b>"}
+    L4 -->|"không có đường vòng nào"| X4["403 Forbidden"]
+
+    CURL(["curl, không cần UI"]) --> L4
+            </pre>
+            <figcaption>
+              Mỗi mũi tên bên trái là một cách đi vòng, và ba lớp đầu đều có. Lớp 4 không có
+              — và mũi tên từ <code>curl</code> cho thấy ba lớp đầu thậm chí không nằm trên
+              đường đi của một kẻ tấn công thật.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Cùng một câu hỏi, bốn lý do khác nhau</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    Q["hasPermission('CUSTOMER_DELETE')"]
+    Q --> A1["Lớp 1: đừng mở một trang<br/>mà mọi thao tác đều bị từ chối"]
+    Q --> A2["Lớp 2: đừng hiện một nút<br/>bấm vào sẽ thất bại"]
+    Q --> A3["Lớp 3: đừng gửi một request<br/>chắc chắn nhận 403"]
+    S["roleHasPermission(role, perm)<br/><i>trên server</i>"] --> A4["Lớp 4: đừng CHO PHÉP<br/>bất kể client nghĩ gì"]
+            </pre>
+            <figcaption>
+              Ba lớp đầu đọc cùng một hàm trên client và trả lời ba câu hỏi về
+              <em>trải nghiệm</em>. Lớp 4 đọc một hàm khác, trên server, từ vai trò của
+              phiên — và nó là lớp duy nhất trả lời câu hỏi về <em>quyền</em>.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Bốn lớp thay vì một — ADR-0018</h4>
+          <p>
+            Phương án bị loại: chỉ kiểm ở server, để client hiện mọi thứ. Bị loại vì người
+            dùng sẽ bấm vào những nút luôn luôn thất bại, và mở những trang không dùng được
+            — một trải nghiệm tệ, và một log đầy 403 không có nghĩa. Giá phải trả: cùng một
+            luật được viết ở bốn chỗ, và chúng có thể lệch — nên repo bù lại bằng việc
+            <strong>client đọc danh sách quyền từ server</strong> (mục 3.6) thay vì tự tính.
+          </p>
+
+          <h4>Ẩn, không vô hiệu hoá</h4>
+          <p>
+            Phương án bị loại: nút mờ kèm tooltip "bạn không có quyền". Bị loại vì disabled
+            là ngôn ngữ của "chờ một chút", không phải của "không bao giờ". Giá phải trả:
+            người dùng không biết tính năng đó tồn tại — chấp nhận được, và đôi khi còn là
+            điều mong muốn.
+          </p>
+
+          <h4>Client đọc quyền từ server, không tự tính</h4>
+          <p>
+            Phương án bị loại: tra ma trận trong <code>@ecm/contracts</code> ngay ở client.
+            Bị loại vì khi đó có hai chỗ quyết định quyền, và chúng sẽ lệch nhau ngay khi
+            server bắt đầu cấp quyền theo thứ gì đó ngoài vai trò.
+          </p>
+
+          <h4>Hỏi quyền, không hỏi vai trò</h4>
+          <p>
+            Phương án bị loại: <code>requireRole('ADMIN')</code>. Bị loại vì thêm một vai
+            trò sẽ phải sửa mọi chỗ nhắc tên vai trò — và chỗ nào quên thì sai im lặng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Tin rằng ba lớp client cộng lại là bảo mật</span>
+            <p>
+              Đây là lỗi nghiêm trọng nhất trong cả bộ tài liệu này, và nó
+              <em>không gây ra triệu chứng nào</em> cho tới khi có người tìm. Ba lớp đều
+              chạy trên máy người dùng. Mở DevTools, gọi
+              <code>fetch('/api/customers/x', { method: 'DELETE' })</code> — và nếu server
+              không kiểm, bản ghi biến mất.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Bỏ lớp 3 vì "nút đã ẩn rồi"</span>
+            <p>
+              Đúng cho hôm nay. Sáu tháng sau có một phím tắt, một thanh bulk, một mục menu
+              "nhân bản" — và mỗi cái là một đường mới tới cùng hành động. Kiểm tại hành
+              động nghĩa là chúng không thể quên.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Làm mờ nút thay vì ẩn</span>
+            <p>
+              Người dùng VIEWER thấy nút "Xoá" mờ trên mọi trang, mỗi ngày. Họ thử bấm vài
+              lần trong tuần đầu, rồi báo lên rằng "chức năng xoá bị hỏng". Và bạn sẽ mất
+              thời gian giải thích.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Client tự tính quyền từ vai trò</span>
+            <p>
+              Chạy đúng cho tới ngày server thêm một điều kiện — một flag trên tài khoản,
+              một giới hạn theo phòng ban. Lúc đó client hiện nút cho người không có quyền
+              (họ bấm, nhận 403, khó hiểu) hoặc ẩn nút của người có quyền (họ báo rằng tính
+              năng biến mất).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Kiểm vai trò thay vì quyền</span>
+            <p>
+              <code>if (role === 'ADMIN' || role === 'MANAGER')</code> rải khắp code. Thêm
+              vai trò <code>AUDITOR</code> là một cuộc rà soát toàn bộ codebase, và chỗ nào
+              bỏ sót thì người dùng mới không vào được một trang mà không ai biết vì sao.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Mô tả một kiểm tra frontend là "bảo mật" trong tài liệu</span>
+            <p>
+              Quy tắc 10 trong <code>CLAUDE.md</code> cấm điều này, và lý do không phải câu
+              chữ: một người đọc tài liệu đó sẽ tin rằng lớp server là thừa, và một ngày nào
+              đó sẽ bỏ nó đi để "tối ưu". Tài liệu sai dẫn tới kiến trúc sai.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers/customer-authorization.spec.ts</code></td>
+                  <td>Ba vai trò, và trang nào / nút nào mỗi vai trò thấy được</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/guards.spec.ts</code></td>
+                  <td>Thiếu quyền → <code>/forbidden</code>, giữ URL đã yêu cầu</td>
+                </tr>
+                <tr>
+                  <td><code>customers/state/customer-store.spec.ts</code></td>
+                  <td>
+                    Một lệnh ghi không có quyền thất bại <strong>mà không gửi
+                    request</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Spec của <code>apps/mock-api</code></td>
+                  <td>
+                    <strong>Quan trọng nhất:</strong> gọi API trực tiếp với phiên VIEWER,
+                    <em>không có UI nào tham gia</em>, và khẳng định 403
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Dòng cuối của bảng là cách <em>chứng minh</em> sự tách biệt</span>
+            <p>
+              Chú thích trong <code>auth.ts</code> nói thẳng:
+              <em>"the tests prove it by calling the API directly with a VIEWER session and
+              no UI involved."</em>
+            </p>
+            <p>
+              Đây là một ý tưởng đáng mang đi: nếu bạn tuyên bố rằng server là biên bảo mật
+              thật, thì phải có test <strong>bỏ qua hoàn toàn client</strong>. Một test đi
+              qua giao diện không chứng minh được gì về server — nó chỉ chứng minh rằng
+              giao diện không cho bạn thử.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Tôi muốn giới hạn một hành động"}
+
+    Q0 --> SRV["BẮT BUỘC: middleware server<br/><b>đây là lớp duy nhất ngăn chặn được</b><br/>kiểm lại mọi request, từ vai trò của PHIÊN"]
+    SRV --> PROVE["Chứng minh bằng test gọi API<br/>KHÔNG qua UI"]
+
+    Q0 --> UX{"Rồi mới tới trải nghiệm"}
+    UX -->|"cả một trang vô dụng"| L1["canActivate: requirePermission(p)"]
+    UX -->|"một nút sẽ thất bại"| L2["*appIfPermitted — ẨN, không làm mờ"]
+    UX -->|"nhiều đường tới cùng hành động"| L3["kiểm tại HÀNH ĐỘNG trong store"]
+
+    Q0 --> NAME{"Đặt tên điều kiện thế nào?"}
+    NAME --> N1["QUYỀN: CUSTOMER_DELETE<br/>không bao giờ là vai trò"]
+    NAME --> N2["Client ĐỌC quyền từ server,<br/>không tự tính từ vai trò"]
+
+    STOP["KHÔNG BAO GIỜ gọi ba lớp client là bảo mật<br/>— kể cả trong tài liệu nội bộ"]
+            </pre>
+            <figcaption>
+              Thứ tự trong hình là thứ tự nên làm: server trước, trải nghiệm sau. Làm ngược
+              lại là cách một team hoàn thành bốn lớp giao diện rồi phát hiện API chưa bao
+              giờ kiểm gì.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi vòng qua ba lớp đầu</h3>
+            <p class="task__meta">~30 phút · không sửa code · bài quan trọng nhất</p>
+            <p>
+              Đăng nhập bằng <code>viewer</code>. Lần lượt vượt qua từng lớp, và ghi lại
+              chuyện gì xảy ra:
+            </p>
+            <ol>
+              <li>
+                <strong>Lớp 2:</strong> nút "New customer" có trên màn hình không? Kiểm tra
+                DOM — nó có tồn tại dưới dạng ẩn, hay không tồn tại?
+              </li>
+              <li>
+                <strong>Lớp 1:</strong> gõ thẳng <code>/customers/new</code> vào thanh địa
+                chỉ.
+              </li>
+              <li>
+                <strong>Lớp 3:</strong> trong console, lấy store ra và gọi một lệnh ghi. (Dễ
+                hơn: tìm một đường trong UI mà directive chưa phủ — nếu có.)
+              </li>
+              <li>
+                <strong>Lớp 4:</strong> trong console, gọi thẳng:
+                <div class="code">
+                  <pre><code>fetch('/api/customers', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ fullName: 'Thử', email: 'thu@example.test' }),
+}).then(r =&gt; console.log(r.status));</code></pre>
+                </div>
+              </li>
+              <li>Server trả gì? Và bản ghi có được tạo không?</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì — và vì sao bước 4 là cả bài</summary>
+              <p>
+                (1) Nút <strong>không tồn tại</strong> trong DOM — structural directive, bài
+                02. (2) Trang <code>/forbidden</code>, với URL đã yêu cầu vẫn trên thanh địa
+                chỉ.
+              </p>
+              <p>
+                (4) <strong>403</strong>, và không bản ghi nào được tạo — kể cả khi bạn đã đi
+                vòng qua cả ba lớp client. Lưu ý request này có thể bị từ chối vì thiếu
+                header CSRF trước cả khi tới kiểm quyền; nếu vậy hãy đọc cookie CSRF và thêm
+                header, rồi thử lại. Kết quả cuối vẫn là 403.
+              </p>
+              <p>
+                Bây giờ đảo ngược câu hỏi: nếu mock API <em>không</em> có middleware đó, bạn
+                vừa tạo một khách hàng với tài khoản chỉ-đọc, bằng ba dòng trong console. Ba
+                lớp giao diện không hề nằm trên đường đi.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Ba vai trò, một bảng</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <p>
+              Lần lượt đăng nhập <code>admin</code>, <code>manager</code>,
+              <code>viewer</code> và điền bảng:
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Thao tác</th>
+                    <th>admin</th>
+                    <th>manager</th>
+                    <th>viewer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Nút "New customer"</td>
+                    <td>?</td>
+                    <td>?</td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>Nút "Edit" ở trang chi tiết</td>
+                    <td>?</td>
+                    <td>?</td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>Nút "Delete"</td>
+                    <td>?</td>
+                    <td>?</td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>Checkbox chọn dòng</td>
+                    <td>?</td>
+                    <td>?</td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>Nút Export</td>
+                    <td>?</td>
+                    <td>?</td>
+                    <td>?</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Rồi mở <code>packages/contracts</code>, tìm ma trận vai trò → quyền, và đối
+              chiếu bảng của bạn với nó.
+            </p>
+            <details>
+              <summary>Một câu hỏi để kết thúc bài tập</summary>
+              <p>
+                Dòng "Checkbox chọn dòng" không tương ứng với một quyền duy nhất. Mở
+                <code>customer-list-page.ts</code>, tìm <code>canBulkEdit</code>, và đọc chú
+                thích của nó: <em>"Selection exists to run bulk actions, so a user who can
+                run none of them gets no checkboxes."</em>
+              </p>
+              <p>
+                Đây là một quyết định giao diện dẫn xuất từ <em>hai</em> quyền — và nó là ví
+                dụ cho thấy lớp 2 không phải một ánh xạ máy móc, mà là những quyết định về
+                trải nghiệm có dùng quyền làm đầu vào.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Bỏ một lớp và đo hậu quả</h3>
+            <p class="task__meta">~35 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>customer-store.ts</code>, làm
+                <code>refuseUnless</code> luôn trả <code>null</code> (tức là không bao giờ
+                từ chối).
+              </li>
+              <li>
+                Đăng nhập <code>viewer</code>. Tìm một cách kích hoạt một lệnh ghi —
+                ví dụ qua console, hoặc tạm bỏ <code>*appIfPermitted</code> trên một nút.
+              </li>
+              <li>Quan sát Network và console log của mock API.</li>
+              <li>So sánh với khi lớp 3 còn nguyên: khác nhau ở <em>đâu</em>?</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Khác biệt duy nhất, và vì sao nó vẫn đáng</summary>
+              <p>
+                Kết quả với người dùng <strong>giống hệt</strong>: hành động thất bại, một
+                thông báo lỗi authorization. Khác biệt là có một request đi ra và một dòng
+                403 trong log server.
+              </p>
+              <p>
+                Đó chính xác là điều chú thích hứa: <em>"It is still not security … but it
+                keeps a denied action from costing a round trip and a 403 in the logs."</em>
+              </p>
+              <p>
+                Và một dòng 403 trong log là thứ <em>nên</em> đáng chú ý — nếu hệ thống tự
+                tạo ra chúng khi biết trước kết quả, thì khi một 403 thật xuất hiện, không
+                ai nhận ra.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Thêm một quyền mới, qua cả bốn lớp</h3>
+            <p class="task__meta">~60 phút · branch <code>learning/*</code></p>
+            <p>
+              Thêm quyền <code>CUSTOMER_ARCHIVE</code> và một hành động "Lưu trữ" chỉ
+              <code>admin</code> được dùng.
+            </p>
+            <ol>
+              <li>
+                <strong>Contract trước:</strong> thêm quyền vào danh sách và vào ma trận vai
+                trò.
+              </li>
+              <li>
+                <strong>Lớp 4 trước mọi lớp client:</strong> endpoint trong mock API, bọc
+                bằng <code>requirePermission('CUSTOMER_ARCHIVE')</code>.
+              </li>
+              <li>
+                <strong>Test lớp 4 ngay:</strong> gọi API với phiên <code>manager</code> và
+                khẳng định 403 — <em>không qua UI</em>.
+              </li>
+              <li>Lớp 3: <code>refuseUnless</code> trong store.</li>
+              <li>Lớp 2: nút với <code>*appIfPermitted</code>.</li>
+              <li>Lớp 1: nếu có trang riêng thì guard; nếu không thì bỏ qua.</li>
+              <li><code>npm run lint</code>, <code>typecheck</code>, <code>test</code> sạch.</li>
+            </ol>
+            <details>
+              <summary>Vì sao thứ tự bước 2–3 trước 4–6 là bắt buộc</summary>
+              <p>
+                Vì làm ngược lại là cách một team hoàn thành bốn lớp giao diện đẹp đẽ rồi
+                phát hiện API chưa bao giờ kiểm gì. Và vì tới lúc đó, mọi người
+                <em>cảm thấy</em> tính năng đã an toàn — ba lớp kia nhìn rất thuyết phục.
+              </p>
+              <p>
+                Bước 3 là bước không được bỏ. Một test đi qua giao diện không chứng minh
+                được gì về server: nó chỉ chứng minh rằng giao diện không cho bạn thử.
+              </p>
+              <p>
+                <strong>Tự kiểm:</strong> sau khi xong, đăng nhập <code>manager</code>, mở
+                console và gọi thẳng endpoint lưu trữ. Nếu nó thành công, bạn đã xây bốn lớp
+                mà không lớp nào là hàng rào.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Trong bốn lớp, lớp nào là biên bảo mật?</summary>
+            <p>
+              Chỉ lớp 4 — middleware trên server. Ba lớp kia chạy trên máy người dùng, trong
+              code họ sửa được. <em>"A client can be modified; this cannot."</em>
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Nếu ba lớp client không ngăn được gì, vì sao chúng tồn tại?</summary>
+            <p>
+              Lớp 1 tránh mở một trang mà mọi thao tác đều bị từ chối. Lớp 2 tránh hiện một
+              nút bấm vào sẽ thất bại. Lớp 3 tránh gửi một request chắc chắn nhận 403 — và
+              giữ cho log server không đầy những 403 vô nghĩa.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao ẩn nút chứ không làm mờ?</summary>
+            <p>
+              Disabled là ngôn ngữ của "chờ một chút" — form đang lưu, chưa chọn gì. Với thứ
+              người dùng <em>không bao giờ</em> làm được, một nút mờ không lời giải thích
+              được đọc là "hỏng", và họ sẽ thử lại nhiều lần.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Lớp 3 trông thừa vì nút đã bị ẩn. Lập luận giữ nó là gì?</summary>
+            <p>
+              Một nút bị ẩn là <em>một</em> đường tới hành động. Phím tắt, thanh bulk, một
+              mục menu thêm vào sau là những đường khác. Kiểm tại hành động nghĩa là một
+              điều khiển mới không thể quên.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao client đọc danh sách quyền từ server thay vì tự tính?</summary>
+            <p>
+              Vì hai chỗ tính độc lập sẽ lệch — ngay khi server bắt đầu cấp quyền theo thứ
+              gì đó ngoài vai trò. Và vì <em>"a client that decided its own permissions would
+              be deciding what it is allowed to do."</em>
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao hỏi quyền chứ không hỏi vai trò?</summary>
+            <p>
+              Vai trò là một bó quyền, và bó đó thay đổi. Thêm vai trò mới mà phải rà soát
+              mọi chỗ nhắc tên vai trò là một thay đổi lan rộng, và chỗ bỏ sót thì sai im
+              lặng. Quyền tương ứng một hành động, ổn định hơn nhiều.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Làm sao <em>chứng minh</em> rằng server thật sự là biên bảo mật?</summary>
+            <p>
+              Bằng test gọi API <strong>trực tiếp</strong>, với một phiên thiếu quyền, và
+              không có giao diện nào tham gia. Một test đi qua UI không chứng minh gì về
+              server — nó chỉ chứng minh rằng UI không cho bạn thử.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 21 chuyển sang một quy tắc khác cũng được cưỡng chế bằng công cụ: không
+              một chuỗi nào người dùng đọc được phép nằm cứng trong code — và lint làm bản
+              build đổ nếu có.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="19-auth.html">← Bài 19</a></span>
+            <span><a href="21-i18n.html">Bài 21 — i18n như một quy tắc build →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

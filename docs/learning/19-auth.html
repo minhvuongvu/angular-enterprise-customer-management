@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 19 — Auth</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 19 ◆
+        </p>
+        <h1>Auth</h1>
+        <p class="lede">
+          Ứng dụng này <strong>không giữ token</strong>. Nó không đọc được token, không
+          gắn token vào request, và không biết token trông như thế nào. Bài này về thiết kế
+          đó — và về ba thứ khó mà nó kéo theo: ba trạng thái chứ không hai, một lần làm
+          mới cho mười request, và một ổ khoá giữa các tab.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · hướng tới Mốc 4</li>
+          <li class="tag">◆ có máy trạng thái</li>
+          <li class="tag">~3 giờ đọc + 90 phút làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Access token</strong></td>
+                  <td>Chứng chỉ ngắn hạn cho từng request. Ở đây là một cookie.</td>
+                </tr>
+                <tr>
+                  <td><strong>Refresh token</strong></td>
+                  <td>
+                    Chứng chỉ dài hạn, chỉ dùng để xin access token mới. Cũng là cookie.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpOnly</code></td>
+                  <td>
+                    Cờ trên cookie khiến JavaScript <strong>không đọc được</strong> nó.
+                    Trình duyệt vẫn tự gửi kèm mọi request.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Rotation</strong></td>
+                  <td>
+                    Refresh token bị <em>thay mới</em> sau mỗi lần dùng. Dùng lại cái cũ là
+                    dấu hiệu bị đánh cắp, và server từ chối.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Single-flight</strong></td>
+                  <td>
+                    Nhiều người cùng cần một việc thì chỉ chạy một lần, tất cả chờ chung
+                    kết quả.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Web Lock</strong></td>
+                  <td>
+                    <code>navigator.locks</code> — ổ khoá mà trình duyệt chỉ cấp cho
+                    <em>một tab</em> của cùng origin tại một thời điểm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>generation</code></td>
+                  <td>
+                    Số tăng mỗi khi chứng chỉ đổi. Dùng để phát hiện một 401 nói về chứng
+                    chỉ đã bị thay rồi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Hydration</strong></td>
+                  <td>
+                    Bước Angular "nhận lại" HTML render sẵn. Trước khi xong, trang nhìn
+                    thấy được nhưng chưa bấm được — mục 3.8.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Nói được vì sao token trong <code>localStorage</code> là một lựa chọn tệ, và
+              cái gì thay thế nó.
+            </li>
+            <li>
+              Giải thích được vì sao trạng thái phiên có <strong>ba</strong> giá trị chứ
+              không hai — và điều gì hỏng nếu chỉ có hai.
+            </li>
+            <li>Thiết kế một cơ chế làm mới token không tự giết chính nó khi chạy song song.</li>
+            <li>
+              Nhận ra ba cuộc đua trong một hệ thống phiên: nhiều request, nhiều tab, và một
+              401 tới muộn.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so
+            sánh sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây</th>
+                  <th>Chỗ phép so sánh sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>HttpSession</code> + <code>JSESSIONID</code></td>
+                  <td>Cookie <code>HttpOnly</code> + phiên trên server</td>
+                  <td>
+                    Rất gần — và đó là chủ ý. Khác ở chỗ client
+                    <em>cũng</em> giữ một bản sao thông tin người dùng, nhưng chỉ để vẽ giao
+                    diện.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bearer token trong header</td>
+                  <td><strong>Không dùng</strong></td>
+                  <td>
+                    Cách gần như mọi tutorial dạy, và nó đòi token nằm ở chỗ JavaScript đọc
+                    được — tức là chỗ một lỗ XSS cũng đọc được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>SecurityContextHolder</code></td>
+                  <td><code>SessionService</code></td>
+                  <td>
+                    Của bạn là nguồn sự thật cho việc phân quyền. Cái này
+                    <strong>chỉ là bản sao để vẽ UI</strong> — server tự kiểm lại mọi
+                    request.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Session timeout</td>
+                  <td>Access token hết hạn + refresh tự động</td>
+                  <td>
+                    Của bạn đá người dùng ra. Ở đây người dùng
+                    <em>không được phép nhận ra</em> — một request 401 phải tự làm mới và
+                    thử lại, và họ chỉ thấy thao tác của mình hoàn tất.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ứng dụng không giữ token — ADR-0016</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts — chú thích đầu class</div>
+            <pre><code>## What this class does **not** hold
+
+A token. The access and refresh tokens are `HttpOnly` cookies that no script
+can read, including this one (ADR-0016). What arrives here is the user and
+the access token's expiry, and what this class decides is only what the UI
+shows. The server checks the cookie on every request regardless.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Token trong <code>localStorage</code></th>
+                  <th>Cookie <code>HttpOnly</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Script đọc được?</td>
+                  <td><strong>Có</strong> — kể cả script của kẻ tấn công</td>
+                  <td>Không, kể cả script của chính bạn</td>
+                </tr>
+                <tr>
+                  <td>Một lỗ XSS nghĩa là gì?</td>
+                  <td>
+                    Token bị lấy, gửi đi nơi khác, dùng được cho tới khi hết hạn —
+                    <strong>một lần chiếm phiên</strong>
+                  </td>
+                  <td>
+                    Kẻ tấn công chạy được request <em>trong</em> trang, nhưng không mang
+                    chứng chỉ đi được
+                  </td>
+                </tr>
+                <tr>
+                  <td>Gắn vào request thế nào?</td>
+                  <td>Một interceptor phải nhớ gắn</td>
+                  <td><strong>Trình duyệt tự gửi</strong> — không có code nào cả</td>
+                </tr>
+                <tr>
+                  <td>Cái giá phải trả</td>
+                  <td>—</td>
+                  <td>
+                    Phải chống CSRF (bài 09), và API phải cùng origin (bài 05, lý do
+                    <code>apiBaseUrl</code> bị ràng buộc)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đây là lý do bài 09 nói "không có interceptor nào gắn
+            <code>Authorization</code>, và đó không phải thiếu sót". Giờ bạn có câu trả lời
+            đầy đủ: không có gì để gắn, vì không ai đọc được nó.
+          </p>
+
+          <h3>3.2 Ba trạng thái, không phải hai ◆</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>## Three states, not two
+
+`unknown` is real: before the session has been checked, the app must not
+conclude that the user is anonymous and bounce them to the login page on
+every reload. `restore()` is what moves out of it.
+
+export type SessionStatus = 'unknown' | 'anonymous' | 'authenticated';</code></pre>
+          </div>
+
+          <p>
+            Trạng thái thứ ba trông như thừa cho tới khi bạn nghĩ về lần tải trang đầu
+            tiên. Lúc đó client <em>chưa hỏi server</em> gì cả. Nó không biết người dùng đã
+            đăng nhập hay chưa — và "không biết" khác hẳn "chưa đăng nhập".
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Nếu chỉ có hai trạng thái</span>
+            <p>
+              Giá trị khởi tạo phải là <code>anonymous</code>. Guard chạy, thấy
+              <code>anonymous</code>, và đá người dùng về trang đăng nhập —
+              <strong>mỗi lần họ nhấn F5</strong>, kể cả khi phiên của họ còn nguyên.
+            </p>
+            <p>
+              Đây là lỗi rất dễ viết ra, và triệu chứng của nó ("bị đăng xuất mỗi lần tải
+              lại trang") nghe như một lỗi phía server. Bạn sẽ đi tìm ở cookie trước.
+            </p>
+          </div>
+
+          <h3>3.3 <code>restore()</code>: single-flight thứ nhất</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>/**
+ * Resolves `unknown` into a status, asking the server at most once at a time.
+ *
+ * Only an `authentication` failure means "anonymous". A network failure or a
+ * 500 says nothing about whether the user is signed in, so the state stays
+ * `unknown` and the next navigation asks again - rather than treating a
+ * server hiccup as a sign-out.
+ */</code></pre>
+          </div>
+
+          <p>Hai ý trong một chú thích, và cả hai đều quan trọng:</p>
+
+          <ul>
+            <li>
+              <strong>Hỏi nhiều nhất một lần tại một thời điểm.</strong> Năm guard cùng chạy
+              trong một lần điều hướng → <strong>một</strong>
+              <code>GET /auth/session</code>. Bài 16 đã dùng tính chất này:
+              <code>authGuard</code> và <code>requirePermission</code> đều gọi
+              <code>restore()</code>, và chỉ tốn một request.
+            </li>
+            <li>
+              <strong>Chỉ lỗi <code>authentication</code> mới nghĩa là "chưa đăng
+              nhập".</strong> Mất mạng hay 500 <em>không nói gì</em> về việc người dùng có
+              phiên hay không — nên trạng thái ở lại <code>unknown</code> và lần điều hướng
+              sau hỏi lại. Coi một cú hắt hơi của server là một lần đăng xuất là cách làm
+              người dùng mất công việc đang dở.
+            </li>
+          </ul>
+
+          <h3>3.4 <code>refresh()</code>: single-flight thứ hai, và nó không phải tối ưu</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>`restore()` and `refresh()` each keep the observable of the request in
+flight and hand it to every caller that arrives while it runs. Five guards
+asking "is there a session" produce one `GET /auth/session`; five requests
+that all received a 401 produce one `POST /auth/refresh`. The second one is
+not an optimisation: refresh tokens are rotated on use, so a second
+concurrent refresh presents a token the first has already spent - and the
+server, correctly, treats that as a replay and refuses it. ADR-0017.</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao đây là vấn đề đúng đắn, không phải hiệu năng</span>
+            <p>
+              Refresh token bị <strong>xoay vòng</strong>: dùng một lần là nó hết hiệu lực,
+              server cấp cái mới. Nếu hai request cùng gửi refresh song song, cái thứ hai
+              trình một token đã bị tiêu — và server <em>đúng khi</em> coi đó là dấu hiệu
+              token bị đánh cắp, nên nó chấm dứt cả phiên.
+            </p>
+            <p>
+              Kết quả: người dùng bị đăng xuất <strong>đúng vào lúc</strong> hệ thống đang
+              cố giữ họ đăng nhập. Không có single-flight thì cơ chế làm mới trở thành cơ
+              chế đăng xuất.
+            </p>
+          </div>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>refresh(): Observable&lt;void&gt; {
+  this.refreshing ??= this.oneTabAtATime(REFRESH_LOCK, () =&gt; this.api.refresh()).pipe(
+    tap((response) =&gt; this.establish(response)),
+    map(() =&gt; undefined),
+    catchError((error: unknown) =&gt; {
+      this.end('expired');
+      return throwError(() =&gt; error);
+    }),
+    finalize(() =&gt; (this.refreshing = null)),
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+  return this.refreshing;
+}</code></pre>
+          </div>
+
+          <p>
+            Bài 07 mục 3.6 đã đọc từng dòng đoạn này. Nhắc lại một chi tiết vì bây giờ nó có
+            ngữ cảnh: <code>refCount: false</code> nghĩa là
+            <strong>refresh đã bắt đầu thì phải chạy xong</strong>, kể cả khi request kích
+            hoạt nó bị huỷ. Server xoay token ngay khi nhận request; bỏ dở response để lại
+            trình duyệt giữ một token đã tiêu.
+          </p>
+
+          <h3>3.5 Và giữa các tab: một ổ khoá</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>## Across tabs
+
+Single flight stops at the edge of this tab. Two tabs whose access tokens
+expire together would each send the same refresh token, and the second
+would be refused as a replay - debt row 18. So the request runs inside a
+Web Lock (`navigator.locks`), which the browser grants to one tab of the
+origin at a time: the second tab's refresh starts only after the first
+has finished, by which time the cookie jar - shared by both tabs - already
+holds the rotated token, and the second rotation succeeds. Where Web Locks
+do not exist the request runs unguarded, which is the old behaviour.</code></pre>
+          </div>
+
+          <p>
+            Đây là cùng một cuộc đua ở mục 3.4, nhưng ở cấp độ khác: single-flight chỉ áp
+            dụng <em>trong một tab</em>. Hai tab là hai instance
+            <code>SessionService</code>, không biết gì về nhau — nhưng chúng
+            <strong>dùng chung một hũ cookie</strong>.
+          </p>
+
+          <p>
+            Web Lock giải quyết bằng cách tuần tự hoá: tab thứ hai chờ, và khi nó chạy, hũ
+            cookie đã có token mới — nên lần xoay của nó cũng thành công.
+          </p>
+
+          <p>
+            Chú ý câu cuối: <em>"Where Web Locks do not exist the request runs
+            unguarded"</em>. Trình duyệt không có <code>navigator.locks</code> vẫn chạy
+            được, chỉ là quay về hành vi cũ. <strong>Xuống cấp êm, không vỡ.</strong>
+          </p>
+
+          <h3>3.6 <code>generation</code>: phát hiện một 401 tới muộn</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>/**
+ * Bumped whenever the credential the browser holds changes: sign-in,
+ * refresh, sign-out, expiry.
+ *
+ * The refresh interceptor records it when a request leaves and compares it
+ * when a 401 comes back. If it moved in between, the 401 is about a
+ * credential that has already been replaced, and the right response is to
+ * retry - not to refresh a second time. A plain number, not a signal: it is
+ * read synchronously inside an interceptor and nothing renders it.
+ */
+private generationCounter = 0;</code></pre>
+          </div>
+
+          <p>Cuộc đua thứ ba, và nó tinh vi nhất trong ba:</p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant A as Request A
+    participant B as Request B
+    participant S as SessionService
+    participant V as Server
+    A->>S: ghi generation = 3
+    A->>V: GET /customers
+    B->>S: ghi generation = 3
+    B->>V: GET /audit
+    V-->>A: 401
+    A->>S: renewAfter(3) — generation vẫn 3 → refresh
+    S->>V: POST /auth/refresh
+    V-->>S: token mới, generation → 4
+    A->>V: thử lại GET /customers → 200
+    V-->>B: 401 (tới muộn, về chứng chỉ CŨ)
+    B->>S: renewAfter(3) — generation giờ là 4
+    Note over S: đã có người làm mới rồi<br/>chỉ cần THỬ LẠI
+    B->>V: thử lại GET /audit → 200
+            </pre>
+            <figcaption>
+              Không có <code>generation</code>, bước 12 sẽ khởi động một lần refresh thứ
+              hai — trình một token đã bị tiêu ở bước 7, và server chấm dứt phiên. Một con
+              số nguyên ngăn chuyện đó.
+            </figcaption>
+          </figure>
+
+          <h3>3.7 Mười request hỏng, một lần điều hướng</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session-expiry.ts</div>
+            <pre><code>/**
+ * Sends the user to sign in when their session ends by itself - a refresh
+ * failed - with the page they were on kept as the destination.
+ *
+ * One subscriber, at the application root, rather than a redirect in the
+ * refresh interceptor: when ten requests fail together, the interceptor runs
+ * ten times, but `SessionService.ended$` emits once. Navigation happens once.
+ *
+ * A deliberate sign-out is not handled here. That is an action the user took,
+ * and the component that took it decides where to go next. A sign-out in
+ * *another* tab is handled here, like an expiry: from this tab's point of view
+ * the session simply ended (`session-cross-tab.ts`).
+ */
+export function provideSessionExpiryRedirect(): EnvironmentProviders {
+  return provideEnvironmentInitializer(() =&gt; {
+    const session = inject(SessionService);
+    const router = inject(Router);
+
+    session.ended$.pipe(filter((reason) =&gt; reason !== 'signed-out')).subscribe((reason) =&gt; {
+      void router.navigate([SIGN_IN_PATH], {
+        queryParams: {
+          [RETURN_URL_PARAM]: safeReturnUrl(router.url),
+          [SIGN_IN_REASON_PARAM]: reason,
+        },
+      });
+    });
+  });
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Một subscriber ở gốc, không phải trong interceptor</td>
+                  <td>
+                    Mười request hỏng cùng lúc thì interceptor chạy mười lần, nhưng
+                    <code>ended$</code> phát <strong>một</strong> lần. Nếu điều hướng nằm
+                    trong interceptor, người dùng sẽ bị chuyển trang mười lần chồng nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>filter(reason !== 'signed-out')</code></td>
+                  <td>
+                    Đăng xuất chủ động là việc người dùng làm, và component thực hiện nó
+                    quyết định đi đâu tiếp. Chỉ phiên kết thúc
+                    <em>tự nó</em> mới cần chuyển hướng ở đây.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nhưng đăng xuất ở <em>tab khác</em> thì có</td>
+                  <td>
+                    Từ góc nhìn của tab này, phiên đơn giản là đã kết thúc — nó không làm gì
+                    cả.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>router.url</code> làm <code>returnUrl</code></td>
+                  <td>
+                    Trang tải dữ liệu <em>sau khi</em> được kích hoạt, nên request phát hiện
+                    phiên hết hạn thuộc về trang đang có trên thanh địa chỉ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Vẫn đi qua <code>safeReturnUrl</code></td>
+                  <td>
+                    Dù giá trị đến từ chính router. Chú thích nói lý do:
+                    <em>"the value becomes a query parameter the login page will follow, and
+                    the rule is that nothing is followed unchecked."</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.8 Trang đăng nhập: prerender, và một nút cố ý bị khoá</h3>
+
+          <div class="code">
+            <div class="code__file">login/login-page.ts — chú thích</div>
+            <pre><code>… the way a browser does with no JavaScript: a GET to the same URL - which
+puts the username **and the password in the address bar**, in history, and
+in any proxy log along the way.
+
+`afterNextRender` runs only in the browser and only once the application is
+live, so the prerendered HTML ships the button disabled and hydration
+enables it. The cost is a few milliseconds of an inert button; the
+alternative is a credential in a URL.</code></pre>
+          </div>
+
+          <p>
+            Đây là một hệ quả của bài 00 mục 3.4 mà ít ai nghĩ tới.
+            <code>/login</code> được <strong>prerender</strong>: HTML của nó có sẵn form,
+            hiện ra trước khi JavaScript chạy xong. Nếu người dùng gõ và nhấn Enter trong
+            khoảng đó, trình duyệt làm điều nó luôn làm với một form không có JavaScript:
+            gửi một GET tới cùng URL — <strong>kèm mật khẩu trong query
+            string</strong>.
+          </p>
+
+          <p>
+            Mật khẩu đó sẽ nằm trong thanh địa chỉ, trong lịch sử trình duyệt, và trong log
+            của mọi proxy trên đường đi. Giá để tránh: nút Lưu bị khoá vài mili giây.
+          </p>
+
+          <p>
+            Và đây cũng là lý do test e2e của repo bắt đầu bằng
+            <code>await expect(signIn).toBeEnabled()</code> — chờ đúng điều người dùng cũng
+            phải chờ.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Đọc để học gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/auth/session.service.ts</code></td>
+                  <td>
+                    <strong>Đọc trước.</strong> Ba trạng thái, hai single-flight, Web Lock,
+                    generation — và chú thích đầu class là bản tóm tắt cả bài
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/session-expiry.ts</code></td>
+                  <td>Một subscriber cho mười thất bại; phân biệt ba lý do kết thúc</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/session-cross-tab.ts</code></td>
+                  <td>Đăng xuất ở tab này thì tab kia biết</td>
+                </tr>
+                <tr>
+                  <td><code>core/http/auth-refresh.interceptor.ts</code></td>
+                  <td>Bên tiêu thụ của <code>generation</code> và <code>renewAfter</code> — bài 09</td>
+                </tr>
+                <tr>
+                  <td><code>login/login-page.ts</code></td>
+                  <td>Prerender + hydration, và vì sao nút bị khoá lúc đầu</td>
+                </tr>
+                <tr>
+                  <td><code>docs/security.md</code></td>
+                  <td>Toàn cảnh: ai bảo vệ cái gì, và lớp nào là thật</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của một phiên ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> ChuaBiet
+
+    ChuaBiet --> DangHoi: restore()
+    DangHoi --> DaDangNhap: 200 — có phiên
+    DangHoi --> AnDanh: 401 — không có phiên
+    DangHoi --> ChuaBiet: lỗi mạng hoặc 500<br/><b>KHÔNG kết luận gì</b>
+
+    AnDanh --> DaDangNhap: đăng nhập thành công
+
+    DaDangNhap --> DangLamMoi: một request nhận 401
+    DangLamMoi --> DaDangNhap: refresh thành công<br/>generation++
+    DangLamMoi --> KetThuc: refresh thất bại
+
+    DaDangNhap --> KetThuc: người dùng bấm Đăng xuất
+    DaDangNhap --> KetThuc: tab khác đăng xuất
+
+    KetThuc --> AnDanh: ended$ phát MỘT lần<br/>→ chuyển tới /login
+
+    state "unknown — chưa hỏi" as ChuaBiet
+    state "đang gọi GET /auth/session" as DangHoi
+    state "anonymous" as AnDanh
+    state "authenticated" as DaDangNhap
+    state "đang POST /auth/refresh<br/>single-flight + Web Lock" as DangLamMoi
+    state "ended(reason)" as KetThuc
+
+    note right of ChuaBiet
+        Nếu gộp với anonymous:
+        F5 = bị đăng xuất.
+    end note
+
+    note right of DangLamMoi
+        Người dùng KHÔNG thấy gì.
+        Request được thử lại và hoàn tất.
+    end note
+            </pre>
+            <figcaption>
+              Mũi tên từ <strong>đang hỏi</strong> quay lại <strong>unknown</strong> là chi
+              tiết dễ bỏ sót nhất: một lỗi mạng không phải một câu trả lời về việc người
+              dùng có phiên hay không, nên trạng thái không đổi và lần sau hỏi lại.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Cookie <code>HttpOnly</code> thay vì bearer token — ADR-0016</h4>
+          <p>
+            Phương án bị loại: JWT trong <code>localStorage</code>, gắn bằng interceptor.
+            Bị loại vì một lỗ XSS biến thành một lần chiếm phiên mang đi được. Giá phải
+            trả: phải chống CSRF (bài 09), và API buộc phải cùng origin — đó là lý do
+            <code>apiBaseUrl</code> bị schema ràng buộc phải là đường dẫn tương đối (bài
+            05).
+          </p>
+
+          <h4>Ba trạng thái thay vì hai</h4>
+          <p>
+            Phương án bị loại: boolean <code>isAuthenticated</code>. Bị loại vì giá trị khởi
+            tạo <code>false</code> làm mọi lần F5 thành một lần đăng xuất. Giá phải trả: mọi
+            chỗ đọc trạng thái phải xử lý ba nhánh — và guard phải
+            <em>chờ</em> thay vì trả lời ngay.
+          </p>
+
+          <h4>Single-flight hai lần, và một Web Lock</h4>
+          <p>
+            Phương án bị loại: để mỗi request tự làm mới. Bị loại vì token xoay vòng làm lần
+            thứ hai bị coi là replay. Giá phải trả: hai cơ chế đồng bộ hoá ở hai cấp độ khác
+            nhau, và một debt row (18) đã phải trả.
+          </p>
+
+          <h4>Nút đăng nhập bị khoá cho tới khi hydrate</h4>
+          <p>
+            Phương án bị loại: để nút hoạt động ngay. Bị loại vì form prerender không có
+            JavaScript sẽ submit bằng GET —
+            <strong>mật khẩu vào thanh địa chỉ</strong>. Giá phải trả: vài mili giây một nút
+            không bấm được.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao"><span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào</h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Token trong <code>localStorage</code></span>
+            <p>
+              Một lỗ XSS ở bất kỳ đâu — một thư viện phân tích, một quảng cáo, một
+              dependency bị chiếm — đọc được token và gửi nó đi. Kẻ tấn công dùng nó từ máy
+              của họ, ngoài trình duyệt của nạn nhân, cho tới khi nó hết hạn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Chỉ hai trạng thái phiên</span>
+            <p>
+              Người dùng bị đá về trang đăng nhập mỗi lần F5. Và vì triệu chứng nghe như lỗi
+              cookie, bạn sẽ đi tìm ở <code>SameSite</code>, ở domain, ở thời hạn — trước
+              khi nghĩ tới giá trị khởi tạo của một signal.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Mỗi 401 tự gọi refresh</span>
+            <p>
+              Mười request hết hạn cùng lúc → mười lần refresh → chín lần trình một token đã
+              tiêu → server coi là replay và chấm dứt phiên. Người dùng bị đăng xuất đúng
+              vào lúc hệ thống đang cố giữ họ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Coi lỗi mạng là "chưa đăng nhập"</span>
+            <p>
+              Mất sóng wifi một giây → trạng thái thành <code>anonymous</code> → điều hướng
+              tiếp theo đá người dùng ra, kèm mọi thứ họ đang gõ dở. Một cú hắt hơi của mạng
+              không phải một câu trả lời về phiên.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Chuyển hướng trong interceptor</span>
+            <p>
+              Mười request hỏng cùng lúc, mười lần <code>router.navigate</code>. Trình duyệt
+              chồng mười nấc lịch sử, và nút Back của người dùng cần bấm mười lần để ra khỏi
+              trang đăng nhập.
+            </p>
+          </div>
+
+          <div class="box box--warn">
+            <span class="box__label">6. Để form đăng nhập hoạt động trước khi hydrate</span>
+            <p>
+              Mật khẩu vào query string, vào lịch sử trình duyệt, vào log proxy. Không ai
+              phát hiện cho tới một đợt kiểm tra bảo mật — hoặc tới khi ai đó chia sẻ màn
+              hình.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/auth/session.service.spec.ts</code></td>
+                  <td>
+                    Nhiều lời gọi <code>restore()</code> → một request; lỗi mạng giữ trạng
+                    thái <code>unknown</code>; refresh thất bại kết thúc phiên
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/http/auth-refresh.interceptor.spec.ts</code></td>
+                  <td>
+                    Nhiều 401 đồng thời → một refresh; 401 tới muộn sau khi generation đổi
+                    thì chỉ thử lại
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/session-expiry.spec.ts</code></td>
+                  <td>Mười thất bại → một lần điều hướng; đăng xuất chủ động không bị chuyển hướng</td>
+                </tr>
+                <tr>
+                  <td><code>core/auth/session-cross-tab.spec.ts</code></td>
+                  <td>Đăng xuất ở tab khác kết thúc phiên ở tab này</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/auth.spec.ts</code></td>
+                  <td>
+                    Cả luồng thật trong trình duyệt thật, kể cả kịch bản
+                    <code>expired-session</code> của mock API
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Mock API có một kịch bản cho đúng việc này</span>
+            <p>
+              <code>x-mock-scenario: expired-session</code> làm access token chết giữa
+              chừng, theo yêu cầu. Chú thích trong
+              <code>apps/mock-api/src/middleware/auth.ts</code> nói mục đích:
+              <em>"Deterministically reproduces 'the access token died mid-session', so the
+              refresh flow can be tested without waiting fifteen minutes."</em>
+            </p>
+            <p>
+              Đây là một ý tưởng đáng mang đi: thứ khó test nhất trong hệ thống phiên là
+              <em>thời điểm</em>, và một backend có cơ chế gây lỗi theo yêu cầu biến nó
+              thành một dòng header.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Thiết kế phiên cho một SPA"}
+
+    Q0 --> C["Chứng chỉ ở đâu?"]
+    C --> C1["Cookie HttpOnly — script KHÔNG đọc được<br/>trình duyệt tự gửi"]
+    C1 --> C2["Giá phải trả: CSRF + cùng origin"]
+
+    Q0 --> S["Trạng thái có mấy giá trị?"]
+    S --> S1["BA: unknown · anonymous · authenticated<br/>hai giá trị = F5 là đăng xuất"]
+    S1 --> S2["Lỗi mạng KHÔNG đổi trạng thái"]
+
+    Q0 --> R["Làm mới thế nào?"]
+    R --> R1["Single-flight TRONG tab<br/>token xoay vòng → lần hai là replay"]
+    R --> R2["Web Lock GIỮA các tab<br/>cùng hũ cookie, khác instance"]
+    R --> R3["generation: 401 tới muộn → chỉ THỬ LẠI"]
+    R --> R4["refCount: false — đã bắt đầu thì phải xong"]
+
+    Q0 --> E["Phiên kết thúc thì sao?"]
+    E --> E1["MỘT subscriber ở gốc<br/>mười thất bại = một lần điều hướng"]
+    E --> E2["Đăng xuất chủ động: component tự quyết<br/>Hết hạn / tab khác: chuyển về login"]
+    E --> E3["returnUrl vẫn qua allowlist"]
+
+    Q0 --> L["Trang đăng nhập"]
+    L --> L1["Prerender → nút khoá tới khi hydrate<br/>nếu không, mật khẩu vào URL"]
+            </pre>
+            <figcaption>
+              Năm nhánh, và ba trong số đó tồn tại vì <em>thời gian</em>: hai request cùng
+              lúc, hai tab cùng lúc, một câu trả lời tới muộn. Hệ thống phiên là nơi mọi
+              cuộc đua của frontend gặp nhau.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chứng minh ứng dụng không đọc được token</h3>
+            <p class="task__meta">~20 phút · không sửa code</p>
+            <ol>
+              <li>Đăng nhập. Mở DevTools → Application → Cookies.</li>
+              <li>
+                Tìm cookie phiên. Cột <code>HttpOnly</code> có dấu tích không?
+              </li>
+              <li>
+                Trong console, gõ <code>document.cookie</code>. Bạn thấy những cookie nào?
+                Cookie phiên có trong đó không?
+              </li>
+              <li>
+                Tìm cookie CSRF. Nó <em>có</em> trong <code>document.cookie</code> không? Vì
+                sao khác?
+              </li>
+              <li>
+                Gõ <code>localStorage</code>. Có token nào trong đó không? Có gì?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                Cookie phiên có <code>HttpOnly</code> và <strong>không</strong> xuất hiện
+                trong <code>document.cookie</code> — kể cả script của chính bạn cũng không
+                đọc được. Cookie CSRF thì có, và đó là chủ ý: nửa phía client của cơ chế
+                double-submit cần script đọc được nó để echo lên header (bài 09 mục 3.3).
+              </p>
+              <p>
+                <code>localStorage</code> chỉ có tuỳ chọn giao diện —
+                <code>ecm.theme</code>, <code>ecm.language</code>. Không có chứng chỉ nào, và
+                chú thích trên <code>LOCAL_STORAGE</code> nói thẳng:
+                <em>"Never put a secret or a token here."</em>
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Gây hết hạn phiên theo yêu cầu</h3>
+            <p class="task__meta">~30 phút · dùng fault injection</p>
+            <ol>
+              <li>
+                Đọc <code>docs/mock-backend.md</code>, tìm kịch bản
+                <code>expired-session</code>.
+              </li>
+              <li>
+                Dùng DevTools để thêm header <code>x-mock-scenario: expired-session</code>
+                vào một request — hoặc viết một test Playwright tạm dùng
+                <code>page.route</code>.
+              </li>
+              <li>
+                Quan sát Network: có bao nhiêu request? Thứ tự của chúng?
+              </li>
+              <li>
+                <strong>Người dùng có thấy gì không?</strong> Thao tác của họ có hoàn tất
+                không?
+              </li>
+              <li>Tìm dòng log của cả chuỗi. Nó là <strong>một</strong> dòng hay hai?</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (3): request gốc → 401 → <code>POST /auth/refresh</code> → request gốc lần
+                nữa → 200. Bốn dòng trong Network.
+              </p>
+              <p>
+                (4): <strong>không thấy gì cả.</strong> Đó là toàn bộ mục đích — phiên hết
+                hạn giữa chừng là chuyện của hệ thống, không phải của người dùng.
+              </p>
+              <p>
+                (5): <strong>một</strong> dòng, với tổng thời gian người dùng thật sự chờ.
+                Đó là vị trí của <code>requestLogging</code> ở trên
+                <code>authRefresh</code> trong chuỗi — bài 09 mục 3.4.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Hai tab, một cuộc đua</h3>
+            <p class="task__meta">~30 phút · hai cửa sổ trình duyệt</p>
+            <ol>
+              <li>Mở hai tab, đăng nhập cả hai.</li>
+              <li>Ở tab 1, bấm Đăng xuất.</li>
+              <li>Chuyển sang tab 2 <strong>mà không làm gì khác</strong>. Nó phản ứng thế nào?</li>
+              <li>Thanh địa chỉ của tab 2 có <code>reason</code> gì?</li>
+              <li>
+                Bây giờ đăng nhập lại cả hai tab. Ở tab 2, mở
+                <code>/customers</code> và để yên. Ở tab 1, cũng mở
+                <code>/customers</code>. Cả hai cùng hoạt động bình thường chứ?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì ở bước 3 và 4</summary>
+              <p>
+                Tab 2 tự chuyển về trang đăng nhập, với
+                <code>?reason=signed-out-elsewhere</code>. Nó biết nhờ
+                <code>session-cross-tab.ts</code> — và nó hiển thị một thông báo
+                <em>khác</em> với "phiên của bạn đã hết hạn", vì đây là chuyện khác hẳn.
+              </p>
+              <p>
+                Chú ý nó không gửi request nào để phát hiện điều đó. Cookie đã bị xoá bởi
+                tab 1, và hai tab dùng chung một hũ cookie — nên thứ còn lại chỉ là trạng
+                thái cục bộ và việc nói cho người dùng biết vì sao.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 4 — Phá single-flight</h3>
+            <p class="task__meta">~35 phút · sửa rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>session.service.ts</code>, đổi
+                <code>this.refreshing ??= …</code> thành
+                <code>this.refreshing = …</code> — tức là mỗi lời gọi tạo một luồng mới.
+              </li>
+              <li>
+                Mở một trang có nhiều request song song (danh sách khách hàng tải kèm thông
+                báo và số đếm).
+              </li>
+              <li>Gây <code>expired-session</code> như bài tập 2.</li>
+              <li>Đếm số <code>POST /auth/refresh</code> trong Network. Kết quả cuối là gì?</li>
+              <li><code>git checkout</code>.</li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và vì sao kết quả có thể khác nhau mỗi lần</summary>
+              <p>
+                Nhiều hơn một request refresh. Và tuỳ vào việc mock API xử lý replay chặt
+                tới đâu, bạn sẽ thấy một trong hai: hoặc các lần sau bị từ chối và phiên kết
+                thúc — người dùng bị đăng xuất — hoặc chúng tình cờ thành công vì thứ tự
+                may mắn.
+              </p>
+              <p>
+                <strong>Việc kết quả không ổn định mới là bài học.</strong> Đây là một race
+                condition: nó hỏng tuỳ lúc, tuỳ tốc độ mạng, tuỳ máy. Nó sẽ qua được mọi lần
+                test thủ công trên máy bạn và nổ trên production với người dùng ở mạng chậm.
+              </p>
+              <p>
+                Chạy <code>npm test --workspace @ecm/web</code> với bản sửa và ghi lại test
+                nào bắt được — đó là lý do test cho chuyện này tồn tại.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao ứng dụng không giữ token?</summary>
+            <p>
+              Vì token ở chỗ JavaScript đọc được cũng là chỗ một lỗ XSS đọc được — và khi đó
+              kẻ tấn công mang chứng chỉ ra ngoài trình duyệt nạn nhân được. Cookie
+              <code>HttpOnly</code> thì không script nào đọc, kể cả của chính ứng dụng.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao cần trạng thái <code>unknown</code>?</summary>
+            <p>
+              Vì trước khi hỏi server, ứng dụng <em>không biết</em> người dùng có phiên hay
+              không — và "không biết" khác "chưa đăng nhập". Gộp hai cái làm mọi lần F5
+              thành một lần đăng xuất.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao single-flight cho refresh không phải một tối ưu?</summary>
+            <p>
+              Vì refresh token bị xoay vòng. Lần refresh thứ hai chạy song song sẽ trình một
+              token lần thứ nhất đã tiêu, và server đúng khi coi đó là replay — nên nó chấm
+              dứt phiên. Không có single-flight thì cơ chế làm mới trở thành cơ chế đăng
+              xuất.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Web Lock giải quyết vấn đề gì mà single-flight không giải quyết?</summary>
+            <p>
+              Single-flight chỉ áp dụng trong <em>một tab</em>. Hai tab là hai instance
+              service, không biết nhau, nhưng dùng chung hũ cookie — nên chúng vẫn đua nhau.
+              Web Lock tuần tự hoá giữa các tab của cùng origin.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>generation</code> dùng để làm gì?</summary>
+            <p>
+              Phát hiện một 401 tới <em>muộn</em>, về một chứng chỉ đã bị thay rồi. Nếu
+              generation đã đổi từ lúc request rời đi, câu trả lời đúng là
+              <strong>thử lại</strong> chứ không phải làm mới lần nữa — làm mới lần nữa sẽ
+              trình một token đã tiêu.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao điều hướng khi hết phiên nằm ở gốc chứ không trong interceptor?</summary>
+            <p>
+              Vì mười request hỏng cùng lúc làm interceptor chạy mười lần, nhưng
+              <code>ended$</code> phát một lần. Điều hướng trong interceptor sẽ chồng mười
+              nấc lịch sử.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao nút đăng nhập bị khoá tới khi hydrate xong?</summary>
+            <p>
+              Vì <code>/login</code> được prerender, nên form tồn tại trước khi JavaScript
+              chạy. Submit lúc đó là một GET mang <strong>mật khẩu trong query
+              string</strong> — vào thanh địa chỉ, vào lịch sử, vào log proxy.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài 20 lấy <code>hasPermission</code> của bài này và hỏi: nó được dùng ở mấy
+              chỗ, và trong số đó <em>chỗ nào</em> thật sự ngăn chặn được điều gì. Câu trả
+              lời là một — và ba chỗ còn lại vẫn đáng tồn tại.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="18-ghi-du-lieu-an-toan.html">← Bài 18</a></span>
+            <span><a href="20-phan-quyen-nhieu-lop.html">Bài 20 — Phân quyền nhiều lớp →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ ◆</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
