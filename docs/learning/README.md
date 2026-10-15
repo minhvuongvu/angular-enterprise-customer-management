@@ -143,7 +143,7 @@ nhìn tài liệu: một component có input/output, một interceptor, một fo
 Đây là chỗ phát hiện mình "hiểu khi đọc" nhưng chưa "viết được" — hai việc khác
 nhau, và chỉ việc thứ hai được trả lương.
 
-## 7. Khuôn mỗi bài — 10 mục
+## 7. Khuôn mỗi bài — 12 mục
 
 0. **Từ vựng**: mọi thuật ngữ và cú pháp Angular mới của bài, giải thích trước
    khi dùng
