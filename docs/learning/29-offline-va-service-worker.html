@@ -1,0 +1,1330 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 29 — Offline &amp; service worker</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 29
+        </p>
+        <h1>Offline &amp; service worker ◆</h1>
+        <p class="lede">
+          Câu đầu tiên trong tài liệu offline của repo là một lời từ chối:
+          <strong>"Ứng dụng này không chạy được offline."</strong> Rồi nó dành bốn trang để
+          nói <em>chính xác</em> cái gì chạy, cái gì không, và vì sao hàng đợi ghi bị loại.
+          Brief này về việc chọn một phạm vi offline hẹp và nói thật về nó.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu · ◆ có máy trạng thái</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi có người nói "làm cho nó chạy offline đi". Phần giá trị nhất của brief này
+              không phải cách cache, mà là cách <strong>thu hẹp yêu cầu đó</strong> thành một
+              thứ làm được và nói thật được.
+            </p>
+            <p>
+              Nền cần có: bài 05 (platform token), bài 10 (lỗi đi qua đường chuẩn), brief 25
+              (reconnect), brief 26 (vòng đời trang).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Service worker</strong></td>
+                  <td>
+                    Một script chạy <em>giữa</em> trang và mạng, sống tiếp cả khi không tab
+                    nào mở. Nó chặn được mọi request của trang và trả lời bằng cache.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>App shell</strong></td>
+                  <td>
+                    Phần khung của ứng dụng — HTML, JS, CSS — không chứa dữ liệu. Cache nó là
+                    đủ để ứng dụng <em>khởi động</em> khi không có mạng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Network first</strong> (<em>freshness</em>) vs
+                    <strong>cache first</strong>
+                  </td>
+                  <td>
+                    Hỏi mạng trước, hỏng thì dùng cache — hay ngược lại. Chọn sai chiều là
+                    phục vụ một ứng dụng cũ cho người đang online.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>assetGroups</code> / <code>dataGroups</code></td>
+                  <td>
+                    Hai loại cấu hình của Angular service worker: tài nguyên tĩnh có hash
+                    (JS, CSS, ảnh) và dữ liệu động (API, config).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>prefetch</code> / <code>lazy</code></td>
+                  <td>
+                    Tải sẵn ngay lúc cài đặt, hay chỉ cache khi dùng lần đầu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Atomic update</strong></td>
+                  <td>
+                    Một phiên bản ứng dụng được cache <em>nguyên bộ</em> hoặc không gì cả —
+                    không bao giờ có chuyện JS mới chạy với CSS cũ. Đây là phần mà service
+                    worker viết tay hay làm sai nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>navigator.onLine</code></td>
+                  <td>
+                    Trình duyệt nói có <em>giao diện mạng</em> nào đang hoạt động không.
+                    <code>false</code> thì chắc chắn; <code>true</code> thì không chứng minh
+                    được gì — mục 3.1.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Captive portal</strong></td>
+                  <td>
+                    Wi-Fi khách sạn/sân bay bắt đăng nhập trước: có mạng, có IP,
+                    <code>onLine === true</code>, và mọi request đều về trang đăng nhập của
+                    họ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>IndexedDB</strong></td>
+                  <td>
+                    Cơ sở dữ liệu trong trình duyệt, dung lượng lớn hơn
+                    <code>localStorage</code> nhiều và bất đồng bộ. Nơi lab offline giữ bản
+                    sao đọc-chỉ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Read-through cache</strong></td>
+                  <td>
+                    Đọc từ mạng, <em>và</em> ghi một bản sao xuống đĩa trên đường về. Lần sau
+                    mạng hỏng thì còn cái mà hiện.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Write queue</strong> / offline-first</td>
+                  <td>
+                    Xếp hàng các lệnh ghi khi offline rồi gửi khi có mạng. Repo
+                    <strong>không</strong> làm — và mục 6 nói vì sao đó là một quyết định chứ
+                    không phải một thiếu sót.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Thu hẹp một yêu cầu "cho chạy offline" thành một bảng nói rõ
+              <em>từng tình huống</em> làm gì.
+            </li>
+            <li>
+              Nói được vì sao <code>navigator.onLine === true</code> không chứng minh được gì,
+              và hệ quả kiến trúc của điều đó.
+            </li>
+            <li>
+              Cấu hình service worker đúng chiều: shell thì cache, API thì
+              <strong>không bao giờ</strong> — và nói được lý do bảo mật.
+            </li>
+            <li>
+              Giải thích được vì sao hàng đợi ghi không phải "làm thêm một tính năng", mà là
+              một mô hình nhất quán mới phải thiết kế.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Reverse proxy cache (nginx, Varnish)</td>
+                  <td>Service worker — nhưng nằm <em>trong</em> máy người dùng</td>
+                </tr>
+                <tr>
+                  <td>Cache-aside, read-through</td>
+                  <td>Lab offline: fetch rồi ghi một bản sao xuống IndexedDB</td>
+                </tr>
+                <tr>
+                  <td>TTL, invalidation</td>
+                  <td><code>maxAge</code>, <code>maxSize</code> trong <code>dataGroups</code></td>
+                </tr>
+                <tr>
+                  <td>Outbox pattern cho message chưa gửi được</td>
+                  <td>
+                    Write queue — <strong>không làm</strong>, và mục 6 nói vì sao
+                  </td>
+                </tr>
+                <tr>
+                  <td>Health check để biết dịch vụ còn sống</td>
+                  <td>
+                    <code>navigator.onLine</code> — yếu hơn nhiều, và phải biết nó yếu chỗ nào
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "online là một boolean"</span>
+            <p>
+              Ở backend, "kết nối được tới DB" là một câu hỏi trả lời được: thử đi thì biết.
+              Trong trình duyệt, <code>navigator.onLine</code> chỉ nói
+              <em>card mạng có đang bật không</em>. Captive portal ở sân bay, router chết, DNS
+              hỏng, server sập — tất cả đều cho <code>true</code>.
+            </p>
+            <p>
+              Chú thích của repo gọi đúng tên:
+              <em>"`false` is reliable: there is no network. `true` is a hope."</em> Một tín
+              hiệu chỉ đáng tin theo <strong>một chiều</strong>, và mọi thiết kế phải tôn
+              trọng điều đó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "cache cho nhanh thì cache cả API"</span>
+            <p>
+              Ở backend, cache response API là chuyện thường ngày. Trong một service worker
+              thì nó là một quyết định về <strong>dữ liệu cá nhân nằm trên đĩa của người
+              khác</strong>: cache đó sống lâu hơn phiên đăng nhập, thuộc về bất kỳ ai dùng
+              trình duyệt sau đó, và <em>không lệnh đăng xuất nào xoá nó</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "làm offline tức là thêm một hàng đợi"</span>
+            <p>
+              Hàng đợi ghi không phải một tính năng, nó là một
+              <strong>mô hình nhất quán</strong>. Câu hỏi đầu tiên phải trả lời không phải
+              "lưu vào đâu" mà là: <em>một lệnh ghi xếp hàng từ hôm qua gặp một bản ghi đã
+              được người khác sửa thì sao?</em>
+            </p>
+            <p>
+              Repo chỉ ra rằng nó đã có câu trả lời cho trường hợp
+              <em>hiếm</em> (xung đột 409, bài 18, giữ lại cả hai bản sửa) — và offline sẽ
+              biến trường hợp hiếm đó thành <strong>trường hợp thường</strong>.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Tín hiệu kết nối chỉ đáng tin một chiều</h3>
+
+          <div class="code">
+            <div class="code__file">core/connectivity/connectivity.service.ts — chú thích</div>
+            <pre><code>`navigator.onLine` and the `online` / `offline` events report whether the
+device has a network interface that is up - not whether the API is
+reachable. `false` is reliable: there is no network. `true` is a hope: a
+captive portal, a dead router or a server outage all look online. So this
+service is used for what it can honestly say - "you are offline, nothing
+will be saved" - and a failed request is still classified by the HTTP
+layer as it always was.</code></pre>
+          </div>
+
+          <p>Ba hệ quả kiến trúc rút ra từ một câu:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hệ quả</th>
+                  <th>Nghĩa cụ thể</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Banner <strong>chỉ nói khi chắc chắn</strong>
+                  </td>
+                  <td>
+                    Nó hiện khi <code>online === false</code>, và nói đúng một điều: "bạn đang
+                    offline, không lưu được gì". Nó không hứa "bạn đang online, mọi thứ ổn".
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Không</strong> dùng nó để quyết định có gửi request hay không
+                  </td>
+                  <td>
+                    Tài liệu viết thẳng trong mục "When not to use it":
+                    <em>"to decide whether to send a request. Send it, and handle the
+                    failure."</em> Nếu chặn request khi <code>onLine === false</code>, bạn sẽ
+                    chặn nhầm trong mọi trường hợp tín hiệu sai.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lab offline chuyển sang bản sao khi <em>fetch hỏng</em></td>
+                  <td>
+                    Không phải khi <code>onLine === false</code>. Thử thật mới là bằng chứng
+                    thật — đúng tinh thần "gửi đi rồi xử lý thất bại".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Service worker: cache cái gì, và theo chiều nào</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/ngsw-config.json</div>
+            <pre><code>{
+  "index": "/index.csr.html",
+  "navigationRequestStrategy": "freshness",
+  "assetGroups": [
+    { "name": "app-shell", "installMode": "prefetch",
+      "resources": { "files": ["/favicon.ico", "/index.csr.html", "/*.css", "/*.js"] } },
+    { "name": "lab-assets", "installMode": "lazy", "updateMode": "prefetch",
+      "resources": { "files": ["/labs/**"] } }
+  ],
+  "dataGroups": [
+    { "name": "runtime-config", "urls": ["/config.json"],
+      "cacheConfig": { "strategy": "freshness", "maxSize": 1, "maxAge": "7d", "timeout": "3s" } }
+  ]
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó quyết định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>"navigationRequestStrategy": "freshness"</code></td>
+                  <td>
+                    <strong>Network first cho mọi điều hướng.</strong> Đây là dòng quan trọng
+                    nhất file: online thì người dùng nhận trang từ server (kể cả
+                    <code>/login</code> đã prerender và các trang render phía server); shell
+                    trong cache chỉ là <em>phương án dự phòng</em>, không phải mặc định.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>app-shell</code> + <code>prefetch</code></td>
+                  <td>
+                    Tải sẵn toàn bộ khung ngay khi cài. Nhờ vậy lần mở sau không mạng vẫn khởi
+                    động được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lab-assets</code> + <code>lazy</code></td>
+                  <td>
+                    Ảnh của khu lab chỉ cache khi dùng tới — không bắt mọi người tải sẵn thứ
+                    phần lớn không mở.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>runtime-config</code>: <code>freshness</code>, timeout 3 s,
+                    <code>maxSize: 1</code>
+                  </td>
+                  <td>
+                    Cấu hình lúc chạy (bài 05): hỏi mạng trước, 3 giây không trả lời thì dùng
+                    bản cũ. Ứng dụng khởi động được khi mạng chậm, mà không chạy mãi với cấu
+                    hình cũ khi mạng tốt.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Không có <code>dataGroups</code> cho <code>/api/**</code></strong>
+                  </td>
+                  <td>Mục 3.3 — và đây là một quyết định bảo mật, không phải quên.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Vì sao API không bao giờ được cache</h3>
+
+          <div class="code">
+            <div class="code__file">docs/offline.md</div>
+            <pre><code>**What is not cached, and why**: API responses. A service worker cache outlives
+the session and belongs to whoever uses the browser next; a cached customer
+list is a copy of personal data no code decided to keep and no sign-out
+deletes. The production test suite asserts it: after signing in and loading
+customers, no `/api` URL is in any cache (`e2e-production/production.spec.ts`).</code></pre>
+          </div>
+
+          <p>Ba vế của lập luận, đáng tách ra:</p>
+
+          <ol>
+            <li>
+              <strong>Cache sống lâu hơn phiên.</strong> Đăng xuất xoá cookie, xoá state trong
+              bộ nhớ — nhưng không chạm vào Cache Storage.
+            </li>
+            <li>
+              <strong>Nó thuộc về người dùng tiếp theo của trình duyệt đó.</strong> Máy tính
+              chung, máy mượn, máy công ty được bàn giao.
+            </li>
+            <li>
+              <strong>Không ai quyết định giữ nó.</strong> Câu đắt nhất:
+              <em>"a copy of personal data no code decided to keep"</em> — nó nằm trên đĩa như
+              một tác dụng phụ của việc tối ưu, chứ không phải vì có ai cân nhắc.
+            </li>
+          </ol>
+
+          <p>
+            Và vế thứ tư làm cho ba vế trên có răng: <strong>có một test khẳng định điều
+            đó</strong>. Sau khi đăng nhập và tải danh sách khách hàng, không URL
+            <code>/api</code> nào nằm trong bất kỳ cache nào. Một quy tắc bảo mật được phát
+            biểu thành một phép khẳng định chạy trong CI.
+          </p>
+
+          <h3>3.4 Bản sao đọc-chỉ: cách giữ dữ liệu offline mà không nói dối</h3>
+
+          <p>Lab offline giữ một danh sách, theo ba bước:</p>
+
+          <ol>
+            <li>
+              <strong>Online</strong>: fetch 25 khách hàng đầu — qua
+              <em>cùng</em> interceptor và <em>cùng</em> contract như mọi request khác — hiện
+              lên, và ghi một bản sao xuống IndexedDB.
+            </li>
+            <li>
+              <strong>Offline, hoặc fetch hỏng</strong>: hiện bản sao, có nhãn
+              <em>"Bản lưu lúc …, chỉ đọc"</em>.
+            </li>
+            <li><strong>Có mạng lại</strong>: tự fetch lại, không cần ai bấm.</li>
+          </ol>
+
+          <p>Ba quyết định làm cho nó an toàn:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Chỉ lưu <code>id</code>, <code>customerCode</code>, <code>fullName</code>,
+                    <code>status</code>
+                  </td>
+                  <td>
+                    <strong>Không</strong> ngày sinh, không điện thoại, không địa chỉ. Tối
+                    thiểu hoá dữ liệu: cái gì không cần hiện offline thì không xuống đĩa.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Gắn id người dùng sở hữu và thời điểm fetch</td>
+                  <td>
+                    Bản sao của người khác bị <strong>xoá ngay khi nhìn thấy</strong>, không
+                    bao giờ hiện. Và thời điểm fetch là thứ làm cho nhãn "bản lưu lúc…" trung
+                    thực.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Xoá khi phiên kết thúc</td>
+                  <td>
+                    Đăng xuất, hết hạn, hoặc đăng xuất ở tab khác (brief 26) — ở tab nào có mở
+                    lab thì tab đó dọn. Vòng đời gắn vào injector của route, sống tới khi đóng
+                    tab.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Chỉ đọc</strong>, và nói rõ là chỉ đọc</td>
+                  <td>
+                    Không có nút sửa trên bản sao. Người dùng luôn biết mình đang nhìn một bản
+                    chụp, không phải sự thật.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và giới hạn cũng được ghi: nếu <em>mọi</em> tab từng mở lab đã đóng trước khi phiên
+            kết thúc, bản sao nằm lại trên đĩa tới lần mở lab sau (lúc đó bị xoá nếu khác người
+            dùng) hoặc tới khi người dùng tự xoá. Một lỗ hổng nhỏ, nêu tên, không vá bằng lời.
+          </p>
+
+          <h3>3.5 Vì sao <em>không</em> làm hàng đợi ghi</h3>
+
+          <div class="code">
+            <div class="code__file">docs/offline.md</div>
+            <pre><code>There is no write queue, so there is no consistency model to describe: every
+save either reached the server or visibly failed. A future offline workflow
+must decide, before anything else, what happens when a queued write meets a
+newer version on the server (ADR-0015 keeps both edits on a 409 today; offline
+would make that the normal case, not the exception).</code></pre>
+          </div>
+
+          <p>
+            Câu đầu là một tính chất đáng giá:
+            <strong>"mọi lần lưu hoặc là tới được server, hoặc là hỏng một cách nhìn thấy
+            được."</strong> Không có trạng thái thứ ba — không có "đã lưu vào máy bạn, sẽ gửi
+            sau, chắc là ổn". Người dùng luôn biết chuyện gì đã xảy ra.
+          </p>
+
+          <p>
+            Câu thứ hai là lý do kỹ thuật: hàng đợi ghi
+            <em>bắt buộc</em> phải trả lời câu hỏi xung đột trước khi viết dòng code đầu tiên.
+            Bài 18 cho thấy repo đã xử lý xung đột 409 rất cẩn thận — giữ lại cả hai bản sửa
+            để người dùng hợp nhất. Nhưng đó là xử lý cho một
+            <em>ngoại lệ</em>. Khi mọi lệnh ghi đều có thể nằm trong hàng đợi hàng giờ, xung
+            đột trở thành <strong>chuyện thường ngày</strong>, và một giao diện hợp nhất dùng
+            vài lần một tháng không chịu nổi tần suất đó.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Bảng "cái gì chạy offline, chính xác"</h3>
+
+          <p>
+            Đây là thứ đáng chép nguyên vẹn sang dự án của bạn — không phải code, mà
+            <em>hình dạng của tài liệu</em>. Mỗi dòng là một tình huống và một câu trả lời dứt
+            khoát:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tình huống, khi offline</th>
+                  <th>Chuyện gì xảy ra</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Mở ứng dụng (bản production, đã từng vào)</td>
+                  <td>
+                    <strong>Khởi động được</strong>: service worker trả shell và cấu hình lúc
+                    chạy từ cache
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bất kỳ trang nào, sau khi khởi động</td>
+                  <td>
+                    Vẽ ra, rồi request dữ liệu hỏng theo
+                    <strong>đường lỗi bình thường</strong> — một màn hình lỗi, không phải
+                    trang trắng
+                  </td>
+                </tr>
+                <tr>
+                  <td>Khung ứng dụng</td>
+                  <td>Hiện banner: không lưu được gì, thứ đang xem có thể cũ</td>
+                </tr>
+                <tr>
+                  <td>Lưu bất cứ thứ gì</td>
+                  <td>Hỏng theo đường lỗi bình thường. <strong>Không xếp hàng.</strong></td>
+                </tr>
+                <tr>
+                  <td>Danh sách trong lab offline</td>
+                  <td>Hiện từ IndexedDB, có nhãn "bản lưu lúc…", chỉ đọc</td>
+                </tr>
+                <tr>
+                  <td>Realtime</td>
+                  <td>
+                    Trạng thái hiện "Đang kết nối lại…"; luồng tự nối lại và phát lại phần đã
+                    lỡ (brief 25)
+                  </td>
+                </tr>
+                <tr>
+                  <td>Có mạng lại</td>
+                  <td>Banner biến mất; một toast báo; lab offline tự làm mới</td>
+                </tr>
+                <tr>
+                  <td>Server phát triển (<code>npm start</code>)</td>
+                  <td>
+                    Không có service worker: tải lại khi offline sẽ hỏng —
+                    <strong>có chủ ý</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Dòng cuối đáng chú ý nhất: nó nói trước một câu hỏi mà
+            <em>chắc chắn</em> ai đó sẽ hỏi ("sao máy em không chạy offline?"), và trả lời
+            bằng một lý do chứ không phải một lời xin lỗi. Service worker chỉ bật ở bản
+            production vì một service worker đang chạy trong lúc phát triển sẽ phục vụ code cũ
+            và làm bạn mất hàng giờ.
+          </p>
+
+          <h3>4.2 <code>ConnectivityService</code>: hai mươi dòng, và cái khó nằm ở chú thích</h3>
+
+          <div class="code">
+            <div class="code__file">core/connectivity/connectivity.service.ts</div>
+            <pre><code>@Injectable({ providedIn: 'root' })
+export class ConnectivityService {
+  private readonly state = signal(inject(NAVIGATOR)?.onLine ?? true);
+  private readonly reconnected = new Subject&lt;void&gt;();
+
+  /** False only when the browser knows there is no network. */
+  readonly online = this.state.asReadonly();
+  /** Emits each time the browser goes from offline back to online. */
+  readonly reconnected$ = this.reconnected.asObservable();
+
+  constructor() {
+    const win = inject(WINDOW);
+    if (!win) {
+      return;
+    }
+    const goOnline = (): void =&gt; {
+      const wasOffline = !this.state();
+      this.state.set(true);
+      if (wasOffline) {
+        this.reconnected.next();
+      }
+    };
+    const goOffline = (): void =&gt; this.state.set(false);
+
+    win.addEventListener('online', goOnline);
+    win.addEventListener('offline', goOffline);
+    inject(DestroyRef).onDestroy(() =&gt; {
+      win.removeEventListener('online', goOnline);
+      win.removeEventListener('offline', goOffline);
+    });
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Vì sao viết thế</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>inject(NAVIGATOR)?.onLine ?? true</code>
+                  </td>
+                  <td>
+                    Trên server không có <code>navigator</code>, và mặc định là
+                    <strong>online</strong> — vì HTML render ra nên giả định như vậy. Bài 05:
+                    không chạm global, đi qua token.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>online</code> là signal, <code>reconnected$</code> là Observable
+                  </td>
+                  <td>
+                    Hai hình dạng cho hai nhu cầu khác nhau (bài 07):
+                    <em>trạng thái</em> để template đọc, <em>sự kiện</em> để chạy một tác dụng
+                    phụ đúng một lần khi nối lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>wasOffline</code> trước khi <code>set(true)</code>
+                  </td>
+                  <td>
+                    Chỉ phát <code>reconnected$</code> khi thật sự có một
+                    <em>chuyển dịch</em> offline → online. Sự kiện <code>online</code> có thể
+                    bắn khi đang online; thiếu phép kiểm này thì lab offline sẽ fetch lại vô
+                    cớ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>removeEventListener</code> trong <code>onDestroy</code>
+                  </td>
+                  <td>
+                    Service ở root nên gần như không bị huỷ — nhưng trong test thì có, và một
+                    listener còn sót sẽ làm test sau nhận sự kiện của test trước.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đây là một ví dụ hay cho việc <em>giá trị của một lớp không tỉ lệ với số dòng</em>:
+            code gần như hiển nhiên, nhưng chú thích ở mục 3.1 mới là thứ ngăn người sau dùng
+            nó sai cách.
+          </p>
+
+          <h3>4.3 Banner offline: hẹp một cách có chủ ý</h3>
+
+          <div class="code">
+            <div class="code__file">docs/offline.md</div>
+            <pre><code>`layout/offline-banner.ts`, in the shell: a `role="status"` banner while
+offline, and a success toast on return. Deliberately narrow in what it
+promises.</code></pre>
+          </div>
+
+          <p>
+            <em>"Deliberately narrow in what it promises"</em> — banner nói "bạn đang offline,
+            không lưu được gì" và dừng ở đó. Nó <strong>không</strong> nói "dữ liệu của bạn
+            được lưu cục bộ", không nói "sẽ đồng bộ khi có mạng", không nói "mọi thứ vẫn hoạt
+            động". Mỗi lời hứa thừa ra là một lời hứa phải giữ.
+          </p>
+
+          <p>
+            Và <code>role="status"</code> (bài 22): nó là một thay đổi do
+            <em>hệ thống</em> gây ra, không do người dùng bấm — nên phải được đọc lên, một
+            cách lịch sự.
+          </p>
+
+          <h3>4.4 Lab offline: đọc chính sách như một máy trạng thái</h3>
+
+          <p>
+            <code>OfflineDirectory</code> có bốn nhánh, và cả bốn đều là
+            <em>chính sách</em> chứ không phải kỹ thuật:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nhánh</th>
+                  <th>Chính sách</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Fetch thành công</td>
+                  <td>
+                    Hiện dữ liệu <em>và</em> ghi bản sao (read-through). Nhãn: dữ liệu trực
+                    tiếp.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Fetch hỏng</td>
+                  <td>
+                    Lấy bản sao ra — <strong>không</strong> hỏi
+                    <code>navigator.onLine</code>, vì thử thật mới là bằng chứng. Nhãn: bản
+                    lưu lúc…, chỉ đọc.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bản sao của người dùng khác</td>
+                  <td>Xoá ngay, không hiện. Không có nhánh nào hiện nó ra cả.</td>
+                </tr>
+                <tr>
+                  <td>Nối lại mạng</td>
+                  <td>
+                    Fetch lại, không chờ ai bấm — nghe <code>reconnected$</code> ở mục 4.2.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lưu ý một điều dễ bỏ qua: lab này dùng <em>API client riêng của nó</em>, nhưng
+            <strong>cùng</strong> chuỗi interceptor và <strong>cùng</strong> cách kiểm contract
+            như mọi nơi khác. Nó không đi tắt. Nhờ vậy nó là một bản demo thật, không phải một
+            đường ống riêng chỉ hoạt động trong khu lab.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của lab offline ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> loading : mở lab
+
+    loading --> live : fetch thành công<br/>hiện dữ liệu VÀ ghi bản sao xuống IndexedDB
+    loading --> saved : fetch HỎNG và có bản sao của ĐÚNG người dùng này
+    loading --> empty : fetch hỏng và không có bản sao nào
+
+    live --> live : nối lại mạng — fetch lại, ghi đè bản sao
+    live --> saved : fetch sau đó hỏng
+
+    saved --> live : reconnected$ phát — tự fetch lại, không chờ ai bấm
+    saved --> empty : người dùng bấm xoá bản lưu
+
+    empty --> live : fetch thành công
+
+    note right of saved
+        Nhãn luôn nói: bản lưu lúc nào,
+        và chỉ đọc. Không có nút sửa.
+        Bản sao của người dùng KHÁC
+        không bao giờ vào được trạng
+        thái này — nó bị xoá ngay khi
+        nhìn thấy.
+    end note
+            </pre>
+            <figcaption>
+              Mũi tên quyết định chất lượng: <code>loading → saved</code> kích hoạt bởi
+              <strong>fetch hỏng</strong>, không phải bởi
+              <code>navigator.onLine === false</code>. Captive portal cho
+              <code>onLine === true</code> mà mọi request đều hỏng — chỉ thiết kế này đi đúng.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Mở ứng dụng khi không có mạng</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng — không mạng
+    participant B as Trình duyệt
+    participant SW as Service worker
+    participant C as Cache Storage
+    participant A as Ứng dụng Angular
+
+    U-&gt;&gt;B: mở ứng dụng
+    B-&gt;&gt;SW: điều hướng tới /customers
+    SW-&gt;&gt;SW: navigationRequestStrategy = freshness → hỏi MẠNG trước
+    SW--xSW: mạng hỏng
+    SW-&gt;&gt;C: lấy shell đã cache — index.csr.html, JS, CSS
+    C--&gt;&gt;A: ứng dụng khởi động
+
+    A-&gt;&gt;SW: GET /config.json
+    SW-&gt;&gt;SW: freshness, timeout 3s → hỏng
+    SW-&gt;&gt;C: cấu hình lần trước, tối đa 7 ngày
+    C--&gt;&gt;A: cấu hình lúc chạy
+
+    A-&gt;&gt;A: ConnectivityService: onLine = false
+    A--&gt;&gt;U: banner — không lưu được gì, thứ đang xem có thể cũ
+
+    A-&gt;&gt;SW: GET /api/customers
+    Note over SW,C: KHÔNG có dataGroup nào khớp /api<br/>service worker không trả lời thay
+    SW--xA: hỏng
+    A--&gt;&gt;U: màn hình lỗi bình thường — KHÔNG phải trang trắng
+
+    Note over U: Mọi lệnh lưu cũng hỏng như vậy<br/>không có hàng đợi, không có lời hứa nào
+            </pre>
+            <figcaption>
+              Bước 11–13 là phần đáng chú ý: service worker
+              <em>không làm gì cả</em> với request API, và đó là hành vi đúng. Dữ liệu cá nhân
+              không nằm trên đĩa của máy đó; đổi lại, offline chỉ khởi động được chứ không
+              hiện được dữ liệu.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Chỉ cache shell, không cache dữ liệu (ADR-0028)</h4>
+          <p>
+            Phương án bị loại: thêm <code>dataGroups</code> cho <code>/api/**</code>. Lý do
+            loại là bảo mật, đã bàn ở mục 3.3, và nó được <em>test</em> chứ không chỉ được
+            viết. Đánh đổi nhận lại: offline khởi động được nhưng không có dữ liệu gì để xem,
+            trừ một danh sách trong lab.
+          </p>
+
+          <h4>Dùng service worker của Angular, không tự viết</h4>
+          <div class="code">
+            <div class="code__file">docs/offline.md</div>
+            <pre><code>**Why**: hashed assets and atomic updates are the part hand-written service
+workers get wrong - and a broken one serves a stale app until unregistered.</code></pre>
+          </div>
+          <p>
+            Câu sau dấu gạch là lý do thật sự:
+            <strong>một service worker hỏng phục vụ một ứng dụng cũ cho tới khi có người gỡ
+            đăng ký nó</strong> — mà người dùng thì không biết cách gỡ. Đây là loại lỗi bạn
+            không sửa được bằng một bản deploy. Giá phải trả được ghi: 6,1 kB trong bundle ban
+            đầu, phải hiểu ngữ nghĩa cập nhật (bản mới dùng ở lần tải
+            <em>sau</em>), và <code>ngsw-worker.js</code> cùng <code>ngsw.json</code> phải được
+            phục vụ không cache.
+          </p>
+
+          <h4>Không hàng đợi ghi (ADR-0029)</h4>
+          <p>
+            Đã bàn ở mục 3.5. Điều đáng học thêm là cách tài liệu
+            <em>không</em> gọi đây là thiếu sót: nó mô tả tính chất thu được ("mọi lần lưu hoặc
+            tới được server, hoặc hỏng một cách nhìn thấy được") và nêu câu hỏi phải trả lời
+            trước nếu muốn đổi. Đó là khác biệt giữa "chưa làm" và
+            <em>"đã quyết định không làm, và đây là điều kiện để xem lại"</em>.
+          </p>
+
+          <h4>Dùng sự kiện kết nối thay vì poll một endpoint sức khoẻ</h4>
+          <p>
+            Phương án poll phát hiện được cả server chết — nhưng với giá là request từ
+            <em>mọi</em> tab, mãi mãi. Tài liệu còn trỏ sang lab bầu leader (brief 26) như một
+            cách giảm giá đó xuống một tab. Đánh đổi được chọn: tín hiệu yếu hơn, nhưng miễn
+            phí và đúng theo chiều quan trọng.
+          </p>
+
+          <h4>Khi nào <em>không</em> nên dùng cách này</h4>
+          <p>
+            Tài liệu có hẳn một mục "When not to use it" cho từng cơ chế, và chúng rất cụ thể:
+            không cache shell cho ứng dụng không bao giờ được hiện bản cũ (kiosk, quy trình
+            chịu quản lý) hoặc nơi người dùng hiếm khi quay lại cùng thiết bị; không giữ bản
+            sao cục bộ cho dữ liệu không được để lại trên máy dùng chung, hay nơi một lần đọc
+            dữ liệu cũ gây hại (giá, tồn kho, phân quyền).
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Tin <code>navigator.onLine === true</code></span>
+            <p>
+              Người dùng ở sân bay, đã nối Wi-Fi nhưng chưa đăng nhập captive portal. Ứng dụng
+              nói "đã kết nối", mọi request về trang đăng nhập của khách sạn, và giao diện hiện
+              một mớ lỗi parse khó hiểu. Tín hiệu này chỉ đáng tin khi nó nói
+              <strong>không</strong>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Chặn request khi thấy offline</span>
+            <p>
+              <code>if (!online()) return;</code> — nghe hợp lý, và nó hỏng theo cả hai chiều.
+              Khi tín hiệu sai <code>false</code> (một số máy ảo, một số VPN), bạn chặn những
+              request hoàn toàn gửi được. Và nó tạo ra một đường lỗi
+              <em>thứ hai</em>, khác với đường lỗi bình thường, nên thông điệp cho người dùng
+              cũng khác nhau tuỳ hoàn cảnh. Gửi đi, rồi xử lý thất bại.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Cache response API trong service worker</span>
+            <p>
+              Dữ liệu cá nhân nằm trên đĩa, sống lâu hơn phiên, không lệnh đăng xuất nào xoá,
+              và thuộc về người dùng tiếp theo của máy đó. Tệ hơn: nó
+              <em>chạy đúng</em> và có vẻ nhanh hơn, nên không ai nghĩ tới việc xem lại.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Cache-first cho điều hướng</span>
+            <p>
+              Người dùng đang online vẫn nhận ứng dụng cũ, vì shell trong cache được trả trước.
+              Deploy xong mà khách hàng báo "em vẫn thấy bản cũ" — và câu trả lời duy nhất là
+              "bấm Ctrl+F5". Đó là lý do <code>navigationRequestStrategy</code> phải là
+              <code>freshness</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Tự viết service worker</span>
+            <p>
+              Hai chỗ hay sai: tài nguyên có hash (deploy mới sinh tên file mới, cache cũ giữ
+              tên cũ) và cập nhật nguyên tử (JS mới chạy với CSS cũ). Và khi sai, nó
+              <strong>phục vụ ứng dụng hỏng cho tới khi gỡ đăng ký</strong> — một bản deploy
+              mới không cứu được.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Bật service worker ở môi trường phát triển</span>
+            <p>
+              Bạn sửa code, build lại, F5 — và vẫn thấy bản cũ. Mất một giờ để nghĩ ra là do
+              service worker. Repo chỉ bật nó ở bản production, và ghi điều đó vào bảng ở mục
+              4.1 như một hành vi <em>có chủ ý</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Banner hứa quá nhiều</span>
+            <p>
+              "Bạn đang offline — thay đổi của bạn sẽ được đồng bộ khi có mạng." Nếu không có
+              hàng đợi ghi thì đây là một lời nói dối, và người dùng sẽ đóng máy tin rằng công
+              việc của họ đã an toàn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Lưu bản sao mà không gắn chủ sở hữu</span>
+            <p>
+              Người A đăng xuất, người B đăng nhập trên cùng máy, và thấy danh sách khách hàng
+              của người A từ IndexedDB. Bản sao cục bộ <em>phải</em> mang id người sở hữu, và
+              bản của người khác phải bị xoá ngay khi nhìn thấy.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. Làm hàng đợi ghi trước khi quyết định mô hình xung đột</span>
+            <p>
+              Viết hàng đợi thì dễ. Trả lời câu "lệnh ghi xếp hàng từ hôm qua gặp một bản ghi
+              đã bị người khác sửa thì sao" mới là việc. Nếu bỏ qua câu đó, bạn sẽ có một hệ
+              thống im lặng ghi đè công việc của người khác — và không ai phát hiện ra trong
+              nhiều tháng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Unit</td>
+                  <td>
+                    <code>ConnectivityService</code>: sự kiện <code>online</code>/<code>offline</code>
+                    đổi signal; <code>reconnected$</code> chỉ phát khi thật sự có chuyển dịch
+                    offline → online.
+                    <code>OfflineDirectory</code>: bốn nhánh chính sách ở mục 4.4 — mạng, dự
+                    phòng, kiểm chủ sở hữu, nối lại, và xoá khi đăng xuất.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Browser (<code>e2e/labs.spec.ts</code>)</td>
+                  <td>
+                    Banner offline hiện ra; lab chuyển sang bản lưu; tự làm mới khi nối lại;
+                    xoá được bản lưu. Những thứ chỉ đúng trong một trình duyệt thật với
+                    IndexedDB thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Production build (<code>e2e-production/production.spec.ts</code>)
+                  </td>
+                  <td>
+                    Hai khẳng định mà không tầng nào khác làm được: ứng dụng
+                    <strong>khởi động được khi offline</strong> sau khi đã cài; và
+                    <strong>không URL <code>/api</code> nào nằm trong bất kỳ cache nào</strong>
+                    sau khi đăng nhập và tải danh sách khách hàng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao test thứ hai là test quan trọng nhất của brief này</span>
+            <p>
+              Vì nó biến một quy tắc bảo mật thành một phép kiểm chạy được. "Chúng tôi không
+              cache API" là một lời hứa; một test duyệt qua mọi cache của trình duyệt và khẳng
+              định không có URL <code>/api</code> nào là một <em>sự thật</em>, kiểm lại trên
+              mỗi lần push.
+            </p>
+            <p>
+              Và nó bắt được đúng loại sai lầm dễ xảy ra nhất: một ngày nào đó có người thêm
+              một <code>dataGroup</code> "cho nhanh", mọi thứ chạy tốt hơn, không ai nhận ra —
+              trừ test này.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Có người nói: cho nó chạy offline đi"}
+
+    S --> Q0["Bước 0: viết BẢNG từng tình huống làm gì<br/>trước khi viết dòng code nào"]
+
+    Q0 --> Q1{"Khởi động được khi không mạng?"}
+    Q1 -->|"cần"| SW["Service worker — dùng bản của framework<br/>tự viết thì sai ở hash và cập nhật nguyên tử"]
+    SW --> SW1["Điều hướng: NETWORK FIRST<br/>cache chỉ là dự phòng, không phải mặc định"]
+    SW --> SW2["Shell prefetch · ảnh lab lazy · config freshness 3s"]
+    SW --> SW3["API: KHÔNG BAO GIỜ cache<br/>cache sống lâu hơn phiên và thuộc về người dùng sau"]
+    SW --> SW4["Chỉ bật ở production — nếu không bạn sẽ debug code cũ"]
+
+    Q0 --> Q2{"Cần hiện dữ liệu khi offline?"}
+    Q2 -->|"không"| N1["Lỗi đi qua ĐƯỜNG LỖI BÌNH THƯỜNG<br/>màn hình lỗi, không phải trang trắng"]
+    Q2 -->|"một danh sách, đọc thôi"| Y1["Read-through xuống IndexedDB"]
+    Y1 --> Y2["Chỉ lưu trường TỐI THIỂU<br/>gắn id chủ sở hữu và thời điểm"]
+    Y2 --> Y3["Bản của người khác: XOÁ NGAY, không hiện"]
+    Y3 --> Y4["Xoá khi phiên kết thúc · nhãn luôn nói là bản lưu"]
+
+    Q0 --> Q3{"Cần GHI khi offline?"}
+    Q3 -->|"chưa"| W1["Mọi lần lưu hoặc tới server, hoặc hỏng NHÌN THẤY ĐƯỢC<br/>— một tính chất đáng giá, nói ra đi"]
+    Q3 -->|"có"| W2["Trả lời TRƯỚC: lệnh ghi xếp hàng gặp bản mới hơn thì sao?<br/>Đó là một mô hình nhất quán, không phải một hàng đợi"]
+
+    Q0 --> D{"Tín hiệu kết nối"}
+    D --> D1["false thì chắc · true thì KHÔNG<br/>captive portal, router chết, server sập"]
+    D1 --> D2["Dùng để NÓI, không dùng để quyết định gửi hay không"]
+    D1 --> D3["Chuyển sang bản lưu khi FETCH hỏng<br/>không phải khi onLine = false"]
+
+    N1 --> P["Và banner chỉ hứa đúng những gì giữ được"]
+    W1 --> P
+            </pre>
+            <figcaption>
+              Ô <strong>Bước 0</strong> là phần chuyển được sang mọi dự án: bảng tình huống
+              viết trước code. Nó biến một yêu cầu mơ hồ ("chạy offline") thành một danh sách
+              hữu hạn các quyết định — và mỗi quyết định đều có thể trả lời bằng "không, và
+              đây là lý do".
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi qua đúng bảng ở mục 4.1</h3>
+            <p class="task__meta">~40 phút · không sửa code</p>
+            <p>
+              Bảng đó có tám dòng. Hãy tự kiểm chứng từng dòng, bằng bản
+              <strong>production</strong> (<code>npm run build</code> rồi chạy bản dist — xem
+              <code>package.json</code>), vì bản dev không có service worker.
+            </p>
+            <ol>
+              <li>Mở ứng dụng, đăng nhập, vào danh sách khách hàng. Đóng tab.</li>
+              <li>
+                DevTools → Network → Offline (hoặc tắt Wi-Fi thật). Mở lại ứng dụng.
+                <strong>Nó có khởi động không?</strong>
+              </li>
+              <li>Banner nói gì? Thử bấm sửa một khách hàng — chuyện gì xảy ra?</li>
+              <li>
+                Vào <code>/technical-labs/offline</code>. Có thấy dữ liệu không? Nhãn ghi gì?
+              </li>
+              <li>Bật mạng lại. Những gì tự xảy ra, không cần bấm?</li>
+              <li>
+                DevTools → Application → Cache Storage. Mở từng cache và tìm xem có URL
+                <code>/api</code> nào không. <strong>Có không?</strong>
+              </li>
+              <li>
+                Application → IndexedDB → <code>ecm-lab-offline</code>. Có những trường gì?
+                Thiếu những trường gì so với một khách hàng đầy đủ?
+              </li>
+              <li>Đăng xuất. Quay lại IndexedDB — còn gì không?</li>
+            </ol>
+            <details>
+              <summary>Hai bước quan trọng nhất</summary>
+              <p>
+                (6) Phải là <strong>không có</strong> — đó là mục 3.3, và cũng là điều mà bộ
+                test production khẳng định. (7) Chỉ có bốn trường:
+                <code>id</code>, <code>customerCode</code>, <code>fullName</code>,
+                <code>status</code>. Không ngày sinh, không điện thoại, không địa chỉ. Hãy tự
+                hỏi: nếu người sau mượn máy này, họ xem được gì?
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Giả lập captive portal</h3>
+            <p class="task__meta">~30 phút · không sửa code sản phẩm</p>
+            <p>
+              Tình huống mà <code>navigator.onLine</code> nói dối, dựng lại bằng DevTools.
+            </p>
+            <ol>
+              <li>
+                Giữ máy <strong>online</strong>, nhưng dừng mock API (Ctrl+C). Bây giờ
+                <code>onLine === true</code> mà không request nào thành công.
+              </li>
+              <li>
+                Mở lab offline. Nó có hiện bản lưu không? Banner offline có hiện không? Vì sao
+                hai câu trả lời <em>khác nhau</em>?
+              </li>
+              <li>
+                Mở Console, chạy <code>navigator.onLine</code>. Nó trả về gì? Nó có mô tả đúng
+                tình hình không?
+              </li>
+              <li>
+                Giờ nghĩ ngược lại: nếu lab chuyển sang bản lưu dựa trên
+                <code>onLine</code> thay vì dựa trên fetch hỏng, người dùng sẽ thấy gì ở bước
+                2?
+              </li>
+              <li>
+                Khởi động lại mock API. Lab có tự nạp lại không? Vì sao
+                <code>reconnected$</code> <em>không</em> phát trong trường hợp này?
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 5 là chỗ thấy được giới hạn</summary>
+              <p>
+                <code>reconnected$</code> dựa trên sự kiện <code>online</code> của trình duyệt,
+                mà trình duyệt chưa bao giờ coi là đã offline — nên nó không phát. Server sống
+                lại không phải một sự kiện mà trình duyệt biết. Đây chính là cái giá của việc
+                chọn "sự kiện kết nối" thay vì "poll một endpoint sức khoẻ" ở mục 6, và bây giờ
+                bạn đã nhìn thấy nó.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một <code>dataGroup</code>, rồi xem test nào đổ</h3>
+            <p class="task__meta">~35 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>apps/web/ngsw-config.json</code>, thêm một
+                <code>dataGroup</code> cho <code>/api/customers</code> với
+                <code>strategy: "performance"</code> và <code>maxAge: "1d"</code>.
+              </li>
+              <li>Build production và chạy lại. Ứng dụng có <em>nhanh hơn</em> không?</li>
+              <li>
+                Đăng nhập, tải danh sách, đăng xuất. Mở Application → Cache Storage. Danh sách
+                khách hàng còn đó không?
+              </li>
+              <li>Mở một cửa sổ ẩn danh… không, mở lại cửa sổ thường: dữ liệu còn không?</li>
+              <li>
+                Chạy <code>npm run e2e:production</code>. Test nào đổ, và thông báo nói gì?
+              </li>
+              <li>Hoàn nguyên <code>ngsw-config.json</code>.</li>
+            </ol>
+            <details>
+              <summary>Điều bài này muốn bạn cảm nhận</summary>
+              <p>
+                Thay đổi đó làm ứng dụng <strong>tốt hơn theo mọi thước đo bạn đang nhìn</strong>
+                — nhanh hơn, ít request hơn, offline dùng được hơn. Không có triệu chứng nào
+                báo rằng bạn vừa để dữ liệu cá nhân nằm lại trên một máy tính. Đó chính xác là
+                lý do quy tắc này cần một test chứ không cần một lời nhắc.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. <code>navigator.onLine === true</code> chứng minh được gì?</summary>
+            <p>
+              Gần như không gì cả — chỉ là có một giao diện mạng đang bật. Captive portal,
+              router chết, DNS hỏng, server sập đều cho <code>true</code>. Chỉ
+              <code>false</code> là đáng tin.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vậy dùng tín hiệu đó vào việc gì, và không dùng vào việc gì?</summary>
+            <p>
+              Dùng để <em>nói</em>: hiện banner "bạn đang offline, không lưu được gì".
+              <strong>Không</strong> dùng để quyết định có gửi request hay không — gửi đi, rồi
+              xử lý thất bại theo đường lỗi bình thường.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao điều hướng phải là network first?</summary>
+            <p>
+              Để người dùng đang online luôn nhận bản mới nhất từ server; shell trong cache chỉ
+              là dự phòng khi mạng hỏng. Cache first sẽ phục vụ ứng dụng cũ cho người có mạng,
+              và bạn không sửa được bằng một bản deploy.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao response API không bao giờ được cache?</summary>
+            <p>
+              Vì cache của service worker sống lâu hơn phiên đăng nhập, thuộc về người dùng
+              tiếp theo của trình duyệt đó, và không lệnh đăng xuất nào xoá nó. Đó là
+              <em>"một bản sao dữ liệu cá nhân mà không dòng code nào quyết định giữ lại"</em>.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Bản sao cục bộ cần ba thứ gì để an toàn?</summary>
+            <p>
+              Trường tối thiểu (chỉ cái cần hiện, không ngày sinh/điện thoại/địa chỉ); id chủ
+              sở hữu để xoá ngay bản của người khác; và vòng đời gắn vào phiên — xoá khi đăng
+              xuất, hết hạn, hoặc đăng xuất ở tab khác. Cộng với một nhãn luôn nói đây là bản
+              lưu lúc nào và chỉ đọc.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao hàng đợi ghi không phải "chỉ là thêm một tính năng"?</summary>
+            <p>
+              Vì nó buộc phải trả lời trước một câu hỏi về nhất quán: một lệnh ghi xếp hàng gặp
+              một bản ghi đã được người khác sửa thì sao? Repo đã xử lý xung đột 409 cho trường
+              hợp <em>hiếm</em> (bài 18); offline biến nó thành trường hợp
+              <strong>thường</strong>, và một giao diện hợp nhất dùng vài lần một tháng không
+              chịu nổi tần suất đó.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Tính chất nào bị mất ngay khi bạn thêm hàng đợi ghi?</summary>
+            <p>
+              <em>"Mọi lần lưu hoặc là tới được server, hoặc là hỏng một cách nhìn thấy
+              được."</em> Không có trạng thái thứ ba. Người dùng luôn biết chuyện gì đã xảy ra
+              — và đó là một tính chất đáng nói ra chứ không đáng vứt đi trong im lặng.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao service worker chỉ bật ở bản production?</summary>
+            <p>
+              Vì trong lúc phát triển, nó sẽ phục vụ code cũ sau mỗi lần build và làm bạn mất
+              hàng giờ. Repo ghi điều này vào bảng "cái gì chạy offline" như một hành vi có chủ
+              ý, kèm chữ <em>"by design"</em> — để không ai báo nó là lỗi.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 25</strong>: khi mất mạng, luồng realtime cũng vào trạng thái
+              <code>reconnecting</code> và phát lại phần đã lỡ khi quay lại.
+              <strong>Brief 26</strong>: vòng đời trang (freeze, bfcache) và việc đăng xuất ở
+              tab khác — chính là thứ kích hoạt việc xoá bản sao cục bộ.
+              <strong>Brief 30</strong> nói về chế độ render, nơi
+              <code>index.csr.html</code> ở mục 3.2 có nghĩa.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="28-import-csv-hai-pha.html">← Brief 28</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

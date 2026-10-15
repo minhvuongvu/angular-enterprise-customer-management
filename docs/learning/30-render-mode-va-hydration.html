@@ -1,0 +1,1302 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 30 — Render mode &amp; hydration</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 30
+        </p>
+        <h1>Render mode &amp; hydration</h1>
+        <p class="lede">
+          "SSR nhanh hơn" là câu bạn sẽ đọc được ở mọi nơi. Repo này
+          <strong>đo</strong> năm chế độ render trên cùng một trang, bảy lần mỗi chế độ, và
+          kết quả làm hỏng một nửa những gì bạn tưởng: HTML từ server mua được
+          <em>lần vẽ đầu tiên</em> — và <strong>chỉ</strong> lần vẽ đầu tiên. Hydration ở đây
+          <em>đắt hơn</em> là render từ đầu.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi phải quyết định một trang render ở đâu, hoặc khi ai đó nói "mình bật SSR
+              lên cho nhanh". Phần giá trị nhất không phải cơ chế, mà là
+              <strong>những con số đo thật</strong> và cách đọc chúng.
+            </p>
+            <p>
+              Nền cần có: bài 01 (từ URL tới pixel), bài 05 (platform token), bài 15 (lazy
+              load và <code>@defer</code>).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>CSR</strong> (client-side rendering)</td>
+                  <td>
+                    Server trả một file HTML gần như rỗng; trình duyệt tải JS, chạy, rồi mới
+                    dựng DOM. Mặc định của một SPA.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>SSR</strong> (server-side rendering)</td>
+                  <td>
+                    Server chạy <em>chính</em> các component đó cho
+                    <em>mỗi request</em>, trả về HTML đã dựng sẵn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Prerender</strong> (SSG)</td>
+                  <td>
+                    Giống SSR, nhưng chạy <strong>một lần lúc build</strong> và lưu thành file
+                    tĩnh. Chỉ dùng được cho trang giống nhau với mọi người.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Hydration</strong></td>
+                  <td>
+                    Trình duyệt <em>nhận lấy</em> DOM mà server đã gửi: đi qua từng nút, khớp
+                    với template, gắn event listener — thay vì vứt đi và dựng lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>ngh</code>, <strong>hydration annotation</strong></td>
+                  <td>
+                    Những thuộc tính Angular nhúng vào HTML của server để lúc hydrate biết nút
+                    nào ứng với phần nào của template.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Destructive hydration</strong></td>
+                  <td>
+                    Không hydrate: xoá DOM của server và dựng lại từ đầu. Trong Angular bật
+                    bằng <code>ngSkipHydration</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Incremental hydration</strong></td>
+                  <td>
+                    Hydrate <em>dần</em>: một khối ở trong
+                    <code>@defer (hydrate on viewport)</code> nằm im như HTML tĩnh tới khi
+                    người dùng cuộn tới.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>withEventReplay</code></td>
+                  <td>
+                    Ghi lại những cú click xảy ra <em>trước</em> khi hydrate xong, rồi phát
+                    lại sau đó. Nó cứu click — <strong>không</strong> cứu chữ đang gõ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>TTFB</strong> · <strong>FCP</strong> · <strong>LCP</strong>
+                  </td>
+                  <td>
+                    Thời điểm nhận byte đầu tiên · lần vẽ nội dung đầu tiên · lần vẽ khối nội
+                    dung lớn nhất. Ba thước đo khác nhau, và mục 3.5 cho thấy LCP
+                    <em>nói dối</em> trong một tình huống cụ thể.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Stable</strong></td>
+                  <td>
+                    Mốc do repo tự đánh (<code>ecm:app-stable</code>): ứng dụng đã tương tác
+                    được và không còn gì đang chờ. Đây mới là
+                    <em>"dùng được"</em>, khác với "nhìn thấy".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Hydration mismatch</strong></td>
+                  <td>
+                    HTML server dựng khác HTML client dựng. Hậu quả từ một cảnh báo tới một
+                    trang vỡ — và đó là lý do bài 22 bắt id phải là biến đếm, không phải số
+                    ngẫu nhiên.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chọn chế độ render cho một route bằng <em>tính chất của trang</em>, không bằng
+              xu hướng.
+            </li>
+            <li>
+              Đọc được một bảng đo hiệu năng và phân biệt
+              <strong>"nhìn thấy sớm hơn"</strong> với <strong>"dùng được sớm hơn"</strong>.
+            </li>
+            <li>
+              Nói được hydration mua gì — và vì sao ở đây nó <em>không</em> mua tốc độ.
+            </li>
+            <li>
+              Biết cửa sổ giữa lần vẽ đầu và lúc tương tác được là một
+              <strong>lỗi chờ sẵn</strong>, và cách repo trả nợ số 13.
+            </li>
+            <li>
+              Giải thích được vì sao một ứng dụng nội bộ sau đăng nhập nên
+              <em>ở lại</em> CSR.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Template engine render HTML (Thymeleaf, Razor, JSP)</td>
+                  <td>SSR — nhưng <em>cùng</em> component chạy ở cả hai nơi</td>
+                </tr>
+                <tr>
+                  <td>Trang tĩnh sinh lúc build</td>
+                  <td>Prerender</td>
+                </tr>
+                <tr>
+                  <td>Cache response HTML ở CDN</td>
+                  <td>Prerender đẩy thẳng lên CDN — không cần máy chủ nào chạy</td>
+                </tr>
+                <tr>
+                  <td>Lazy loading của ORM</td>
+                  <td><code>@defer</code> + incremental hydration (bài 15)</td>
+                </tr>
+                <tr>
+                  <td>Đo p50/p95 chứ không đo một lần</td>
+                  <td>
+                    <code>perf/measure-rendering.ts --runs 7</code>, lấy trung vị, bỏ lần khởi
+                    động
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "render ở server nghĩa là xong việc ở server"</span>
+            <p>
+              Với Thymeleaf thì đúng: HTML về tới trình duyệt là trang chạy được. Với SSR của
+              một SPA thì <strong>không</strong>: HTML về là trang
+              <em>nhìn thấy được</em>, và sau đó vẫn phải tải toàn bộ JavaScript, bootstrap,
+              rồi hydrate. Bạn gửi <em>hai</em> bản của trang — một bản HTML và một bản
+              JavaScript — rồi ghép chúng lại.
+            </p>
+            <p>
+              Hệ quả đo được ở mục 3.3: dưới mạng chậm, trang server-render
+              <em>dùng được</em> muộn hơn trang CSR khoảng 0,8 giây.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "hydration rẻ hơn render vì DOM đã có sẵn"</span>
+            <p>
+              Trực giác rất mạnh, và số đo nói ngược lại: đi qua và khớp 400 dòng DOM có sẵn
+              <strong>tốn hơn</strong> là tạo mới chúng. Ở đây 326–348 ms (hydrate) so với
+              259 ms (render) khi bị bóp băng thông.
+            </p>
+            <p>
+              Vậy hydration mua gì? Không phải tốc độ — mà là
+              <em>không phá</em>: không có cú nháy khi bảng bị dựng lại, và không mất trạng
+              thái đang nằm trong DOM (vị trí cuộn, focus, chữ đã gõ).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "cứ bật SSR cho mọi trang"</span>
+            <p>
+              Mỗi request là một lần chạy component trên server — đo được: TTFB 21 ms so với
+              2 ms khi prerender cùng trang đó. Với trang giống nhau cho mọi người, 19 ms đó
+              là tiền vứt đi.
+            </p>
+            <p>
+              Và với trang <em>sau đăng nhập</em>, SSR còn kéo theo một thứ nặng hơn: phiên
+              đăng nhập phải có mặt trong đường render của server. Repo nói thẳng là không
+              làm, và mục 6 là lập luận.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ba vòng đời, đặt cạnh nhau</h3>
+
+          <div class="code">
+            <div class="code__file">docs/rendering.md</div>
+            <pre><code>                     server / build                         browser
+CSR        index.csr.html (4.8 kB, empty &lt;app-root&gt;) ──► download JS ─► bootstrap ─► render ─► paint ─► stable
+SSR        render the route for this request ──────────► paint HTML ─► download JS ─► bootstrap ─► hydrate ─► stable
+Prerender  render once at build → static file ─────────► paint HTML ─► download JS ─► bootstrap ─► hydrate ─► stable</code></pre>
+          </div>
+
+          <p>
+            Hai điều đọc ra ngay từ ba dòng này. <strong>Một</strong>: ở CSR,
+            <em>paint</em> nằm gần cuối — không có gì trên màn hình cho tới khi JavaScript
+            chạy xong. <strong>Hai</strong>: ở SSR và prerender, mọi bước của CSR
+            <em>vẫn còn nguyên</em>, chỉ thêm một lần paint sớm ở đầu. Bạn không bỏ bớt việc
+            gì; bạn thêm một lần vẽ sớm.
+          </p>
+
+          <p>Và phía server chạy trong một môi trường rất khác:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trên server</th>
+                  <th>Hệ quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>WINDOW</code> / <code>NAVIGATOR</code> là <code>null</code></td>
+                  <td>
+                    Mọi code chạm global trực tiếp sẽ làm <strong>đổ bản build server</strong>
+                    — đây chính là quy tắc 2 của <code>CLAUDE.md</code>, và bài 05
+                  </td>
+                </tr>
+                <tr>
+                  <td>Storage là no-op, <code>IS_BROWSER</code> là false</td>
+                  <td>Không có theme đã lưu, không có ngôn ngữ đã chọn</td>
+                </tr>
+                <tr>
+                  <td>Bỏ qua initializer đọc cấu hình lúc chạy</td>
+                  <td>ADR-0005 — server không fetch <code>/config.json</code> của chính nó</td>
+                </tr>
+                <tr>
+                  <td>Serialise DOM + chú thích <code>ngh</code> + script phát lại sự kiện</td>
+                  <td>Đó là thứ làm cho hydration và event replay hoạt động được</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Ba kiểu hydration</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kiểu</th>
+                  <th>Làm gì</th>
+                  <th>Quan sát được thế nào</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Đầy đủ</strong></td>
+                  <td>Mọi component được hydrate lúc bootstrap</td>
+                  <td>DOM giữ nguyên, chỉ được gắn thêm listener</td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Phá huỷ</strong> (<code>ngSkipHydration</code>)
+                  </td>
+                  <td>Xoá DOM của server, dựng lại từ đầu</td>
+                  <td>
+                    Một <code>MutationObserver</code> thấy <code>&lt;table&gt;</code> bị gỡ ra
+                    rồi chèn lại — tức là một cú nháy trên máy chậm
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Tăng dần</strong> (<code>@defer (hydrate on viewport)</code>)
+                  </td>
+                  <td>Khối đó nằm im như HTML tĩnh tới khi cuộn tới</td>
+                  <td>
+                    Click vào nó trước lúc đó vẫn được <em>phát lại</em> sau khi nó hydrate
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Những con số, và chúng nói gì</h3>
+
+          <p>
+            Đo bằng <code>perf/measure-rendering.ts --runs 7</code> trên bản production,
+            Chromium, context mới mỗi lần tải (không cache, không service worker), lấy
+            <strong>trung vị của 7 lần</strong> sau khi bỏ một lần khởi động. Bảng dưới là
+            cấu hình bị bóp (4× CPU, RTT 150 ms, 1,6 Mbps) — tức là gần một chiếc điện thoại
+            thật hơn:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trang</th>
+                  <th>FCP</th>
+                  <th>Stable at</th>
+                  <th>Bootstrap → stable</th>
+                  <th>HTML bytes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/rendering-lab/client</code> (CSR)</td>
+                  <td><strong>3 804</strong></td>
+                  <td><strong>3 318</strong></td>
+                  <td><strong>259</strong></td>
+                  <td>4 845</td>
+                </tr>
+                <tr>
+                  <td><code>/rendering-lab/server</code> (SSR)</td>
+                  <td>220</td>
+                  <td>4 073</td>
+                  <td>326</td>
+                  <td>149 085</td>
+                </tr>
+                <tr>
+                  <td><code>/rendering-lab/prerender</code></td>
+                  <td>224</td>
+                  <td>4 120</td>
+                  <td>348</td>
+                  <td>149 166</td>
+                </tr>
+                <tr>
+                  <td><code>…/prerender-no-hydration</code></td>
+                  <td>224</td>
+                  <td>4 071</td>
+                  <td>345</td>
+                  <td>141 460</td>
+                </tr>
+                <tr>
+                  <td><code>…/prerender-incremental</code></td>
+                  <td>224</td>
+                  <td>4 103</td>
+                  <td><strong>317</strong></td>
+                  <td>152 900</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Sáu kết luận, và không cái nào hiển nhiên:</p>
+
+          <div class="box box--note">
+            <span class="box__label">1. HTML từ server mua lần vẽ đầu, và chỉ lần vẽ đầu</span>
+            <p>
+              Nội dung lên màn hình ở <strong>220–224 ms</strong> thay vì
+              <strong>3 804 ms</strong> — sớm hơn <strong>17 lần</strong>. Nhưng trang
+              <em>dùng được</em> thì <strong>muộn hơn</strong>: 4 073–4 120 ms so với 3 318 ms
+              của CSR, tức chậm hơn khoảng <strong>0,8 giây</strong>.
+            </p>
+            <p>
+              Lý do đo được: tài liệu 149 kB chia băng thông 1,6 Mbps với JavaScript, và
+              <code>main.js</code> chỉ được <em>phát hiện</em> ở byte thứ 148 082 của tài liệu
+              đó — tận cuối <code>&lt;body&gt;</code>.
+            </p>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">2. Hydration không rẻ hơn render — nó đắt hơn</span>
+            <p>
+              259 ms (CSR dựng mới) so với 326–348 ms (hydrate đầy đủ). Đi qua và khớp 400
+              dòng DOM có sẵn tốn hơn tạo chúng.
+            </p>
+            <p>
+              Và so sánh với bản <em>phá huỷ</em> cho câu trả lời "vậy hydration mua gì":
+              345 ms so với 348 ms — <strong>bằng nhau</strong>. Thứ hydration mua không phải
+              tốc độ, mà là không có cú nháy dựng lại bảng, và không mất trạng thái nằm trong
+              DOM.
+            </p>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">3. Incremental tiết kiệm đúng phần chưa nhìn thấy</span>
+            <p>
+              Hoãn phần danh mục tới khi cuộn tới cắt được <strong>31 ms</strong> (348 → 317,
+              9%) khi bị bóp. Chi phí chuyển sang lần cuộn đầu tiên — và bản incremental
+              <em>vẫn tải toàn bộ</em> JavaScript, cộng thêm 1–4 kB HTML cho chú thích defer.
+            </p>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">4. SSR tốn một lần render cho mỗi request</span>
+            <p>
+              TTFB 21 ms so với 2 ms cho đúng trang đó khi prerender — khoảng
+              <strong>19 ms công server mỗi request</strong>, cho một trang không bao giờ đổi.
+              Khi mạng chậm, 150 ms round trip che mất con số đó, nhưng nó vẫn ở đó trên hoá
+              đơn máy chủ.
+            </p>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">5. HTML chính là số byte</span>
+            <p>
+              Trang server-render truyền thêm 144 kB (149 kB HTML so với 4,8 kB). Và tài liệu
+              nói thẳng điều kiện: Express trong <code>src/server.ts</code>
+              <strong>không nén</strong>; sau một proxy có nén thì khoảng cách đó nhỏ đi một
+              bậc — <em>"not measured here, and not claimed"</em>. Không đo thì không tuyên bố.
+            </p>
+          </div>
+
+          <h3>3.4 Cửa sổ giữa "nhìn thấy" và "dùng được" là một lỗi chờ sẵn</h3>
+
+          <p>
+            Trên <code>/login</code> đã prerender: vẽ ra ở 264 ms, dùng được ở 4 026 ms. Gần
+            <strong>3,8 giây</strong> mà trang <em>trông như</em> đã sẵn sàng và thực ra chưa.
+          </p>
+
+          <p>Trong cửa sổ đó, hai loại tương tác xử sự khác nhau:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Người dùng làm gì</th>
+                  <th>Chuyện gì xảy ra</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Bấm một nút</td>
+                  <td>
+                    <code>withEventReplay</code> ghi lại, và phát lại sau khi hydrate — cú bấm
+                    <strong>không mất</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Gõ vào một ô input</td>
+                  <td>
+                    <strong>Mất.</strong> Trình duyệt giữ chữ trong
+                    <code>&lt;input&gt;</code>, rồi form control (khởi tạo rỗng) ghi đè
+                    <code>''</code> lên nó
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đây là nợ số 13 của repo, và nó <em>đã được tái hiện</em> chứ không phải suy đoán:
+            gõ "admin" trước <code>ecm:app-stable</code> trên bản production với cấu hình bị
+            bóp; giá trị sau hydration: <code>""</code>.
+          </p>
+
+          <h3>3.5 LCP có thể nói dối — và cách nhận ra</h3>
+
+          <p>
+            Trang server-render cho FCP ~220 ms nhưng LCP ~4,4 giây, gần bằng lúc "stable".
+            Màn hình <em>không</em> hề vẽ lại gì trông thấy. Giải thích đo được:
+          </p>
+
+          <div class="code">
+            <div class="code__file">docs/rendering.md</div>
+            <pre><code>a `MutationObserver` during hydration records Angular re-setting bound text
+nodes and attributes to their _identical_ values, and Chrome's LCP then
+reports the largest text block again, larger than the first candidate painted
+while the HTML was still streaming.
+
+The mechanism was observed, not established from Chrome's source; FCP is the
+number that matches what the user saw.</code></pre>
+          </div>
+
+          <p>
+            Hai bài học. <strong>Một</strong>: lúc hydrate, Angular gán lại các nút text và
+            thuộc tính về <em>đúng giá trị cũ</em> — không đổi gì, nhưng vẫn là một mutation,
+            và Chrome tính lại ứng viên LCP. <strong>Hai</strong>, quan trọng hơn: tài liệu
+            nói rõ cơ chế này được <em>quan sát</em>, không phải tra từ mã nguồn Chrome. Một
+            lời giải thích kèm mức độ chắc chắn của chính nó.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Chế độ render khai theo route, và lý do nằm ngay cạnh</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/app.routes.server.ts</div>
+            <pre><code>/**
+ * How each route is produced on the server.
+ *
+ * The decision behind this file is in ANGULAR_PROJECT_CONTEXT.md 5.6: SSR is
+ * configured from Phase 0 so it never has to be retrofitted, but the
+ * authenticated application is still rendered in the browser.
+ *
+ * Prerendering a page whose content depends on who is asking would be wrong,
+ * and server-rendering it buys nothing here: a back office has no crawler to
+ * satisfy (7.1). What SSR does buy from day one is enforcement - a stray
+ * `window` reference fails the server build immediately.
+ */
+export const serverRoutes: ServerRoute[] = [
+  {
+    // Public surface: static, identical for everyone, so it is prerendered.
+    path: 'login',
+    renderMode: RenderMode.Prerender,
+  },
+  ...RENDERING_SPECIMENS.map(specimenRoute),
+  {
+    path: '**',
+    renderMode: RenderMode.Client,
+  },
+];</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Lập luận</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>login</code> → <code>Prerender</code></td>
+                  <td>
+                    Công khai, giống hệt nhau với mọi người, không phụ thuộc dữ liệu. Đúng ba
+                    điều kiện của prerender.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>'**'</code> → <code>Client</code></td>
+                  <td>
+                    <strong>Mặc định là CSR.</strong> Mọi trang sau đăng nhập — tức là gần như
+                    cả ứng dụng. Đây là một quyết định, không phải một sự bỏ sót.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Các specimen: một trang, ba chế độ
+                  </td>
+                  <td>
+                    Cùng nội dung, khác <code>renderMode</code> — điều kiện để
+                    <em>so sánh</em> được. Nếu ba trang khác nội dung thì mọi con số ở mục 3.3
+                    vô nghĩa.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <em>"What SSR does buy from day one is enforcement"</em>
+                  </td>
+                  <td>
+                    Câu hay nhất trong file. SSR được cấu hình từ phase 0
+                    <strong>không phải</strong> để chạy nhanh, mà để
+                    <em>cưỡng chế</em>: một chỗ nào đó chạm <code>window</code> trực tiếp là
+                    bản build server đổ <em>ngay</em>. Một quyết định hạ tầng dùng làm công cụ
+                    kỷ luật.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Chi tiết đáng chú ý: SSR ở đây là một cổng lint</span>
+            <p>
+              Bài 24 nói về thang các cách giữ một quy tắc. Đây là một bậc không có trong
+              thang đó: <strong>một ràng buộc môi trường làm cho vi phạm không biên dịch
+              được</strong>. Không ai phải viết luật "không chạm <code>window</code>" — chỉ
+              cần bản build server tồn tại, và nó tự bắt.
+            </p>
+            <p>
+              Tài liệu còn ghi kết quả: chín trang lab, một Web Worker, một service worker và
+              giao tiếp liên tab được thêm vào, <em>bản build server thành công ở mọi
+              bước</em>, và <strong>không</strong> có guard <code>isPlatformBrowser</code> nào
+              phải thêm — tất cả đi qua token trong <code>core/platform</code>.
+            </p>
+          </div>
+
+          <h3>4.2 Nợ số 13: chữ gõ trước khi hydrate</h3>
+
+          <div class="code">
+            <div class="code__file">login/login-page.ts</div>
+            <pre><code>/**
+ * What the user typed into the prerendered form before the application
+ * was running (debt row 13, Phase 5).
+ *
+ * Hydration keeps the server's `&lt;input&gt;` elements - and the text typed into
+ * them - but the form controls start empty, and binding them writes that
+ * empty value into the inputs. On a throttled phone that window was
+ * measured at about four seconds (docs/rendering.md). Reading the elements
+ * *before* the controls exist, and starting the controls from what is
+ * there, keeps the typing. On the server, and on a client-side navigation
+ * to this page, there is nothing typed and both read as empty.
+ */
+private readonly typedBeforeHydration = readTypedValues(inject(DOCUMENT));
+
+protected readonly form = new FormGroup({
+  username: new FormControl(this.typedBeforeHydration.username, {
+    nonNullable: true,
+    validators: [Validators.required],
+  }),
+  ...
+});
+
+/** The sign-in inputs' current values, read from the document before hydration binds them. */
+export function readTypedValues(document: Document): { username: string; password: string } {
+  const value = (name: string): string =&gt;
+    document.querySelector&lt;HTMLInputElement&gt;(`app-login-page input[name="${name}"]`)?.value ?? '';
+  return { username: value('username'), password: value('password') };
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Đọc DOM <strong>trước khi</strong> tạo form control</td>
+                  <td>
+                    Thứ tự là tất cả: <code>typedBeforeHydration</code> được khai
+                    <em>trên</em> <code>form</code>, nên nó chạy trước. Đảo lại thì control đã
+                    ghi <code>''</code> đè lên mất rồi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>inject(DOCUMENT)</code>, không <code>document</code> toàn cục
+                  </td>
+                  <td>
+                    Bài 05. Và nhờ vậy nó chạy được cả trên server — ở đó query trả về rỗng,
+                    đúng như mong muốn.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Hoạt động đúng cả ở ba hoàn cảnh
+                  </td>
+                  <td>
+                    Chú thích liệt kê: trên server (không có gì được gõ → rỗng), khi điều
+                    hướng từ trong ứng dụng sang (cũng rỗng), và khi tải thẳng trang đã
+                    prerender (có chữ → giữ lại). Một hàm, ba hoàn cảnh, không có
+                    <code>if</code> nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Bộ chọn <code>app-login-page input[name="username"]</code>
+                  </td>
+                  <td>
+                    Hẹp một cách có chủ ý — nó không đi quét cả tài liệu tìm input nào đó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và cách sửa này được <em>chứng minh</em>:
+            <code>e2e-production/login-hydration.spec.ts</code> gõ chữ trước khi hydrate, trên
+            cấu hình bị bóp, và khẳng định chữ còn nguyên — <strong>đổ trên bản build
+            trước</strong> và xanh trên bản này. Đó là "kiểm xem test có răng" của bài 23, áp
+            cho một lỗi hiệu năng.
+          </p>
+
+          <h3>4.3 Vì sao <code>afterNextRender</code> xuất hiện trong trang đăng nhập</h3>
+
+          <div class="code">
+            <div class="code__file">login/login-page.ts</div>
+            <pre><code>/** False until the application is running in the browser. See the note above. */
+protected readonly ready = signal(false);
+
+constructor() {
+  afterNextRender(() =&gt; this.ready.set(true));
+  ...</code></pre>
+          </div>
+
+          <p>
+            Bài 19 đã nhắc tới cờ này, và bây giờ nó có nghĩa đầy đủ: trong cửa sổ 3,8 giây ở
+            mục 3.4, nút "Đăng nhập" phải <strong>bị vô hiệu hoá</strong>. Nếu không, một cú
+            bấm trước khi Angular chạy sẽ là một lần submit form HTML thuần —
+            <code>GET /login?username=admin&amp;password=…</code>, tức là
+            <strong>mật khẩu nằm trên thanh địa chỉ</strong> và trong lịch sử trình duyệt.
+          </p>
+
+          <p>
+            Đây là ví dụ rõ nhất cho thấy vì sao cửa sổ ở mục 3.4 không phải chuyện thẩm mỹ:
+            nó là một bề mặt mà chỉ các trang prerender/SSR mới có, và hành vi mặc định của
+            HTML trong cửa sổ đó có thể tệ hơn nhiều so với "không làm gì".
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Ba chế độ trên cùng một trục thời gian</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Màn hình người dùng
+    participant B as Trình duyệt
+    participant S as Server / build
+
+    rect rgb(40,40,40)
+    Note over U,S: CSR — stable 3318ms, FCP 3804ms
+    B-&gt;&gt;S: GET /
+    S--&gt;&gt;B: index.csr.html — 4,8 kB, app-root RỖNG
+    B-&gt;&gt;B: tải JS, bootstrap, dựng DOM
+    B-&gt;&gt;U: vẽ — và gần như cùng lúc đã dùng được
+    end
+
+    rect rgb(40,40,40)
+    Note over U,S: SSR / Prerender — FCP 220ms, stable 4073ms
+    B-&gt;&gt;S: GET /
+    S--&gt;&gt;B: HTML 149 kB đã dựng sẵn + chú thích ngh
+    B-&gt;&gt;U: VẼ ngay — sớm hơn 17 lần
+    Note over U: nhưng CHƯA dùng được<br/>click được ghi lại · chữ gõ thì MẤT
+    B-&gt;&gt;B: main.js chỉ lộ ra ở byte 148 082, cuối body
+    B-&gt;&gt;B: tải JS — chia băng thông với chính 149 kB đó
+    B-&gt;&gt;B: bootstrap rồi HYDRATE — đắt hơn dựng mới
+    B-&gt;&gt;U: giờ mới dùng được — muộn hơn CSR 0,8 giây
+    end
+            </pre>
+            <figcaption>
+              Khoảng giữa bước 6 và bước 10 là toàn bộ chủ đề của brief này: trang
+              <em>nhìn thấy được</em> sớm hơn 17 lần và <em>dùng được</em> muộn hơn 0,8 giây.
+              Chọn chế độ nào là chọn ưu tiên cái nào.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Cây quyết định chọn chế độ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q0{"Trang này render ở đâu?"}
+
+    Q0 --> Q1{"Nội dung có phụ thuộc NGƯỜI ĐANG XEM không?"}
+    Q1 -->|"có"| Q2{"Có cần crawler đọc được không?"}
+    Q2 -->|"không — back office"| CSR["CLIENT<br/>phiên không phải lo trong đường render<br/>dùng được sớm nhất"]
+    Q2 -->|"có — trang công khai cá nhân hoá"| SSR["SERVER<br/>và chấp nhận: phiên phải có mặt khi render<br/>+ một lần render mỗi request"]
+
+    Q1 -->|"không — giống hệt với mọi người"| Q3{"Nội dung đổi giữa hai lần build?"}
+    Q3 -->|"không"| PRE["PRERENDER<br/>TTFB 2ms thay vì 21ms<br/>đẩy thẳng lên CDN được"]
+    Q3 -->|"có, theo request"| SSR
+
+    PRE --> H{"Có hydrate không?"}
+    SSR --> H
+    H -->|"có — mặc định"| H1["Giữ DOM của server<br/>không nháy, không mất state trong DOM<br/>nhưng KHÔNG nhanh hơn dựng mới"]
+    H -->|"ngSkipHydration"| H2["Dựng lại — cùng chi phí<br/>cộng một cú nháy và mất state"]
+    H -->|"defer hydrate on viewport"| H3["Phần dưới màn hình để sau<br/>— 9% nhanh hơn ở đây"]
+
+    H1 --> W["MỌI trang có HTML sẵn đều có<br/>CỬA SỔ nhìn thấy nhưng chưa dùng được"]
+    H2 --> W
+    H3 --> W
+    W --> W1["Click: withEventReplay giữ lại"]
+    W --> W2["Chữ gõ: MẤT — phải tự đọc DOM trước khi tạo control"]
+    W --> W3["Nút submit: vô hiệu hoá tới afterNextRender<br/>không thì form thuần gửi mật khẩu qua query string"]
+            </pre>
+            <figcaption>
+              Nhánh trái cùng — "back office, không crawler" — là nhánh mà hầu hết ứng dụng
+              nội bộ rơi vào, và câu trả lời là <strong>CSR</strong>. Ba ô dưới cùng là phần
+              mà người ta chỉ phát hiện sau khi đã bật SSR.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Ứng dụng sau đăng nhập ở lại CSR (ADR-0003)</h4>
+          <p>
+            Lập luận gồm ba vế, và không vế nào là "SSR khó":
+          </p>
+          <ul>
+            <li>
+              <strong>Không có crawler để phục vụ.</strong> Một back office không cần SEO. Lợi
+              ích lớn nhất của SSR không áp dụng.
+            </li>
+            <li>
+              <strong>SSR trang cá nhân hoá kéo phiên vào đường render.</strong> Server phải
+              biết người đang hỏi là ai, tức là phải xử lý cookie phiên trong lúc render —
+              một bề mặt mới, với rủi ro rò dữ liệu giữa các request.
+            </li>
+            <li>
+              <strong>Và số đo nói nó không nhanh hơn</strong>: dùng được muộn hơn 0,8 giây.
+            </li>
+          </ul>
+
+          <h4>SSR vẫn được cấu hình từ phase 0 dù không dùng</h4>
+          <p>
+            Đây mới là phần tinh tế. Không dùng SSR cho ứng dụng, nhưng
+            <em>vẫn</em> giữ bản build server chạy được — vì nó là một cổng kiểm tra:
+            <em>"a stray `window` reference fails the server build immediately."</em> Giá phải
+            trả: phải giữ bản build đó xanh. Lợi ích: quy tắc 2 của
+            <code>CLAUDE.md</code> được cưỡng chế miễn phí, và nếu một ngày cần SSR thật thì
+            không phải retrofit.
+          </p>
+
+          <h4>Prerender <code>/login</code>, chấp nhận cửa sổ 3,8 giây</h4>
+          <p>
+            Lợi: vẽ ra ở 264 ms thay vì gần 4 giây — và đây là trang đầu tiên mọi người thấy.
+            Hại: cửa sổ mà trang trông sẵn sàng nhưng chưa. Repo không né cái hại đó mà
+            <strong>xử lý từng biểu hiện</strong>: click thì event replay lo, chữ gõ thì
+            <code>readTypedValues</code> lo, nút submit thì vô hiệu hoá tới khi
+            <code>afterNextRender</code> chạy. Ba bản vá cho một đánh đổi được chọn có ý thức.
+          </p>
+
+          <h4>Không nén HTML ở server Express</h4>
+          <p>
+            Đây là lý do con số 149 kB nghe đáng sợ. Tài liệu nói rõ điều kiện và
+            <strong>từ chối tuyên bố</strong> phần không đo:
+            <em>"Behind a compressing proxy that difference shrinks by an order of magnitude -
+            not measured here, and not claimed."</em> Cách viết đáng bắt chước: nêu con số đã
+            đo, nêu điều kiện, và nói thẳng phần nào là phỏng đoán.
+          </p>
+
+          <h4>Incremental hydration: 9% cho một chút phức tạp</h4>
+          <p>
+            31 ms trên 348 ms. Đổi lại: thêm chú thích defer trong HTML (1–4 kB), một khái
+            niệm nữa trong template, và chi phí chuyển sang lần cuộn đầu tiên. Ở quy mô này nó
+            đáng để <em>đo</em>, chưa chắc đáng để <em>dùng ở mọi nơi</em> — và repo dùng nó
+            trong một specimen để so sánh, không rải khắp ứng dụng.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Bật SSR vì "nó nhanh hơn"</span>
+            <p>
+              Trên mạng chậm, trang <em>dùng được</em> muộn hơn 0,8 giây so với CSR, và bạn
+              vừa thêm một máy chủ phải chạy, phải scale, phải theo dõi. Nếu bạn không đo,
+              bạn sẽ nghĩ mình vừa tối ưu — vì FCP đẹp hơn hẳn trong báo cáo.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Đọc FCP rồi kết luận</span>
+            <p>
+              FCP 220 ms trông tuyệt vời. Nhưng người dùng chạm vào màn hình ở giây thứ nhất
+              và không gì xảy ra — họ chạm lại, rồi lại. Chỉ số đúng cho câu hỏi "trang dùng
+              được chưa" là một mốc như <code>ecm:app-stable</code>, và bạn phải
+              <em>tự đánh</em> nó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Không nghĩ tới cửa sổ trước hydration</span>
+            <p>
+              Trang trông sẵn sàng. Người dùng gõ tên đăng nhập, và chữ biến mất khi hydrate
+              xong. Không có lỗi nào trong console, không có gì trong log. Họ gõ lại, nghĩ là
+              mình gõ hụt. Đây là nợ số 13, và nó sống qua nhiều phase trước khi có người đo
+              thật.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Không vô hiệu hoá nút submit trước hydration</span>
+            <p>
+              Trường hợp tệ nhất trong danh sách: form prerender là HTML thật, nên bấm submit
+              trước khi Angular chạy sẽ gửi một form HTML thuần —
+              <code>GET /login?password=…</code>. Mật khẩu vào thanh địa chỉ, vào lịch sử
+              trình duyệt, vào log của proxy.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Prerender một trang phụ thuộc người xem</span>
+            <p>
+              HTML sinh lúc build không biết ai sẽ xem. Prerender một trang có tên người dùng
+              trong đó thì <em>mọi người</em> nhận tên của người có mặt lúc build — hoặc, tệ
+              hơn, một CDN cache trang của người này trả cho người khác.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Để hydration mismatch trôi qua</span>
+            <p>
+              Server dựng một kiểu, client dựng kiểu khác — vì một
+              <code>Math.random()</code>, một <code>new Date()</code>, một id ngẫu nhiên.
+              Angular cảnh báo, rồi dựng lại cả nhánh đó. Nhẹ thì mất lợi ích của SSR; nặng
+              thì trang nháy và mất state. Đây chính là lý do id trong
+              <code>text-input.ts</code> là một biến đếm (bài 22 mục 4.1).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Rắc <code>isPlatformBrowser</code> khắp nơi</span>
+            <p>
+              Cách phổ biến để "sửa" code chạm global khi bật SSR. Nó biến mỗi chỗ dùng thành
+              hai nhánh, và nhánh server hầu như không bao giờ được test. Repo thêm chín trang
+              lab, một Web Worker, một service worker và giao tiếp liên tab mà
+              <strong>không thêm một guard nào</strong> — vì mọi thứ đi qua injection token
+              (bài 05).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Đo một lần, trên máy của mình, không bóp mạng</span>
+            <p>
+              Không bóp thì mọi chế độ chênh nhau vài chục mili-giây — tức là bạn sẽ kết luận
+              "chẳng khác gì mấy". Toàn bộ sự khác biệt có ý nghĩa chỉ lộ ra khi CPU chậm 4
+              lần và băng thông 1,6 Mbps. Và phải chạy nhiều lần lấy trung vị: một lần đo là
+              một con số nhiễu.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ở đâu</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>npm run build</code> (bản build server)</td>
+                  <td>
+                    <strong>Cổng mạnh nhất, và nó không phải một test.</strong> Một tham chiếu
+                    <code>window</code> trực tiếp làm đổ build ngay. Mọi phase đều phải giữ nó
+                    xanh.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/rendering.spec.ts</code></td>
+                  <td>
+                    Các specimen render đúng chế độ của chúng; bản phá huỷ thật sự dựng lại
+                    DOM (quan sát bằng <code>MutationObserver</code>); bản incremental hydrate
+                    khi cuộn tới.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>e2e-production/login-hydration.spec.ts</code>
+                  </td>
+                  <td>
+                    Gõ chữ <em>trước</em> khi hydrate trên cấu hình bị bóp, và khẳng định chữ
+                    còn nguyên. Tài liệu ghi rõ: <strong>đổ trên bản build trước</strong>,
+                    xanh trên bản này — test có răng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>perf/measure-rendering.ts</code></td>
+                  <td>
+                    Không phải test mà là một <em>phép đo</em>: 7 lần chạy, bỏ lần khởi động,
+                    lấy trung vị, context mới mỗi lần. Kết quả thô lưu trong
+                    <code>perf/results/rendering.json</code> kèm ngày đo.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao lưu kết quả thô kèm ngày là chuyện lớn</span>
+            <p>
+              Một con số hiệu năng không có ngày tháng và không có điều kiện đo là một tin
+              đồn. <code>perf/results/rendering.json</code> + dòng "2026-09-25" + mô tả cấu
+              hình bóp + "trung vị của 7 lần sau một lần khởi động bỏ đi" biến nó thành một
+              phép đo <em>lặp lại được</em>.
+            </p>
+            <p>
+              Và nó cho phép câu hỏi quan trọng nhất: <em>đo lại bây giờ có còn ra thế
+              không?</em> Bài tập 1 là làm đúng việc đó.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Chọn chế độ render"}
+
+    S --> R1["Quy tắc 1: hỏi nội dung có phụ thuộc NGƯỜI XEM không<br/>có thì prerender là sai, không bàn thêm"]
+    S --> R2["Quy tắc 2: hỏi có CRAWLER nào cần đọc không<br/>không có thì lợi ích lớn nhất của SSR biến mất"]
+    S --> R3["Quy tắc 3: ĐO, đừng đoán — và phải bóp CPU lẫn băng thông<br/>không bóp thì mọi chế độ trông như nhau"]
+
+    R3 --> M1["HTML từ server mua LẦN VẼ ĐẦU — sớm hơn 17 lần"]
+    R3 --> M2["và chỉ lần vẽ đầu — DÙNG ĐƯỢC thì muộn hơn 0,8 giây"]
+    R3 --> M3["hydration ĐẮT HƠN dựng mới<br/>cái nó mua là không nháy và không mất state"]
+    R3 --> M4["SSR tốn 19ms mỗi request so với prerender"]
+
+    M2 --> W{"Mọi trang có HTML sẵn đều có một CỬA SỔ<br/>nhìn thấy được nhưng chưa dùng được"}
+    W --> W1["click — withEventReplay giữ"]
+    W --> W2["chữ gõ — MẤT, phải đọc DOM trước khi tạo control"]
+    W --> W3["submit — vô hiệu hoá tới afterNextRender<br/>không thì form thuần đưa mật khẩu lên URL"]
+
+    S --> E["Và một lý do để giữ bản build server<br/>kể cả khi không dùng SSR:"]
+    E --> E1["một tham chiếu window lọt vào là ĐỔ BUILD NGAY<br/>— SSR làm công việc của một cổng lint"]
+            </pre>
+            <figcaption>
+              Ba quy tắc ở hàng trên trả lời câu "chọn gì". Bốn ô đo được ở giữa là lý do
+              không nên tin trực giác. Và ô dưới cùng bên phải là lợi ích mà hầu như không ai
+              tính tới khi bàn về SSR.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đo lại, và đừng tin bảng trong tài liệu</h3>
+            <p class="task__meta">~45 phút · không sửa code</p>
+            <ol>
+              <li>
+                <code>npm run build</code>, rồi chạy
+                <code>node perf/measure-rendering.ts --runs 7</code>. Đọc script đó trước —
+                nó bóp những gì, bỏ lần chạy nào.
+              </li>
+              <li>
+                So kết quả của bạn với bảng ở mục 3.3 (đo 2026-09-25). Khác ở đâu? Khác nhiều
+                hơn hay ít hơn mức "khoảng 10 ms" mà tài liệu nói là nhiễu?
+              </li>
+              <li>
+                Mở <code>perf/results/rendering.json</code>. Nó lưu những gì ngoài các con số?
+              </li>
+              <li>
+                Giờ tự đo bằng tay: mở năm trang specimen trong Chrome với DevTools →
+                Performance, chế độ throttling <em>Slow 4G</em> + <em>4× slowdown</em>. Bạn có
+                thấy khác biệt FCP bằng mắt không?
+              </li>
+              <li>
+                Trên trang <code>/rendering-lab/server</code>, bấm vào một nút
+                <strong>ngay khi</strong> nội dung hiện ra. Có gì xảy ra không? Rồi chờ, bấm
+                lại. Khác nhau thế nào?
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 5 là chỗ bạn cảm nhận được cửa sổ</summary>
+              <p>
+                Cú bấm đầu tiên hoặc không làm gì, hoặc được <em>phát lại</em> muộn vài giây
+                (tuỳ <code>withEventReplay</code> có bắt kịp không). Đó là 3,8 giây mà mọi
+                bảng số liệu nói tới, cảm nhận bằng ngón tay thay vì bằng mắt.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Tái hiện nợ số 13</h3>
+            <p class="task__meta">~40 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Chạy bản production. Mở <code>/login</code> với throttling bật. Gõ ngay
+                <code>admin</code> vào ô tên đăng nhập <strong>trước khi</strong> trang dùng
+                được. Chữ có còn không?
+              </li>
+              <li>
+                Trong <code>login-page.ts</code>, đổi
+                <code>this.typedBeforeHydration.username</code> thành
+                <code>''</code> (tức là quay lại hành vi cũ). Build lại.
+              </li>
+              <li>Lặp lại bước 1. Lần này chữ ra sao? Nó biến mất vào lúc nào?</li>
+              <li>
+                Chạy <code>npx playwright test login-hydration --config playwright.production.config.ts</code>.
+                Nó có đổ không? Thông báo nói gì?
+              </li>
+              <li>
+                Hoàn nguyên. Rồi thử một biến thể: giữ nguyên bản sửa nhưng
+                <em>chuyển</em> dòng <code>typedBeforeHydration</code> xuống
+                <strong>dưới</strong> khai báo <code>form</code>. Nó còn chạy không? Vì sao?
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 5 đáng làm</summary>
+              <p>
+                Vì nó cho thấy bản sửa này phụ thuộc vào <em>thứ tự khởi tạo field</em> trong
+                class — một ràng buộc vô hình mà không công cụ nào cảnh báo. Nếu có người sắp
+                xếp lại các field cho "gọn hơn", lỗi quay lại trong im lặng. Đó cũng là lý do
+                phải có test ở bước 4.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Phá hợp đồng server/browser</h3>
+            <p class="task__meta">~35 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong một component bất kỳ của <code>shared/ui</code>, thêm một dòng chạm
+                global trực tiếp: <code>const w = window.innerWidth;</code>
+              </li>
+              <li>
+                Chạy <code>npm run build</code>. Nó đổ ở bước nào, với thông báo gì? So với
+                việc chỉ chạy <code>npm start</code> — có triệu chứng gì không?
+              </li>
+              <li>Hoàn nguyên. Giờ thử tạo một hydration mismatch:</li>
+              <li>
+                Trong <code>text-input.ts</code>, đổi <code>inputId</code> từ biến đếm sang
+                <code>`app-input-${Math.random()}`</code>.
+              </li>
+              <li>
+                Build và mở <code>/login</code> (trang prerender có input). Console nói gì?
+                Nhìn kỹ xem có gì nháy không.
+              </li>
+              <li>Hoàn nguyên cả hai.</li>
+            </ol>
+            <details>
+              <summary>Hai cổng, hai kiểu phản hồi</summary>
+              <p>
+                Bước 2 cho bạn một lỗi build <strong>tức thì và dứt khoát</strong> — đó là
+                "SSR làm công việc của một cổng lint" ở mục 4.1. Bước 5 cho bạn một
+                <em>cảnh báo lúc chạy</em>, dễ bỏ qua hơn nhiều: không ai đổ build, chỉ có
+                console nói gì đó và trang vẫn chạy. Đây chính là lý do chú thích trong
+                <code>text-input.ts</code> giải thích vì sao id phải là biến đếm — nó là một
+                ràng buộc mà không công cụ nào cưỡng chế được.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. HTML từ server mua được gì, và không mua được gì?</summary>
+            <p>
+              Mua <strong>lần vẽ đầu tiên</strong> — sớm hơn 17 lần khi mạng chậm.
+              <em>Không</em> mua lúc trang dùng được: ở đây trang server-render stable muộn
+              hơn CSR khoảng 0,8 giây, vì tài liệu 149 kB chia băng thông với JavaScript và
+              <code>main.js</code> chỉ lộ ra ở cuối <code>&lt;body&gt;</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Hydration có rẻ hơn render không?</summary>
+            <p>
+              Không — ở đây nó <em>đắt hơn</em>: 326–348 ms so với 259 ms. Đi qua và khớp 400
+              dòng DOM có sẵn tốn hơn tạo mới. Thứ nó mua là
+              <strong>không phá</strong>: không nháy khi dựng lại, và không mất state nằm
+              trong DOM.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Khi nào prerender, khi nào SSR?</summary>
+            <p>
+              Prerender khi nội dung giống hệt với mọi người và không đổi giữa hai lần build —
+              TTFB 2 ms thay vì 21 ms, và không cần máy chủ nào chạy. SSR chỉ xứng với chi phí
+              của nó khi HTML <em>phụ thuộc vào request</em>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Cửa sổ giữa paint và stable nguy hiểm thế nào?</summary>
+            <p>
+              Trang trông sẵn sàng mà chưa. Click được <code>withEventReplay</code> giữ lại,
+              nhưng <strong>chữ gõ thì mất</strong> — form control khởi tạo rỗng ghi đè lên.
+              Và nguy hiểm nhất: một form prerender chưa hydrate vẫn là HTML thật, nên bấm
+              submit sẽ gửi <code>GET</code> kèm mật khẩu trên URL.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Repo sửa chuyện mất chữ bằng cách nào?</summary>
+            <p>
+              Đọc giá trị hiện tại của các <code>&lt;input&gt;</code> từ document
+              <strong>trước khi</strong> tạo form control, rồi khởi tạo control từ đó. Hoạt
+              động đúng ở cả ba hoàn cảnh (server, điều hướng nội bộ, tải trang prerender) mà
+              không có <code>if</code> nào — và nó phụ thuộc vào thứ tự khai báo field trong
+              class.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao giữ bản build server dù không dùng SSR cho ứng dụng?</summary>
+            <p>
+              Vì nó là một cổng cưỡng chế: một tham chiếu <code>window</code> trực tiếp làm đổ
+              build <em>ngay</em>. Nhờ đó chín trang lab, một Web Worker, một service worker
+              và giao tiếp liên tab được thêm vào mà không cần một guard
+              <code>isPlatformBrowser</code> nào.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao LCP của trang server-render lại gần bằng lúc stable?</summary>
+            <p>
+              Vì lúc hydrate, Angular gán lại các nút text và thuộc tính về
+              <em>đúng giá trị cũ</em>. Không đổi gì, nhưng vẫn là mutation, và Chrome tính
+              lại ứng viên LCP. Màn hình không hề vẽ lại. Tài liệu nói rõ cơ chế này được
+              <em>quan sát</em>, và FCP mới là con số khớp với thứ người dùng thấy.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao phải bóp CPU và băng thông khi đo?</summary>
+            <p>
+              Vì không bóp thì năm chế độ chênh nhau vài chục mili-giây — trong khoảng nhiễu —
+              và bạn sẽ kết luận "chẳng khác gì". Toàn bộ khác biệt có ý nghĩa (17 lần, 0,8
+              giây, 9%) chỉ hiện ra ở cấu hình 4× CPU, 150 ms RTT, 1,6 Mbps.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 29</strong>: <code>index.csr.html</code> ở mục 3.1 chính là file mà
+              service worker cache để khởi động offline. <strong>Brief 31</strong> đi tiếp về
+              hiệu năng và ngân sách bundle — cùng một kỷ luật "đo trước, rồi mới sửa".
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="29-offline-va-service-worker.html">← Brief 29</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
