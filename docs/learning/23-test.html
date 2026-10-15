@@ -1,0 +1,1929 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 23 — Test: cái gì được test ở đâu, và vì sao</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 23
+        </p>
+        <h1>Test: cái gì được test ở đâu, và vì sao</h1>
+        <p class="lede">
+          Bạn đã viết unit test ở backend. Phần khó khi sang frontend không phải cú pháp —
+          mà là <strong>ranh giới</strong>: cái gì đáng test trong jsdom, cái gì chỉ có nghĩa
+          trong một trình duyệt thật, và chỗ nào thì một bản giả làm cho test
+          <em>xanh một cách sai</em>. Bài này đọc bộ test của repo như đọc một lập luận.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · hướng tới Mốc 4</li>
+          <li class="tag">~2,5 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Vitest</strong></td>
+                  <td>
+                    Bộ chạy test của repo cho mọi thứ không phải E2E. Cú pháp
+                    <code>describe</code> / <code>it</code> / <code>expect</code> — gần như
+                    giống Jest, nên kiến thức cũ của bạn chuyển thẳng sang.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>jsdom</strong></td>
+                  <td>
+                    Một bản <em>mô phỏng</em> DOM chạy trong Node. Có thẻ, có sự kiện, có
+                    <code>querySelector</code> — nhưng
+                    <strong>không có layout engine</strong>: không có kích thước thật, không
+                    có cuộn thật, không có vẽ. Ranh giới này quyết định phần lớn các lựa chọn
+                    trong bài.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Playwright</strong></td>
+                  <td>
+                    Bộ chạy E2E: điều khiển một trình duyệt thật (Chromium, Firefox, WebKit)
+                    đi qua ứng dụng thật, với mock API thật đang chạy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>TestBed</code></td>
+                  <td>
+                    Bộ dựng môi trường Angular cho test: bạn khai providers và imports giống
+                    như trong <code>app.config.ts</code>, rồi nó tạo ra một injector và một
+                    component thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Fixture</strong> (<code>ComponentFixture</code>)</td>
+                  <td>
+                    Thứ <code>TestBed.createComponent()</code> trả về: component đã được tạo,
+                    cộng với DOM của nó (<code>nativeElement</code>) và một nút
+                    <code>detectChanges()</code> để bắt Angular vẽ lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Host component</strong></td>
+                  <td>
+                    Một component nhỏ, chỉ tồn tại trong file test, dùng để
+                    <em>chứa</em> component đang được test. Mục 3.4 nói vì sao đây là cách
+                    đúng chứ không phải cách rườm rà.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpTestingController</code></td>
+                  <td>
+                    Bản thay thế của tầng vận chuyển HTTP trong test: không có request nào
+                    rời khỏi tiến trình. Test tự <em>tìm</em> request bằng
+                    <code>expectOne</code>, tự <em>trả lời</em> bằng <code>flush</code>, và
+                    kết thúc bằng <code>verify()</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>TestRequest</code>, <code>.cancelled</code></td>
+                  <td>
+                    Một request bị bắt lại. Thuộc tính <code>cancelled</code> cho biết
+                    Angular đã huỷ nó (vì không còn ai subscribe) hay chưa — đây là cách
+                    khẳng định những điều ở bài 12 và bài 18.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>RouterTestingHarness</code></td>
+                  <td>
+                    Một "khung" chạy router thật và vẽ ra component của route hiện tại, để
+                    test khẳng định được <em>cái gì đang ở trên màn hình</em> sau một lần điều
+                    hướng, chứ không chỉ <code>router.url</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>provideLocationMocks()</code></td>
+                  <td>
+                    Thay <code>Location</code> và lịch sử trình duyệt bằng bản trong bộ nhớ,
+                    để điều hướng trong test không đụng tới URL thật của trang chạy test.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Test double</strong>: stub, fake, mock, spy
+                  </td>
+                  <td>
+                    <em>Stub</em> trả lời cứng. <em>Fake</em> có cài đặt thật nhưng đơn giản
+                    (bộ nhớ thay vì ổ đĩa). <em>Mock</em> khẳng định nó
+                    <em>đã được gọi</em>. <em>Spy</em> ghi lại lời gọi. Repo gần như chỉ dùng
+                    stub và fake viết tay — mục 6 nói vì sao.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Coverage</strong>: lines, statements, branches, functions
+                  </td>
+                  <td>
+                    Tỉ lệ dòng / câu lệnh / nhánh rẽ / hàm được <em>chạy qua</em> trong lúc
+                    test. Lưu ý từ "chạy qua": nó không nói test có
+                    <em>khẳng định</em> gì về những dòng đó không.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Ratchet</strong> (bánh cóc)</td>
+                  <td>
+                    Ngưỡng đặt ngay <em>dưới</em> con số hiện tại và chỉ được đi lên. Một
+                    thay đổi làm tụt coverage thì đổ build; một thay đổi làm tăng thì cho
+                    phép nâng ngưỡng. Repo dùng cách này cho cả coverage lẫn kích thước
+                    bundle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Visual regression</strong>, <strong>baseline</strong></td>
+                  <td>
+                    Chụp ảnh màn hình và so với ảnh chuẩn đã lưu (<em>baseline</em>). Bắt được
+                    đúng loại lỗi mà mọi test khác bỏ qua: cái nhìn thấy được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Flaky</strong></td>
+                  <td>
+                    Test lúc xanh lúc đỏ mà code không đổi. Tệ hơn test đỏ: nó dạy cả team
+                    bấm "chạy lại".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Mutation testing</strong></td>
+                  <td>
+                    Cố tình sửa code (đổi <code>&gt;</code> thành <code>&ge;</code>…) rồi xem
+                    có test nào đổ không. Trả lời đúng câu mà coverage không trả lời được.
+                    Repo <em>không</em> dùng; mục 6 ghi lý do.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>"Có răng"</strong> (<em>teeth</em>)</td>
+                  <td>
+                    Cách nói trong repo: một test được chứng minh là
+                    <em>đổ khi code sai</em>, bằng cách gỡ bản sửa ra và xem nó đổ thật. Bài
+                    22 đã gặp lần đầu; bài này gặp lại ở mục 8.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chọn đúng tầng cho một test mới: unit, component, integration hay E2E — và nói
+              được vì sao ba tầng kia sai.
+            </li>
+            <li>
+              Viết một component test bằng <strong>host component</strong>, và biết vì sao
+              không gọi thẳng phương thức của component.
+            </li>
+            <li>
+              Dùng <code>HttpTestingController</code> để khẳng định một hợp đồng: request nào
+              được gửi, trả lời gì, và <em>có</em> bị huỷ hay không.
+            </li>
+            <li>
+              Giải thích được lập luận trung tâm của repo:
+              <strong>stack thật, transport giả</strong> — và vì sao
+              <code>provideHttpClient()</code> trần trong test là một cái bẫy.
+            </li>
+            <li>
+              Đọc được con số coverage mà không bị nó lừa, và hiểu "ratchet" khác "mục tiêu
+              100%" ở chỗ nào.
+            </li>
+            <li>
+              Nói được cái gì <em>không</em> test được trong jsdom, và nhìn vào bảng coverage
+              theo khu vực mà đoán ra lý do.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>
+            Phần chuyển thẳng sang thì nhiều: kim tự tháp test, <code>describe</code> /
+            <code>it</code>, arrange–act–assert, test phải tất định, test đặt cạnh thứ nó
+            test. Bảng đối chiếu:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Unit test một service</td>
+                  <td>Unit test một hàm thuần, một store, một mapper</td>
+                </tr>
+                <tr>
+                  <td>Test một controller với MockMvc / TestClient</td>
+                  <td>Component test với <code>TestBed</code> — nhưng xem phần "sai" bên dưới</td>
+                </tr>
+                <tr>
+                  <td>Integration test có DB thật trong container</td>
+                  <td>
+                    Integration test có <strong>interceptor chain thật</strong>, chỉ transport
+                    là giả
+                  </td>
+                </tr>
+                <tr>
+                  <td>Contract test giữa service và client</td>
+                  <td>
+                    Zod schema trong <code>packages/contracts</code> — chính nó
+                    <em>là</em> contract, dùng chung cho cả hai đầu
+                  </td>
+                </tr>
+                <tr>
+                  <td>End-to-end qua HTTP thật</td>
+                  <td>Playwright qua trình duyệt thật + mock API thật</td>
+                </tr>
+                <tr>
+                  <td>Testcontainers</td>
+                  <td>
+                    Docker image của Playwright cho visual regression — cùng một lý do: ảnh
+                    chuẩn chỉ có nghĩa trong <em>một</em> môi trường
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "component test giống controller test"</span>
+            <p>
+              Controller của bạn có một bề mặt: nhận request, trả response. Component có
+              <strong>hai</strong>: các <code>input()</code> / <code>output()</code>
+              <em>và</em> cái DOM mà người dùng nhìn thấy. Và bề mặt thứ hai mới là bề mặt
+              người ta thật sự dùng.
+            </p>
+            <p>
+              Nên một test gọi thẳng <code>component.handleInput(...)</code> rồi đọc
+              <code>component.value()</code> có thể xanh trong khi template bị hỏng hoàn
+              toàn. Đó là lý do mọi component test trong repo đi
+              <em>qua DOM</em>: đặt <code>element.value</code>, phát sự kiện
+              <code>input</code>, rồi đọc kết quả ở nơi người dùng đọc.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "mock mọi dependency"</span>
+            <p>
+              Ở backend, mock cái repository rồi test service là chuyện bình thường, vì cái bị
+              mock có hợp đồng nhỏ và ổn định. Ở đây, cái cám dỗ là mock
+              <em>HttpClient</em> hoặc <em>SessionService</em> — và cả hai đều đi thẳng vào
+              bẫy: bạn vừa mock mất chính lớp mang hành vi mà bạn tưởng mình đang test.
+            </p>
+            <p>
+              Repo trả lời bằng một nguyên tắc nêu thẳng trong hai file helper:
+              <strong>giữ lại stack thật, chỉ thay cái ở đáy</strong>. Mục 4.1 và 4.2 đọc
+              từng câu lập luận đó — đây là phần quan trọng nhất của cả bài.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "coverage cao nghĩa là test tốt"</span>
+            <p>
+              Coverage nói <em>dòng đó đã chạy</em>. Nó không nói có ai khẳng định gì về kết
+              quả không. Một bộ test chạy hết mọi dòng mà không <code>expect</code> gì vẫn cho
+              100%.
+            </p>
+            <p>
+              <code>docs/testing-strategy.md</code> nói đúng điều này ở hai chỗ: ngưỡng là
+              <em>"a floor, not a target"</em>, và trong bảng "Known gaps", lý do không làm
+              mutation testing được viết gọn hết mức:
+              <em>"Coverage says a line ran, not that a test would notice it changing."</em>
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 4 — "jsdom là một trình duyệt"</span>
+            <p>
+              Nó không có layout. Không có chiều cao thật, không có
+              <code>getBoundingClientRect</code> có nghĩa, không có cuộn, không có vẽ, không
+              có <code>IntersectionObserver</code> thật. Mọi thứ phụ thuộc hình học — overlay
+              của CDK, tooltip, cuộn ngang của bảng — chỉ test được trong trình duyệt thật.
+            </p>
+            <p>
+              Đây không phải khuyết điểm cần che: nó hiện ra thành con số trong bảng coverage
+              theo khu vực ở mục 6, với lý do viết cạnh từng dòng.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Năm tầng, mỗi tầng một câu hỏi</h3>
+
+          <p>Bảng đầu <code>docs/testing-strategy.md</code>, dịch sang tiếng Việt:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Công cụ</th>
+                  <th>Trả lời câu hỏi</th>
+                  <th>Nằm ở đâu</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Unit</td>
+                  <td>Vitest</td>
+                  <td>logic này có đúng không, kể cả các ca biên</td>
+                  <td>cạnh source, <code>*.spec.ts</code></td>
+                </tr>
+                <tr>
+                  <td>Component</td>
+                  <td>Vitest + <code>TestBed</code></td>
+                  <td>component có vẽ ra và cư xử đúng như người dùng thấy không</td>
+                  <td>cạnh component</td>
+                </tr>
+                <tr>
+                  <td>Integration</td>
+                  <td>Vitest + <code>HttpTestingController</code></td>
+                  <td>các mảnh này có khớp với nhau không</td>
+                  <td>cạnh feature</td>
+                </tr>
+                <tr>
+                  <td>E2E</td>
+                  <td>Playwright</td>
+                  <td>hành trình thật có chạy trong trình duyệt thật không</td>
+                  <td><code>e2e/</code></td>
+                </tr>
+                <tr>
+                  <td>Accessibility</td>
+                  <td><code>@axe-core/playwright</code></td>
+                  <td>trang đã vẽ ra có dùng được không</td>
+                  <td><strong>bên trong</strong> các spec E2E</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Dòng cuối kèm một câu đáng nhớ:
+            <em
+              >"Accessibility is not a separate suite... because an a11y check against
+              something other than the shipped DOM tests nothing."</em
+            >
+            Quét một bản dựng khác với bản người dùng nhận thì đang kiểm tra một thứ không ai
+            dùng.
+          </p>
+
+          <h3>3.2 Vitest chạy như thế nào ở đây</h3>
+
+          <p>
+            Không có file <code>vitest.config.ts</code> riêng cho ứng dụng web. Angular 22
+            chạy test qua builder của chính nó, khai trong <code>angular.json</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/angular.json</div>
+            <pre><code>"test": {
+  "builder": "@angular/build:unit-test",
+  "options": {
+    "coverageExclude": ["src/app/**/testing/**"],
+    "coverageReporters": ["text-summary", "json-summary"],
+    "coverageThresholds": {
+      "statements": 78,
+      "branches": 76,
+      "functions": 77,
+      "lines": 80
+    }
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tuỳ chọn</th>
+                  <th>Nó nói gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@angular/build:unit-test</code></td>
+                  <td>
+                    Builder chính chủ, dùng chung đúng pipeline biên dịch với bản build thật.
+                    Hệ quả: test chạy trên code được biên dịch
+                    <em>giống</em> production, không phải một cấu hình riêng tự lệch dần.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>coverageExclude: src/app/**/testing/**</code></td>
+                  <td>
+                    Các thư mục <code>testing/</code> là
+                    <strong>đồ dùng cho test</strong>, không phải code sản phẩm. Tính coverage
+                    cho chúng là tự cộng điểm cho chính mình.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bốn ngưỡng, không phải một</td>
+                  <td>
+                    <code>lines</code> dễ nhất, <code>branches</code> khó nhất — và đó chính
+                    là lý do có đủ bốn: một bộ test chỉ đi qua nhánh "thành công" sẽ có lines
+                    cao mà branches thấp, và ngưỡng branches bắt được điều đó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 <code>TestBed</code>: một injector cho test</h3>
+
+          <p>
+            Nhớ bài 05: ứng dụng chạy được là nhờ một injector được dựng từ
+            <code>app.config.ts</code>. <code>TestBed</code> chính là
+            <em>cái injector đó, dựng riêng cho một test</em>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">bản rút gọn — khung của mọi component test</div>
+            <pre><code>TestBed.configureTestingModule({
+  imports: [ComponentCanTest],         // component standalone cần những gì
+  providers: [provideTestHttp()],      // thay vài thứ ở tầng dưới
+});
+
+const fixture = TestBed.createComponent(ComponentCanTest);
+fixture.detectChanges();               // vẽ lần đầu
+
+const element = fixture.nativeElement as HTMLElement;
+expect(element.querySelector('h1')?.textContent).toContain('...');</code></pre>
+          </div>
+
+          <p>
+            <code>detectChanges()</code> là lệnh "vẽ lại ngay". Ứng dụng chạy
+            <strong>zoneless</strong> (bài 03) nên trong đời thật, việc vẽ lại do signal kích
+            hoạt; trong test ta gọi tay để mốc thời gian là tường minh — test không bao giờ
+            phải "chờ xem có vẽ chưa".
+          </p>
+
+          <h3>3.4 Host component: vì sao test một component qua một component khác</h3>
+
+          <p>
+            Cách ngây thơ là tạo thẳng component rồi gán input bằng
+            <code>fixture.componentRef.setInput(...)</code>. Cách của repo là viết một
+            component nhỏ <em>chứa</em> nó:
+          </p>
+
+          <div class="code">
+            <div class="code__file">bản rút gọn — ý tưởng host component</div>
+            <pre><code>@Component({
+  imports: [ReactiveFormsModule, TextInput],
+  template: `&lt;app-text-input [formControl]="control" [label]="label()" /&gt;`,
+})
+class TextInputHost {
+  readonly control = new FormControl('', { nonNullable: true });
+  readonly label = signal('Full name');
+}</code></pre>
+          </div>
+
+          <p>Ba điều bạn chỉ có khi đi qua host:</p>
+
+          <ol>
+            <li>
+              <strong>Template binding thật.</strong> Nếu <code>[label]</code> bị gõ sai tên,
+              hay input đổi kiểu, test đổ — vì chính template là thứ đang được biên dịch.
+              Gán input bằng API thì bỏ qua lớp đó.
+            </li>
+            <li>
+              <strong>Tích hợp thật với form.</strong>
+              <code>app-text-input</code> là một <code>ControlValueAccessor</code> (bài 13).
+              Nối nó với một <code>FormControl</code> thật nghĩa là test đi qua cả
+              <code>writeValue</code>, <code>registerOnChange</code> và
+              <code>setDisabledState</code>, đúng như một form thật dùng nó.
+            </li>
+            <li>
+              <strong>Thay đổi input trong lúc chạy.</strong> Các <code>signal</code> trong
+              host cho phép test đổi <code>error</code> từ rỗng sang có, rồi khẳng định
+              <code>aria-describedby</code> đổi theo — tức là test được
+              <em>chuyển trạng thái</em>, không chỉ trạng thái tĩnh.
+            </li>
+          </ol>
+
+          <h3>3.5 <code>HttpTestingController</code>: ba động tác</h3>
+
+          <div class="code">
+            <div class="code__file">bản rút gọn — hình dạng của mọi integration test</div>
+            <pre><code>// 1. kích hoạt việc gì đó gửi request
+store.load(criteria).subscribe();
+
+// 2. tìm request và trả lời nó
+const request = backend.expectOne({ method: 'GET', url: '/api/customers?page=1' });
+request.flush(aPage([aCustomer]));            // thành công
+// hoặc: request.flush(null, { status: 500, statusText: 'Server Error' });
+
+// 3. khẳng định kết quả, rồi kiểm là không còn request nào thừa
+expect(store.list().status).toBe('success');
+backend.verify();</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hàm</th>
+                  <th>Nó khẳng định điều gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>expectOne(...)</code></td>
+                  <td>
+                    Đúng <strong>một</strong> request khớp. Không có thì đổ; có hai thì cũng
+                    đổ — nên nó vừa là cách lấy request, vừa là lời khẳng định "không gửi
+                    trùng".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>flush(body, init?)</code></td>
+                  <td>
+                    Trả lời. Đây là nơi test điều khiển <em>thời điểm</em> phản hồi về — thứ
+                    bạn cần để dựng mọi tình huống đua ở bài 12 và 18.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>verify()</code></td>
+                  <td>
+                    "Không còn request nào chưa được trả lời." Bắt được loại lỗi khó thấy:
+                    một request thừa mà không ai để ý, hoặc một request được gửi lại khi lẽ
+                    ra phải dùng cache.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>request.cancelled</code></td>
+                  <td>
+                    Angular đã huỷ nó chưa. Đây là cách <em>duy nhất</em> khẳng định hành vi
+                    huỷ của <code>switchMap</code> (bài 12) và hành vi
+                    <em>không</em> huỷ của một lệnh ghi (bài 18) — mục 4.5.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.6 <code>RouterTestingHarness</code> và <code>provideLocationMocks()</code></h3>
+
+          <p>
+            Test một guard mà chỉ khẳng định hàm guard trả <code>true</code> hay
+            <code>false</code> thì bỏ sót phần quan trọng: nhiều guard xếp chồng nhau, và
+            điều người dùng thấy là kết quả của cả chuỗi. Nên repo chạy
+            <strong>router thật</strong>:
+          </p>
+
+          <ul>
+            <li>
+              <code>provideRouter(ROUTES)</code> với một bảng route
+              <em>mô phỏng hình dạng thật của ứng dụng</em>;
+            </li>
+            <li>
+              <code>provideLocationMocks()</code> thay lịch sử trình duyệt bằng bản trong bộ
+              nhớ — nếu không, điều hướng trong test sẽ đổi URL của chính trang đang chạy
+              test;
+            </li>
+            <li>
+              <code>RouterTestingHarness.create()</code> khi cần biết
+              <strong>cái gì đang hiện ra</strong>, không chỉ URL là gì.
+            </li>
+          </ul>
+
+          <h3>3.7 Playwright: fixture, project, và vì sao E2E đắt</h3>
+
+          <p>
+            Trong Playwright, <em>fixture</em> là một thứ được chuẩn bị trước mỗi test và
+            truyền vào qua tham số (<code>{ page, api }</code>). Khác với
+            <code>beforeEach</code>: nó có kiểu, nó tự dọn dẹp, và từng test
+            <em>chọn</em> cái nó cần. Mục 4.6 đọc file fixture của repo.
+          </p>
+
+          <p>
+            E2E đắt theo ba nghĩa: chậm (phải chạy trình duyệt thật), dễ flaky (mạng, thời
+            gian, animation), và khó chẩn đoán khi đổ. Đó là lý do kim tự tháp có hình kim tự
+            tháp — và vì sao số test E2E ở mục 6 không phải số lớn nhất, dù nó là tầng duy
+            nhất chứng minh ứng dụng thật sự chạy.
+          </p>
+
+          <h3>3.8 Coverage là sàn, không phải đích</h3>
+
+          <p>
+            Ngưỡng trong <code>angular.json</code> được đặt
+            <strong>ngay dưới</strong> con số hiện tại (81,5% thật / 80% ngưỡng). Cơ chế đó
+            tên là <em>ratchet</em>, bánh cóc:
+          </p>
+
+          <ul>
+            <li>thay đổi làm tụt coverage → build đổ, phải viết test;</li>
+            <li>thay đổi làm tăng → có thể nâng ngưỡng lên mức mới, và không bao giờ tụt lại.</li>
+          </ul>
+
+          <p>
+            So với mục tiêu "100% coverage": ratchet không khuyến khích viết test giả để lấp
+            số. Nó chỉ nói <em>"đừng làm tệ đi"</em>. Và nó là cùng một ý tưởng mà bài 24 sẽ
+            gặp lại với kích thước bundle.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 <code>provideTestHttp()</code> — lập luận trung tâm của cả bài</h3>
+
+          <p>
+            Nếu bạn chỉ mang một thứ từ bài này sang dự án của mình, hãy mang đoạn chú thích
+            dưới đây. Nó là câu trả lời cho câu hỏi "giả tới đâu thì vừa".
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/testing/http-testing.ts</div>
+            <pre><code>/**
+ * The application's real HTTP stack, with a fake transport underneath it.
+ *
+ * Test-only. Nothing in the application imports this file.
+ *
+ * The distinction matters: a test that used a bare `provideHttpClient()` would
+ * exercise a request path that does not exist in production - no correlation
+ * id, no CSRF header, and, most misleadingly, **no error mapping**, so a 403
+ * would arrive as an `HttpErrorResponse` and every assertion about error
+ * handling would be testing the test's own plumbing. Using the same providers
+ * the application boots with is what makes "a 403 becomes an authorization
+ * error" a fact about the application rather than about the spec.
+ */
+export function provideTestHttp(): (Provider | EnvironmentProviders)[] {
+  return [
+    { provide: Logger, useClass: SilentLogger },
+    provideAppHttp(),
+    // After `provideAppHttp()`: it replaces the backend while keeping the
+    // interceptor chain that was just configured.
+    provideHttpClientTesting(),
+  ];
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó làm gì, và vì sao đúng thứ tự đó</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>provideAppHttp()</code></td>
+                  <td>
+                    <strong>Chính</strong> hàm mà <code>app.config.ts</code> gọi: cả năm
+                    interceptor của bài 09, đúng thứ tự đó. Test chạy qua stack thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>provideHttpClientTesting()</code> đặt
+                    <strong>sau</strong>
+                  </td>
+                  <td>
+                    Comment nói rõ: nó thay <em>backend</em> mà
+                    <strong>giữ nguyên</strong> chuỗi interceptor vừa được cấu hình. Đảo thứ
+                    tự thì <code>provideAppHttp()</code> cài lại backend thật và test sẽ cố
+                    gọi mạng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>SilentLogger</code></td>
+                  <td>
+                    Interceptor error-mapping ghi log mọi thất bại. Một bộ test cố tình gây
+                    lỗi sẽ in ra một bức tường log và che mất dòng duy nhất có nghĩa. Nhưng
+                    nó <em>ghi lại</em> các entry, nên test nào cần vẫn khẳng định được đã
+                    log gì.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Câu then chốt là câu cuối chú thích:
+            <em
+              >"...is what makes 'a 403 becomes an authorization error' a fact about the
+              application rather than about the spec."</em
+            >
+            Với <code>provideHttpClient()</code> trần, bạn sẽ viết một test trông y hệt, nó
+            cũng xanh, nhưng nó đang khẳng định một điều về
+            <strong>cách bạn dựng test</strong>, không phải về ứng dụng. Đây là loại test tệ
+            nhất: nó tạo cảm giác an toàn mà không mua được gì.
+          </p>
+
+          <h3>4.2 <code>provideSignedInAs()</code> — thay cái dưới, không thay cái đang test</h3>
+
+          <p>Cùng một nguyên tắc, áp dụng cho phiên đăng nhập:</p>
+
+          <div class="code">
+            <div class="code__file">core/testing/session-testing.ts</div>
+            <pre><code>/**
+ * A signed-in session for component and store tests.
+ *
+ * Test-only. Nothing in the application imports this file.
+ *
+ * It replaces `SessionApi`, not `SessionService`: the service under every page
+ * is the real one, with its real permission checks, and only the transport
+ * underneath it is canned. A hand-written fake `SessionService` would let a
+ * test pass against permission logic that production does not have.
+ *
+ * The session is restored before the first component is created, so a page
+ * renders as it would for that user from the first frame.
+ *
+ * The user is one of the shared fixture users, so "manager" here is the same
+ * manager the mock API knows. Permissions are derived the way the server
+ * derives them, from the one matrix in `@ecm/contracts`.
+ */</code></pre>
+          </div>
+
+          <p>Ba quyết định, mỗi quyết định đóng một lỗ:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Lỗ mà nó đóng</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Thay <code>SessionApi</code>, giữ <code>SessionService</code> thật</td>
+                  <td>
+                    Một <code>SessionService</code> giả sẽ có logic phân quyền
+                    <em>do bạn viết trong file test</em>. Test xanh, mà bản thật sai — vì bạn
+                    đang kiểm tra bản giả.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Khôi phục phiên trong <code>provideEnvironmentInitializer</code>, trước
+                    component đầu tiên
+                  </td>
+                  <td>
+                    Nhớ bài 19: trạng thái <code>unknown</code> là có thật. Không khôi phục
+                    trước thì khung hình đầu tiên của trang là trạng thái "chưa biết" và test
+                    sẽ đi khẳng định một màn hình trung gian.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Người dùng lấy từ <em>fixture dùng chung</em>, quyền suy ra từ
+                    <em>cùng một ma trận</em> trong <code>@ecm/contracts</code>
+                  </td>
+                  <td>
+                    "manager" trong test là đúng cái manager mà mock API biết. Nếu test tự
+                    chế một danh sách quyền, nó sẽ trôi khỏi server mà không ai hay —
+                    đúng loại lệch pha mà bài 08 dựng contracts để chặn.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và một chi tiết thành thật nữa trong cùng chú thích:
+            <code>refresh()</code> của bản giả này
+            <strong>luôn thất bại</strong>, một cách tất định. Test nào cần một lần refresh
+            thành công thì phải điều khiển <code>SessionService</code> qua
+            <code>HttpTestingController</code>. Tức là helper này
+            <em>từ chối</em> phục vụ một tình huống mà nó không thể mô phỏng trung thực, thay
+            vì mô phỏng nửa vời.
+          </p>
+
+          <h3>4.3 Một component test, đọc từng dòng</h3>
+
+          <div class="code">
+            <div class="code__file">shared/ui/text-input/text-input.spec.ts</div>
+            <pre><code>@Component({
+  selector: 'app-text-input-host',
+  imports: [ReactiveFormsModule, TextInput],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    &lt;app-text-input
+      [formControl]="control"
+      [label]="label()"
+      [hint]="hint()"
+      [error]="error()"
+      [required]="required()"
+    /&gt;
+  `,
+})
+class TextInputHost {
+  readonly control = new FormControl('', { nonNullable: true });
+  readonly label = signal('Full name');
+  readonly hint = signal('');
+  readonly error = signal('');
+  readonly required = signal(false);
+}</code></pre>
+          </div>
+
+          <p>
+            Host dùng <code>signal</code> cho mọi input, nên test đổi được chúng giữa chừng.
+            Và nó khai <code>OnPush</code> — giống hệt code thật, nên không có chuyện test
+            xanh nhờ một chiến lược change detection dễ dãi hơn production.
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/text-input/text-input.spec.ts</div>
+            <pre><code>it('associates the label with the control', async () =&gt; {
+  const fixture = await render();
+  const root = fixture.nativeElement as HTMLElement;
+  const label = root.querySelector('label');
+
+  // Not "a label element exists" - the pair has to match, or clicking the
+  // label does nothing and a screen reader announces an unlabelled field.
+  expect(label?.getAttribute('for')).toBe(input(fixture).id);
+  expect(label?.textContent).toContain('Full name');
+});
+
+it('reports what the user types back to the form control', async () =&gt; {
+  const fixture = await render();
+  const element = input(fixture);
+
+  element.value = 'Ada';
+  element.dispatchEvent(new Event('input'));
+  ...</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Comment giải thích <em>cái sai mà nó chặn</em>, không phải dòng code</td>
+                  <td>
+                    Đây là một quy ước viết trong <code>docs/testing-strategy.md</code>:
+                    <em>"the comment says why the bug it prevents is worth preventing"</em>.
+                    So sánh hai cách viết: "kiểm tra thuộc tính for" (vô dụng) với "cặp này
+                    phải khớp, nếu không click vào nhãn không làm gì và screen reader đọc là
+                    một field không tên" (nói cho người đọc biết mất gì nếu xoá test).
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>expect(label.getAttribute('for')).toBe(input.id)</code>
+                  </td>
+                  <td>
+                    So <em>quan hệ</em>, không so giá trị cụ thể. Id là biến đếm sinh tự động
+                    (bài 22), nên khẳng định nó bằng <code>"app-input-0"</code> sẽ vỡ ngay khi
+                    có thêm một test khác chạy trước.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>element.value = 'Ada'</code> rồi
+                    <code>dispatchEvent(new Event('input'))</code>
+                  </td>
+                  <td>
+                    Mô phỏng <em>người dùng gõ</em>, chứ không gọi phương thức của component.
+                    Hai dòng này đi qua đúng đường mà một lần gõ thật đi qua: DOM → sự kiện →
+                    handler → <code>ControlValueAccessor</code> → <code>FormControl</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.4 Guard test qua router thật</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/guards.spec.ts</div>
+            <pre><code>/**
+ * The two guards, through a real router.
+ *
+ * The route table mirrors the application's shape - `authGuard` once on the
+ * parent, `requirePermission` on the pages that need more than reading - so
+ * what is proven is how they combine, not only what each returns.
+ */
+const ROUTES = [
+  { path: 'login', component: PageStub },
+  {
+    path: '',
+    canActivate: [authGuard],
+    children: [
+      { path: FORBIDDEN_PATH.slice(1), component: ForbiddenStub },
+      {
+        path: 'customers',
+        canActivate: [requirePermission('CUSTOMER_READ')],
+        children: [
+          { path: '', component: PageStub },
+          { path: 'new', canActivate: [requirePermission('CUSTOMER_CREATE')], component: PageStub },
+        ],
+      },
+    ],
+  },
+];</code></pre>
+          </div>
+
+          <p>
+            Bảng route này không phải bảng thật của ứng dụng — nó là một bản
+            <em>mô phỏng hình dạng</em> của bảng thật, với component rỗng. Đổi lại: test chạy
+            nhanh và không kéo theo cả feature, mà vẫn chứng minh được điều quan trọng là
+            <strong>các guard phối hợp với nhau thế nào</strong>. Rủi ro: bảng mô phỏng có thể
+            trôi khỏi bảng thật — và repo chấp nhận rủi ro đó một cách có ý thức, vì có
+            <code>app.routes.spec.ts</code> và các bộ E2E canh bảng thật.
+          </p>
+
+          <p>Ba test đáng đọc kỹ:</p>
+
+          <div class="code">
+            <div class="code__file">core/auth/guards.spec.ts</div>
+            <pre><code>it('sends a visitor with no session to sign in, keeping where they were going', async () =&gt; {
+  const router = configure([anonymous]);
+  await router.navigateByUrl('/customers/new?draft=1');
+  expect(router.url).toBe('/login?returnUrl=%2Fcustomers%2Fnew%3Fdraft%3D1');
+});
+
+it('waits for the session to be restored rather than assuming the worst', async () =&gt; {
+  // A reload: nothing is known until the server answers. The guard must
+  // ask, not treat "unknown" as "anonymous".
+  let asked = 0;
+  const router = configure([{ provide: SessionApi, useValue: {
+    current: () =&gt; { asked += 1; return of(sessionResponseFor('admin')); },
+  } }]);
+
+  await router.navigateByUrl('/customers/new');
+
+  expect(router.url).toBe('/customers/new');
+  // Three guards on the way down, one question to the server.
+  expect(asked).toBe(1);
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Khẳng định</th>
+                  <th>Nó canh điều gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>URL đích chứa <code>returnUrl</code> đã mã hoá, <em>kèm query string</em></td>
+                  <td>
+                    Bài 16: người dùng quay lại đúng chỗ họ định tới, không phải trang chủ.
+                    Chi tiết <code>?draft=1</code> trong test là cố ý — nó canh phần mã hoá
+                    mà một bản viết vội hay làm hỏng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>expect(asked).toBe(1)</code></td>
+                  <td>
+                    <strong>Đây là test yêu thích của tôi trong cả repo.</strong> Ba guard
+                    chạy trên đường đi xuống, nhưng server chỉ bị hỏi
+                    <em>một lần</em> — tức là cơ chế single-flight ở bài 19 đang làm việc. Một
+                    biến đếm, một dòng <code>expect</code>, và nó canh một thuộc tính mà
+                    coverage không bao giờ nhìn thấy.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và test cho thấy vì sao cần <code>RouterTestingHarness</code>:</p>
+
+          <div class="code">
+            <div class="code__file">core/auth/guards.spec.ts</div>
+            <pre><code>const harness = await RouterTestingHarness.create();
+await harness.navigateByUrl('/customers/new');
+
+// The address bar still shows the URL the user asked for - the router's
+// internal state is the forbidden page, the Location is not...
+expect(router.url).toBe(FORBIDDEN_PATH);
+expect(TestBed.inject(Location).path()).toBe('/customers/new');
+// ...and what is on screen is the refusal.
+expect(
+  (harness.routeNativeElement as HTMLElement).querySelector('[data-testid="forbidden"]'),
+).not.toBeNull();</code></pre>
+          </div>
+
+          <p>
+            Ba khẳng định cho <em>ba</em> thứ khác nhau mà người ta hay gộp làm một: trạng thái
+            trong của router, thanh địa chỉ, và cái đang hiện trên màn hình. Ở bài 16, hành vi
+            "hiện trang từ chối mà không đổi URL" là một quyết định có chủ ý; đây là chỗ nó
+            được canh. Không có harness thì khẳng định thứ ba không viết được.
+          </p>
+
+          <h3>4.5 "Người gọi bỏ đi" — một quy ước, ba test mẫu</h3>
+
+          <p><code>docs/testing-strategy.md</code> nâng điều này thành quy ước từ Phase 8:</p>
+
+          <div class="code">
+            <div class="code__file">docs/testing-strategy.md</div>
+            <pre><code>**Every store operation has a "caller went away" test** (Phase 8). Subscribe, then
+unsubscribe before the response: a read must be cancelled, a write must still
+complete and settle the store (ADR-0043), a file transfer must be cancelled.</code></pre>
+          </div>
+
+          <p>
+            Nhớ bài 07 và bài 18: Observable là <em>lạnh</em>, và huỷ subscribe là huỷ việc.
+            Với một lệnh đọc, đó là điều ta muốn. Với một lệnh <strong>ghi</strong> thì không
+            — người dùng bấm "Xoá" rồi đóng tab thì bản xoá đó vẫn phải hoàn tất. Test:
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-store.phase4.spec.ts</div>
+            <pre><code>describe('a write whose caller stopped listening', () =&gt; {
+  it('is not aborted, and still rolls back an optimistic change the server refuses', () =&gt; {
+    const release = showBoth();
+
+    store.changeStatus(customer.id, 'INACTIVE').subscribe().unsubscribe();
+
+    const write = backend.expectOne({ method: 'PATCH', url: `/api/customers/${customer.id}` });
+    expect(write.cancelled).toBe(false);
+    write.flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(shownStatus()).toEqual({ detail: 'ACTIVE', row: 'ACTIVE', cached: 'ACTIVE' });
+    expect(store.statusPending().size).toBe(0);
+    release();
+  });</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó nói gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>.subscribe().unsubscribe()</code></td>
+                  <td>
+                    Toàn bộ kịch bản gói trong một dòng: có người bắt đầu, rồi bỏ đi trước khi
+                    phản hồi về.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>expect(write.cancelled).toBe(false)</code></td>
+                  <td>
+                    Lệnh ghi <strong>không</strong> bị huỷ. Đây chính là ADR-0043 được viết
+                    thành một dòng khẳng định.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>shownStatus()</code> trả về <em>ba</em> chỗ
+                  </td>
+                  <td>
+                    Trang chi tiết, hàng trong bảng, và cache — cả ba phải cùng quay về
+                    <code>ACTIVE</code> sau khi server từ chối. Bài 18 nói optimistic update
+                    phải hoàn nguyên <em>ở mọi nơi nó đã hiện ra</em>; test đọc cả ba chỗ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>statusPending().size</code> về 0</td>
+                  <td>
+                    Store <em>ổn định lại</em>, không để lại một cờ "đang chạy" treo vĩnh
+                    viễn. Đây là loại rò rỉ trạng thái mà người dùng gặp dưới dạng "nút này
+                    quay mãi".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao quy ước này tồn tại</span>
+            <p>
+              Cũng trong <code>docs/testing-strategy.md</code>:
+              <em
+                >"669 tests (Phase 7) that all waited for the response let
+                docs/enterprise-review.md D1 live through six phases."</em
+              >
+            </p>
+            <p>
+              Dịch: toàn bộ bộ test, hàng trăm bài, đều viết theo cùng
+              <strong>một thói quen</strong> — chờ phản hồi rồi mới khẳng định. Thói quen đó
+              có một điểm mù chung, và một lỗi thật đã sống qua sáu phase trong điểm mù ấy.
+              Số lượng test không cứu được: tất cả đều mù theo cùng một hướng. Đây là lý lẽ
+              mạnh nhất tôi biết cho việc
+              <strong>đa dạng hoá cách test</strong>, chứ không chỉ tăng số lượng.
+            </p>
+          </div>
+
+          <h3>4.6 E2E: đăng nhập là một fixture, và một cái bẫy</h3>
+
+          <div class="code">
+            <div class="code__file">e2e/fixtures.ts</div>
+            <pre><code>/**
+ * ## Why signing in is a fixture
+ *
+ * Every customer endpoint on the mock API is behind authentication, so from
+ * Phase 2 onward a test that opens `/customers` without a session is testing
+ * the error state. Signing in through the API rather than through the form
+ * keeps that setup out of the assertions: the sign-in *form* is worth testing
+ * once, in the journey test, not thirty times as a preamble.
+ *
+ * A test that needs to start signed out opts out:
+ *
+ *     test.use({ signIn: false });
+ */</code></pre>
+          </div>
+
+          <p>
+            Nguyên tắc chuyển được sang mọi dự án: <strong>phần chuẩn bị không phải phần được
+            khẳng định</strong>. Đăng nhập qua form ba mươi lần làm mỗi test chậm hơn và làm
+            mọi test cùng đổ khi form đổi — dù chỉ một test trong số đó thật sự nói về form.
+          </p>
+
+          <p>Và cái bẫy, được ghi lại cẩn thận vì nó rất khó đoán:</p>
+
+          <div class="code">
+            <div class="code__file">e2e/fixtures.ts</div>
+            <pre><code>/**
+ * An API client that shares the browser's cookies.
+ *
+ * Playwright's own `request` fixture has its **own** cookie jar, so a test
+ * that signed the browser in and then called it would be talking to the
+ * server as a different, anonymous client - and would get a 401 that looks
+ * like an application bug. `context.request` is the one that shares.
+ */</code></pre>
+          </div>
+
+          <p>
+            Đây là loại kiến thức tốn nửa ngày để tự tìm ra: test đăng nhập xong, gọi API để
+            dựng dữ liệu, nhận 401, và bạn đi đọc code xác thực của ứng dụng — trong khi lỗi
+            nằm ở chỗ Playwright có <em>hai</em> client HTTP khác nhau. Việc ghi nó thành chú
+            thích ngay chỗ sửa là cách duy nhất để người sau không mất nửa ngày đó.
+          </p>
+
+          <h3>4.7 Dữ liệu test: ba tầng, mỗi tầng một nguồn</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Dữ liệu</th>
+                  <th>Tất định nhờ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>unit / integration</td>
+                  <td>
+                    <code>@ecm/contracts/testing</code>: <code>aCustomer</code>,
+                    <code>customersFrom(n)</code>, <code>aPage</code>…
+                  </td>
+                  <td>giá trị cố định; <code>customersFrom</code> suy mọi field từ chỉ số</td>
+                </tr>
+                <tr>
+                  <td>test của mock API</td>
+                  <td>kho đã gieo hạt (<code>MOCK_API_SEED</code>), 300 bản ghi mỗi server</td>
+                  <td>hạt giống</td>
+                </tr>
+                <tr>
+                  <td>E2E</td>
+                  <td>
+                    50 000 bản ghi đã gieo của mock API đang chạy;
+                    <code>anyCustomer(position)</code> cho mỗi test một bản ghi riêng
+                  </td>
+                  <td>hạt giống + vị trí riêng từng test</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Hai chi tiết đáng mang đi:</p>
+
+          <ul>
+            <li>
+              <strong>Mỗi test E2E lấy một bản ghi riêng</strong> theo vị trí. Nếu mọi test
+              cùng sửa khách hàng đầu tiên, chạy song song là hỏng — và đó là nguồn flaky kinh
+              điển.
+            </li>
+            <li>
+              <strong>Fixture cũng được test.</strong>
+              <code>packages/contracts/test/fixtures.spec.ts</code> kiểm rằng đầu ra của
+              <em>mọi</em> builder parse được qua đúng schema nó đại diện. Một fixture trôi
+              khỏi schema sẽ làm hàng loạt test xanh một cách sai.
+            </li>
+          </ul>
+
+          <p>
+            Và <code>@ecm/contracts/testing</code> bị
+            <code>lint/architecture.ts</code> <strong>từ chối</strong> nếu code sản phẩm
+            import nó — biên giới được cưỡng chế bằng máy, không bằng trí nhớ. Bài 24 sẽ đọc
+            chính script đó.
+          </p>
+
+          <h3>4.8 Cả công cụ lint cũng có test</h3>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.test.ts</div>
+            <pre><code>/**
+ * The architecture check, proven to have teeth: each rule is shown a
+ * violation it must report and a legitimate import it must not.
+ *
+ *     node --test lint/        (part of `npm test`)
+ */</code></pre>
+          </div>
+
+          <p>
+            <em>"a violation it must report and a legitimate import it must not"</em> — hai
+            chiều, luôn luôn. Một luật lint chỉ được kiểm bằng ca vi phạm có thể là một luật
+            báo động với <em>mọi thứ</em>, và sẽ bị tắt trong tuần đầu tiên. Repo có
+            <strong>16</strong> test cho các công cụ lint, chạy bằng
+            <code>node --test</code> (không phải Vitest — chúng là script Node thuần, không
+            cần một bộ chạy có DOM).
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Kim tự tháp, với số thật</h3>
+
+          <p>
+            Sơ đồ dưới đây lấy nguyên từ <code>docs/testing-strategy.md</code>, đo tại
+            <code>phase-7-complete</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">docs/testing-strategy.md</div>
+            <pre><code>                        ┌──────────────┐  14 visual (Docker image)
+                        │  visual      │
+                   ┌────┴──────────────┴────┐  7 production-build (+ 3 performance budgets)
+                   │  E2E  (Playwright)     │  215 Chromium = 139 functional + 76 accessibility
+                   │                        │  + Firefox/WebKit on 5 specs (48 tests each)
+              ┌────┴────────────────────────┴────┐
+              │  integration                     │  web: 22 files (component+store+HTTP: 9,
+              │                                  │       service+HTTP: 13) · mock API: 133 over HTTP
+         ┌────┴──────────────────────────────────┴────┐
+         │  component (TestBed)                        │  web: 14 files
+    ┌────┴─────────────────────────────────────────────┴────┐
+    │  unit                                                  │  web: 34 files · contracts: 44 · lint tools: 16
+    └────────────────────────────────────────────────────────┘</code></pre>
+          </div>
+
+          <p>
+            Để ý hai điều. <strong>Một</strong>: tầng E2E không hề mỏng — 215 test là nhiều,
+            vì 76 trong số đó là accessibility (bài 22), thứ chỉ có nghĩa trên DOM thật.
+            <strong>Hai</strong>: 133 test của mock API chạy
+            <em>qua một socket thật</em>, không gọi hàm trực tiếp — nên chúng cũng canh cả
+            phần định tuyến, middleware và serialize của server giả.
+          </p>
+
+          <h3>5.2 Một integration test diễn ra như thế nào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant T as Test
+    participant S as CustomerStore (thật)
+    participant I as 5 interceptor (THẬT)
+    participant B as HttpTestingController
+    participant A as Khẳng định
+
+    T-&gt;&gt;S: store.load(criteria).subscribe()
+    S-&gt;&gt;I: GET /api/customers?page=1
+    Note over I: correlationId · logging · authRefresh<br/>csrf · errorMapping — đúng chuỗi của production
+    I-&gt;&gt;B: request đi tới transport giả
+    Note over B: KHÔNG có gói tin nào rời khỏi tiến trình
+
+    T-&gt;&gt;B: expectOne(GET /api/customers?page=1)
+    Note over T,B: expectOne tự nó đã là một khẳng định:<br/>đúng MỘT request khớp
+    T-&gt;&gt;B: flush(aPage([aCustomer]))
+    B-&gt;&gt;I: phản hồi 200 đi NGƯỢC qua chuỗi interceptor
+    I-&gt;&gt;S: dữ liệu đã được map
+    S-&gt;&gt;A: signal đổi trạng thái sang success
+
+    T-&gt;&gt;A: expect(store.list().status).toBe('success')
+    T-&gt;&gt;B: verify() — không còn request nào chưa trả lời
+            </pre>
+            <figcaption>
+              Hộp <em>5 interceptor (THẬT)</em> là toàn bộ điểm của
+              <code>provideTestHttp()</code>. Bỏ nó đi — dùng
+              <code>provideHttpClient()</code> trần — thì mũi tên "phản hồi đi ngược qua chuỗi"
+              biến mất, và mọi khẳng định về lỗi, về correlation id, về CSRF đều trở thành
+              khẳng định về chính file test.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Coverage: ngưỡng bánh cóc, không phải mục tiêu 100%</h4>
+          <p>
+            Các con số tại <code>phase-7-complete</code>: web 81,5% (ngưỡng 80), mock API
+            89,9% (ngưỡng 88), contracts 99,2% (ngưỡng 95). Mỗi ngưỡng đặt ngay dưới số thật.
+            Phương án bị loại là một con số tròn áp cho cả repo — nó sẽ vừa quá dễ cho
+            <code>packages/contracts</code> vừa quá khó cho <code>technical-labs</code>, và
+            kết quả là người ta viết test lấp số.
+          </p>
+
+          <h4>Coverage thấp ở đâu, và vì sao chấp nhận</h4>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Khu vực</th>
+                  <th>Lines</th>
+                  <th>Lý do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>core/*</code></td>
+                  <td>86–100%</td>
+                  <td>hạ tầng — được test kỹ nhất</td>
+                </tr>
+                <tr>
+                  <td><code>customers</code></td>
+                  <td>88%</td>
+                  <td>chính là sản phẩm</td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui</code></td>
+                  <td>93%</td>
+                  <td>
+                    tooltip chỉ 56% — định vị là hình học của CDK overlay, mà jsdom
+                    <em>không có hình học</em>; E2E phủ phần đó
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>layout</code></td>
+                  <td>71%</td>
+                  <td>
+                    toast 41%, notification center 29%, confirmation host 24% — được lái qua
+                    service thật trong E2E, không phải trong jsdom
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>technical-labs</code></td>
+                  <td>38%</td>
+                  <td>
+                    mỗi lab là một trang bọc quanh một API của trình duyệt; phần
+                    <em>logic</em> quanh API có unit test, còn bản thân API chỉ test được
+                    trong trình duyệt thật
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Bảng này đáng học không phải vì các con số mà vì <strong>cột lý do</strong>. "29%"
+            không kèm giải thích là một lời thú nhận; "29%, vì nó được lái qua service thật
+            trong <code>keyboard.spec.ts</code> và một test jsdom sẽ chỉ đang test CDK
+            overlay" là một <em>quyết định</em>. Khác nhau hoàn toàn.
+          </p>
+
+          <h4>Visual regression chỉ chạy trong Docker</h4>
+          <p>
+            Ảnh chuẩn chỉ có giá trị trong <em>một</em> môi trường — font khác, phiên bản
+            trình duyệt khác là khác pixel. Nên config
+            <strong>từ chối chạy</strong> ngoài image mà CI dùng. Phương án bị loại là so ảnh
+            với ngưỡng sai số lớn, và nó hỏng theo kiểu tệ nhất: bỏ sót đúng những khác biệt
+            nhỏ mà bạn muốn bắt.
+          </p>
+          <p>
+            Và lần chạy <strong>đầu tiên</strong> của nó đã trả xong chi phí: nó tìm ra một
+            lỗi Phase 6 mà không gì khác bắt được — mục menu đang chọn hiện
+            <em>"¹3"</em> thay vì một dấu tích, do chuỗi escape CSS bị ghi vào file thành hai
+            ký tự chữ. Mọi test chức năng đều xanh; axe không quan tâm; chỉ có pixel là sai.
+            Đó chính xác là thứ mà chỉ visual regression bắt được.
+          </p>
+
+          <h4>Firefox và WebKit chỉ chạy 5 trên 16 spec</h4>
+          <p>
+            Lý do: các spec còn lại không đụng tới API đặc thù của engine, và chạy đủ ma trận
+            sẽ nhân ba thời gian CI. Năm spec được chọn là những cái
+            <em>nhạy với engine</em>: smoke, auth, CRUD, cross-tab, labs — tức là Web Locks,
+            <code>BroadcastChannel</code>, Permissions API, offline. Điều kiện xem lại cũng
+            được ghi: <em>"revisit if an engine bug escapes"</em>.
+          </p>
+
+          <h4>Không làm mutation testing</h4>
+          <p>
+            Lý do ghi trong "Known gaps", một câu:
+            <em>"Coverage says a line ran, not that a test would notice it changing."</em>
+            Tức là họ <strong>biết</strong> coverage không trả lời câu hỏi đó, và chọn không
+            mua công cụ trả lời nó. Thay vào đó là thói quen thủ công "kiểm xem test có răng"
+            ở những chỗ quan trọng — rẻ hơn, phủ ít hơn, và được nêu tên thay vì giấu đi.
+          </p>
+
+          <h4>Fake viết tay, không dùng thư viện mock</h4>
+          <p>
+            Quy ước:
+            <em
+              >"A hand-written double that states its contract beats a mock whose setup is
+              longer than the test."</em
+            >
+            Các bản giả trong repo đều có tên và có hợp đồng viết rõ:
+            <code>SilentLogger</code>, <code>FakeEventSource</code>,
+            <code>FakeBroadcastNetwork</code>, <code>MemorySnapshots</code>. Đánh đổi: phải tự
+            viết và tự bảo trì. Đổi lại: đọc một file test không cần biết DSL của một thư viện
+            mock nào cả.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>provideHttpClient()</code> trần trong test</span>
+            <p>
+              Cách phổ biến nhất trên mạng, và là cái bẫy tinh vi nhất ở đây. Test của bạn
+              chạy qua một đường request <em>không tồn tại trong production</em>: không
+              correlation id, không CSRF, và quan trọng nhất là
+              <strong>không có error mapping</strong>. Một 403 về tới nơi dưới dạng
+              <code>HttpErrorResponse</code> thay vì <code>AppError</code>, nên bạn viết test
+              khớp với hình dạng đó — và từ lúc ấy, mọi khẳng định về lỗi là khẳng định về
+              file test của bạn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Viết một <code>FakeSessionService</code></span>
+            <p>
+              Cùng một lỗi, ở một lớp khác. Logic phân quyền giờ nằm trong file test, do bạn
+              viết, và nó <em>đúng</em> — trong khi bản thật có thể sai. Nguyên tắc chung rút
+              ra từ cả hai: <strong>chỉ thay thế ở biên của hệ thống</strong> (transport,
+              đồng hồ, bộ nhớ, ngẫu nhiên), không thay thế thứ đang mang hành vi mà bạn muốn
+              khẳng định.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Gọi thẳng phương thức của component</span>
+            <p>
+              <code>component.handleInput({ target: { value: 'Ada' } } as any)</code> chạy
+              nhanh, dễ viết, và bỏ qua toàn bộ template. Nó vẫn xanh khi bạn gõ nhầm tên
+              binding, khi <code>(input)</code> bị xoá, khi component bị bỏ khỏi
+              <code>imports</code>. Người dùng gõ vào DOM, nên test cũng phải gõ vào DOM.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Quên <code>verify()</code></span>
+            <p>
+              Test xanh trong khi ứng dụng gửi thêm hai request thừa mỗi lần vẽ. Đây đúng là
+              loại lỗi mà bài 12 nói tới — cache không được dùng, hoặc một effect chạy lại
+              không cần thiết — và <code>verify()</code> là một dòng để bắt nó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Mọi test đều chờ phản hồi</span>
+            <p>
+              Không sai ở bất kỳ test đơn lẻ nào. Sai ở chỗ <em>toàn bộ</em> bộ test cùng chia
+              một điểm mù: không ai hỏi "nếu người gọi bỏ đi giữa chừng thì sao". Repo nói
+              thẳng hậu quả: 669 test đều chờ phản hồi, và một lỗi sống qua sáu phase. Bài
+              học là <strong>đa dạng hoá câu hỏi</strong>, không phải tăng số test.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Mọi test E2E sửa cùng một bản ghi</span>
+            <p>
+              Chạy tuần tự thì xanh. Bật chạy song song là đỏ ngẫu nhiên, và không ai tìm ra
+              vì sao. Repo tránh bằng <code>anyCustomer(position)</code>: mỗi test nhận một
+              bản ghi riêng, xác định bởi vị trí của nó trong tập đã gieo hạt.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Đăng nhập qua form trong mọi test</span>
+            <p>
+              Ba mươi test chậm hơn, và cả ba mươi cùng đỏ khi form đổi một nhãn — dù chỉ một
+              test trong đó nói về form. Chuẩn bị không phải là khẳng định.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. <code>setTimeout</code> trong test</span>
+            <p>
+              "Chờ 100ms rồi kiểm" xanh trên máy bạn và đỏ trên CI, nơi máy chậm hơn. Quy ước
+              của repo không có chỗ cho nó: <em>"Every test is deterministic. No wall-clock
+              dependence, no ordering dependence, no shared mutable state."</em> Khi nào thật
+              sự cần thời gian, hãy làm giả đồng hồ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. Snapshot toàn bộ markup</span>
+            <p>
+              Dễ viết, và đỏ ở mỗi lần đổi class CSS. Sau ba lần như vậy, cả team bấm "cập
+              nhật snapshot" theo phản xạ — và từ đó snapshot không còn canh gì nữa. Danh sách
+              "What not to test" của repo nói đúng điều đó:
+              <em>"Snapshots of markup that nobody reads when they break."</em> Thứ thay thế
+              là ảnh chụp <em>đã cắt gọn vào đúng component</em>, mà một con người nhìn được
+              và nói ngay là đúng hay sai.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">10. Khẳng định "đã gọi hàm X"</span>
+            <p>
+              <code>expect(spy).toHaveBeenCalledWith(...)</code> khoá chặt
+              <em>cách</em> làm chứ không khoá <em>kết quả</em>. Đổi tên một phương thức riêng
+              tư là đỏ, dù hành vi không đổi. Danh sách "What not to test" đặt nó ở dòng đầu:
+              <em>"Private methods, or that a method was called. Assert the outcome."</em>
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Ai canh chính bộ test?</h2>
+
+          <p>
+            Trong các bài khác, mục này hỏi "cái vừa học được test ở đâu". Ở bài này câu hỏi
+            tự quy chiếu, và nó là một câu hỏi thật: một bộ test sai thì
+            <em>không có gì</em> báo cho bạn. Repo trả lời bằng năm cơ chế.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cơ chế</th>
+                  <th>Nó canh điều gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>lint/architecture.test.ts</code>,
+                    <code>lint/secrets.test.ts</code> — 16 test
+                  </td>
+                  <td>
+                    Mỗi luật được cho xem <strong>một ca vi phạm nó phải báo</strong> và
+                    <strong>một import hợp lệ nó không được báo</strong>. Chiều thứ hai chặn
+                    một luật báo động với mọi thứ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts/test/fixtures.spec.ts</code></td>
+                  <td>
+                    Đầu ra của mọi builder fixture <em>parse được</em> qua đúng schema nó đại
+                    diện. Fixture trôi khỏi schema là nguồn của hàng loạt test xanh sai.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>coverageThresholds</code> trong <code>angular.json</code></td>
+                  <td>
+                    Một thay đổi xoá test, hoặc thêm code không test, làm build đỏ. Bốn ngưỡng
+                    riêng cho statements / branches / functions / lines.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>backend.verify()</code> ở cuối mỗi integration test</td>
+                  <td>
+                    Cổng ngay trong từng test: không còn request nào chưa được trả lời, tức là
+                    không có hành vi nào lọt qua mà không được khẳng định.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Thói quen "kiểm xem có răng"</td>
+                  <td>
+                    Gỡ bản sửa, xác nhận test đổ. Thủ công, không phủ hết, nhưng là thứ duy
+                    nhất trong danh sách này trả lời được câu hỏi
+                    <em>"test này có để ý không nếu code sai?"</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và cơ chế thứ sáu, không phải code: bảng <strong>"Known gaps"</strong> ở cuối
+            <code>docs/testing-strategy.md</code> — tám dòng, mỗi dòng ghi một chỗ bộ test
+            <em>không</em> phủ, vì sao hôm nay chấp nhận được, và ai chịu trách nhiệm. Một bộ
+            test biết chỗ mình mù thì đáng tin hơn một bộ test tự nhận là đầy đủ.
+          </p>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Tôi vừa viết một thứ. Test ở đâu?"}
+
+    S -->|"một hàm thuần · một mapper · một luật"| U["UNIT — Vitest<br/>cạnh source, không TestBed"]
+    U --> U2["khẳng định KẾT QUẢ<br/>đặt tên test theo lỗi mà nó chặn"]
+
+    S -->|"một component hiển thị"| C["COMPONENT — TestBed + host component"]
+    C --> C2["đi qua DOM: gán value, phát sự kiện<br/>đọc kết quả ở nơi người dùng đọc"]
+    C --> C3{"nó phụ thuộc hình học?<br/>overlay · cuộn · kích thước"}
+    C3 -->|"có"| E1["jsdom KHÔNG LÀM ĐƯỢC<br/>chuyển xuống E2E và ghi lý do"]
+
+    S -->|"store · service gọi HTTP"| I["INTEGRATION — provideTestHttp"]
+    I --> I2["expectOne · flush · verify<br/>chuỗi interceptor là chuỗi THẬT"]
+    I --> I3["thêm một test: người gọi bỏ đi giữa chừng<br/>đọc thì cancelled=true, ghi thì false"]
+
+    S -->|"một hành trình người dùng"| E["E2E — Playwright"]
+    E --> E2["đăng nhập qua fixture, không qua form<br/>mỗi test một bản ghi riêng"]
+    E --> E3["pattern tương tác mới: thêm một dòng vào keyboard.spec.ts"]
+    E --> E4["route mới: thêm một dòng vào accessibility.spec.ts"]
+
+    S -->|"một thứ chỉ sai về mặt NHÌN"| V["VISUAL — Docker, baseline cố định"]
+
+    S --> G["MỌI tầng: không setTimeout · không phụ thuộc thứ tự<br/>comment nói lỗi nào bị chặn, không nói dòng làm gì"]
+    G --> T["rồi gỡ bản sửa ra một lần<br/>xem test có thật sự đổ không"]
+            </pre>
+            <figcaption>
+              Nhánh <code>C3</code> là nhánh người ta hay bỏ qua: khi một component test
+              <em>không viết được</em> trong jsdom, câu trả lời đúng không phải là mock cho
+              bằng được hình học, mà là chuyển nó xuống E2E
+              <strong>và ghi lý do vào bảng coverage</strong>. Dòng cuối —
+              <em>kiểm xem có răng</em> — áp cho mọi nhánh.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Chạy cả bộ và đọc những con số thật</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                <code>npm run test</code>. Ghi lại: bao nhiêu test, bao lâu, và có cảnh báo gì
+                không.
+              </li>
+              <li>
+                <code>npm run test:coverage</code>. So các con số thật với bảng ở mục 6 (đo
+                tại <code>phase-7-complete</code>, trong khi repo đang ở phase 8).
+                <strong>Chúng có khác không?</strong> Khác theo chiều nào?
+              </li>
+              <li>
+                Mở báo cáo coverage, tìm <em>file</em> có coverage thấp nhất trong
+                <code>src/app</code>. Mở file đó ra. Bạn có đồng ý rằng nó
+                <em>nên</em> thấp không?
+              </li>
+              <li>
+                <code>npx playwright test --list</code> để xem danh sách test E2E mà không
+                chạy. Đếm xem bao nhiêu test thuộc <code>accessibility.spec.ts</code>.
+              </li>
+              <li>
+                Chạy <code>npm run e2e</code> một lần. Nếu đổ, đừng sửa — hãy ghi lại nó đổ ở
+                đâu và vì sao (đây là một bài đọc, không phải một bài sửa).
+              </li>
+            </ol>
+            <details>
+              <summary>Cái bạn đang luyện</summary>
+              <p>
+                Thói quen <strong>không tin số trong tài liệu</strong>. Tài liệu ghi số tại
+                một thời điểm; repo đã đi tiếp. Mọi con số trong các bài học này, kể cả của
+                tôi, đều nên được bạn kiểm lại bằng một lệnh.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá <code>provideTestHttp()</code> và xem test nói dối thế nào</h3>
+            <p class="task__meta">~40 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Bài này để bạn <em>thấy</em> cái bẫy ở mục 7 điểm 1, chứ không chỉ đọc về nó.
+            </p>
+            <ol>
+              <li>
+                Chọn một spec có dùng <code>provideTestHttp()</code> và có khẳng định về lỗi —
+                <code>customer-store.spec.ts</code> là một lựa chọn tốt.
+              </li>
+              <li>
+                Thay <code>provideTestHttp()</code> bằng
+                <code>[provideHttpClient(), provideHttpClientTesting()]</code>.
+              </li>
+              <li>
+                Chạy spec đó. <strong>Test nào đổ?</strong> Đọc kỹ thông báo: hình dạng lỗi
+                thực nhận là gì?
+              </li>
+              <li>
+                Giờ làm điều mà một người đang vội sẽ làm: <em>sửa test cho khớp</em> với hình
+                dạng mới. Test xanh lại.
+              </li>
+              <li>
+                Dừng lại và trả lời: bộ test vừa xanh đó còn khẳng định được điều gì về ứng
+                dụng?
+              </li>
+              <li>Hoàn nguyên cả hai thay đổi.</li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 4 là bước quan trọng nhất</summary>
+              <p>
+                Vì đó là điều thật sự xảy ra trong một dự án có deadline. Không ai cố tình
+                viết test sai; người ta sửa test cho nó xanh. Sau bước 4, bạn có một bộ test
+                xanh, đầy đủ, mô tả chính xác một hệ thống
+                <strong>không tồn tại</strong> — và không có cách nào biết điều đó từ bên trong
+                file test. Đó là lý do chú thích trong
+                <code>http-testing.ts</code> được viết dài như vậy.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Viết một test mới, theo quy ước của repo</h3>
+            <p class="task__meta">~45 phút · viết code</p>
+            <p>
+              Bảng "Known gaps" ghi một lỗ còn mở:
+              <em>"'Caller went away' tests cover writes only (D1)... reads and transfers are
+              older code"</em> (debt row 38). Bạn sẽ lấp một phần nhỏ của nó.
+            </p>
+            <ol>
+              <li>
+                Mở <code>customers/state/customer-store.phase4.spec.ts</code> và đọc kỹ ba test
+                trong <code>describe('a write whose caller stopped listening')</code>.
+              </li>
+              <li>
+                Viết một test mới cho một lệnh <strong>đọc</strong>: subscribe rồi unsubscribe
+                trước khi phản hồi về. Khẳng định <code>request.cancelled</code> là
+                <strong><code>true</code></strong> — ngược với lệnh ghi.
+              </li>
+              <li>
+                Khẳng định thêm: store <em>không</em> bị kẹt ở trạng thái loading sau đó.
+              </li>
+              <li>
+                Kiểm xem test của bạn có răng: làm cho nó
+                <em>đáng lẽ phải đổ</em> (ví dụ tạm đổi khẳng định thành
+                <code>toBe(false)</code>) và xác nhận nó đổ với một thông báo đọc được.
+              </li>
+              <li>
+                Viết comment theo quy ước: nói <em>lỗi nào bị chặn</em>, không nói dòng code
+                làm gì.
+              </li>
+              <li>Chạy <code>npm run test</code> và <code>npm run lint</code>.</li>
+            </ol>
+            <details>
+              <summary>Gợi ý nếu bạn kẹt</summary>
+              <p>
+                Khác biệt giữa đọc và ghi đến từ bài 12 và bài 18:
+                <code>switchMap</code> trong một luồng đọc huỷ request cũ khi không còn ai
+                nghe, còn một lệnh ghi được tách khỏi vòng đời người gọi một cách có chủ ý
+                (ADR-0043). Nếu test của bạn ra kết quả ngược với dự đoán,
+                <strong>đọc lại code trước khi sửa test</strong> — có thể bạn vừa tìm ra một
+                điều thật.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao <code>provideTestHttp()</code> gọi <code>provideAppHttp()</code> chứ không <code>provideHttpClient()</code>?</summary>
+            <p>
+              Để test chạy qua <em>chuỗi interceptor thật</em> của ứng dụng. Thiếu nó thì không
+              có correlation id, không có CSRF, và không có error mapping — nên một 403 về dưới
+              dạng <code>HttpErrorResponse</code>, và mọi khẳng định về xử lý lỗi trở thành
+              khẳng định về cách dựng test.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao thay <code>SessionApi</code> mà không thay <code>SessionService</code>?</summary>
+            <p>
+              Vì logic phân quyền nằm trong <code>SessionService</code>. Thay nó bằng bản giả
+              là đem logic đó vào file test, nơi nó luôn đúng — trong khi bản thật có thể sai.
+              Chỉ thay ở <em>biên</em>: transport, đồng hồ, bộ nhớ, ngẫu nhiên.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Host component cho bạn ba thứ gì mà <code>setInput</code> không cho?</summary>
+            <p>
+              Template binding thật (sai tên binding là đổ); tích hợp thật với
+              <code>FormControl</code> qua <code>ControlValueAccessor</code>; và khả năng
+              <em>đổi</em> input giữa chừng để test chuyển trạng thái, không chỉ trạng thái
+              tĩnh.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. <code>expectOne</code> khẳng định mấy điều?</summary>
+            <p>
+              Hai: có một request khớp, và <strong>không có request thứ hai</strong>. Nên nó
+              vừa là cách lấy request vừa là lời khẳng định "không gửi trùng" — hữu dụng khi
+              canh cache ở bài 12.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Một lệnh đọc và một lệnh ghi khác nhau thế nào khi người gọi bỏ đi?</summary>
+            <p>
+              Đọc <strong>phải</strong> bị huỷ (<code>cancelled === true</code>): không ai cần
+              kết quả nữa. Ghi <strong>không được</strong> huỷ
+              (<code>cancelled === false</code>): hành động đã được yêu cầu, và store vẫn phải
+              ổn định lại — kể cả hoàn nguyên một optimistic update mà server từ chối.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao 669 test cùng xanh mà vẫn để lọt một lỗi suốt sáu phase?</summary>
+            <p>
+              Vì tất cả cùng được viết theo một thói quen: chờ phản hồi rồi mới khẳng định.
+              Thói quen đó có một điểm mù, và số lượng không cứu được — tất cả đều mù theo cùng
+              một hướng. Thuốc chữa là thêm một <em>loại câu hỏi</em> mới, không phải thêm test
+              cùng loại.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao jsdom không phủ được tooltip, overlay và cuộn?</summary>
+            <p>
+              Vì jsdom không có layout engine: không kích thước thật, không hình học, không
+              cuộn, không vẽ. Thứ phụ thuộc hình học phải xuống E2E — và repo ghi con số thấp
+              đó kèm lý do thay vì che bằng mock.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. "Ratchet" khác "mục tiêu 100%" ở chỗ nào?</summary>
+            <p>
+              Ratchet đặt ngưỡng ngay dưới mức hiện tại và chỉ cho đi lên: nó nói
+              <em>"đừng làm tệ đi"</em>. Mục tiêu 100% nói <em>"phải đạt con số này"</em>, và
+              phần thưởng cho việc đạt nó bằng test giả cũng hệt phần thưởng cho việc đạt nó
+              bằng test thật.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Visual regression bắt được loại lỗi nào mà không gì khác bắt được?</summary>
+            <p>
+              Lỗi chỉ sai về mặt nhìn. Ví dụ thật của repo: mục menu đang chọn hiện
+              <em>"¹3"</em> thay vì dấu tích, vì một chuỗi escape CSS bị ghi thành hai ký tự
+              chữ. Mọi test chức năng xanh, axe không quan tâm, chỉ pixel là sai.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài này đã nhắc tới <code>lint/architecture.ts</code> ba lần mà chưa mở nó ra.
+              Bài 24 — bài cuối của chặng 4 — là về lớp cuối cùng:
+              <strong>biên kiến trúc được cưỡng chế bằng máy</strong>, ngân sách bundle theo
+              kiểu bánh cóc, một lệnh <code>npm run verify</code> chạy mọi cổng, và CI ghép tất
+              cả lại. Sau nó là <strong>Mốc 4</strong>.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="22-accessibility.html">← Bài 22</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Ai canh bộ test</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

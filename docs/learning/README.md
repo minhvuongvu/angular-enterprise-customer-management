@@ -128,8 +128,8 @@ performance và bundle budget · browser API & Web Worker · observability (log,
 correlation id, redaction) · mock backend & fault injection · notification &
 confirmation dialog
 
-◆ = bài có máy trạng thái thật, nên có State Machine Diagram. Chín bài. Các bài
-còn lại không vẽ, vì vẽ ra sẽ là sơ đồ rỗng.
+Mười một brief. ◆ = brief có máy trạng thái thật, nên có State Machine Diagram
+(năm trong số đó). Các brief còn lại không vẽ, vì vẽ ra sẽ là sơ đồ rỗng.
 
 ## 6. Nhịp
 

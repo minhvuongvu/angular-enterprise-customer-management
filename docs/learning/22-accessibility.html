@@ -1,0 +1,2608 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 22 — Accessibility: hợp đồng với một client khác</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 22
+        </p>
+        <h1>Accessibility: hợp đồng với một client khác</h1>
+        <p class="lede">
+          Cùng một đoạn HTML phục vụ <strong>hai client</strong>: màn hình, và cây
+          accessibility mà screen reader đọc. Client thứ hai là một bề mặt API thật, có
+          schema, có thể sai, và có thể test được. Bài này về cách repo biến nó từ một đợt
+          rà soát cuối dự án thành một cổng chạy trên mọi route, trong cả hai theme.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · hướng tới Mốc 4</li>
+          <li class="tag">~2,5 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <p>
+            Bài này có nhiều từ mới hơn mọi bài trước, vì đây là lĩnh vực duy nhất trong
+            repo mà bạn gần như chắc chắn chưa gặp ở phía backend. Đọc bảng này một lượt,
+            không cần nhớ — các mục sau sẽ dùng lại từng từ.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Accessibility</strong> (<strong>a11y</strong>)</td>
+                  <td>
+                    Khả năng dùng được ứng dụng bằng bàn phím, bằng screen reader, bằng màn
+                    hình phóng to, trên điện thoại, hoặc với yêu cầu ít chuyển động. Viết
+                    tắt <code>a11y</code> theo cùng kiểu <code>i18n</code>: 11 chữ giữa a
+                    và y.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Accessibility tree</strong></td>
+                  <td>
+                    Cây mà <em>trình duyệt</em> tự sinh ra từ DOM, song song với cây render.
+                    Mỗi nút trong cây này có <em>role</em>, <em>name</em>, <em>state</em>.
+                    Screen reader đọc cây này, <strong>không</strong> đọc DOM, và không nhìn
+                    thấy CSS của bạn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Role</strong></td>
+                  <td>
+                    "Đây là cái gì": <code>button</code>, <code>dialog</code>,
+                    <code>checkbox</code>, <code>table</code>, <code>columnheader</code>.
+                    Thẻ HTML đúng nghĩa đã mang role sẵn — <code>&lt;button&gt;</code> có
+                    role <code>button</code> mà không cần khai gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Accessible name</strong></td>
+                  <td>
+                    "Nó tên gì": chuỗi mà screen reader đọc lên khi focus tới. Đến từ
+                    <code>&lt;label for&gt;</code>, từ nội dung bên trong thẻ, hoặc từ
+                    <code>aria-label</code>. Một nút không có name thì được đọc là "button"
+                    — vô nghĩa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>State</strong></td>
+                  <td>
+                    "Nó đang thế nào": <code>aria-checked</code>,
+                    <code>aria-expanded</code>, <code>aria-invalid</code>,
+                    <code>aria-current</code>, <code>aria-sort</code>,
+                    <code>aria-busy</code>. Đây là phần mà CSS thể hiện bằng màu, còn cây
+                    accessibility phải thể hiện bằng chữ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Landmark</strong></td>
+                  <td>
+                    Vùng lớn có tên, để nhảy nhanh giữa các vùng: <code>banner</code>
+                    (header), <code>navigation</code>, <code>main</code>,
+                    <code>region</code>. Người dùng screen reader nhảy theo landmark giống
+                    như bạn nhảy theo heading trong một file dài.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>ARIA</strong> / <code>aria-*</code></td>
+                  <td>
+                    <em>Accessible Rich Internet Applications</em> — bộ thuộc tính để
+                    <strong>nói</strong> với cây accessibility những điều HTML không nói
+                    được. Lưu ý quan trọng ở mục 2: nó chỉ nói, không làm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Live region</strong></td>
+                  <td>
+                    Một vùng mà screen reader <em>theo dõi</em>: nội dung mới xuất hiện ở đó
+                    sẽ được đọc lên dù focus đang ở chỗ khác. Đây là cách duy nhất để thông
+                    báo một việc xảy ra do hệ thống, không do người dùng bấm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>aria-live="polite"</code> vs <code>aria-live="assertive"</code>
+                  </td>
+                  <td>
+                    <em>polite</em>: chờ screen reader đọc xong câu hiện tại rồi mới đọc.
+                    <em>assertive</em>: cắt ngang ngay. Dùng assertive cho thất bại, polite
+                    cho mọi thứ khác. Lạm dụng assertive làm ứng dụng không thể nghe nổi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>role="status"</code> / <code>role="alert"</code></td>
+                  <td>
+                    Hai role đã mang sẵn <code>aria-live</code> tương ứng polite và
+                    assertive. Repo này viết <em>cả hai</em> trên cùng một thẻ — xem mục 4.7
+                    để biết vì sao.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Focus</strong>, <strong>tab order</strong></td>
+                  <td>
+                    Focus là "con trỏ bàn phím": phần tử đang nhận gõ và nhận Enter. Tab
+                    order là thứ tự Tab đi qua — theo <strong>thứ tự DOM</strong>, không
+                    theo vị trí trên màn hình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>:focus-visible</code></td>
+                  <td>
+                    Bộ chọn CSS khớp khi phần tử có focus <em>và</em> trình duyệt cho rằng
+                    nên hiện vòng focus (tức là người dùng đang dùng bàn phím, không phải
+                    vừa click chuột). Nhờ nó, "vòng focus xấu khi click" không còn là lý do
+                    để tắt vòng focus.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>tabindex="-1"</code></td>
+                  <td>
+                    "Focus được <strong>bằng script</strong>, nhưng không bao giờ là một
+                    chặng Tab." Dùng cho <code>&lt;h1&gt;</code> và
+                    <code>&lt;main&gt;</code> — chỗ ta muốn <em>đưa</em> focus tới, nhưng
+                    không muốn người dùng phải Tab qua. Ngược lại,
+                    <code>tabindex="0"</code> đưa một phần tử vào tab order.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Focus trap</strong></td>
+                  <td>
+                    Giữ focus bên trong một vùng (dialog) khi vùng đó đang mở — Tab từ phần
+                    tử cuối quay về phần tử đầu. Không có nó, Tab lọt ra sau tấm scrim và
+                    người dùng bàn phím bấm vào những thứ họ không thấy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Skip link</strong></td>
+                  <td>
+                    Liên kết đầu tiên trong tab order, thường ẩn tới khi được focus, nhảy
+                    thẳng vào nội dung. Không có nó, người dùng bàn phím phải đi lại toàn bộ
+                    thanh điều hướng ở <em>mỗi</em> trang.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Screen reader</strong></td>
+                  <td>
+                    Phần mềm đọc cây accessibility thành tiếng. Phổ biến: NVDA và JAWS
+                    (Windows), VoiceOver (macOS/iOS), TalkBack (Android).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>WCAG 2.2</strong>, mức <strong>A / AA / AAA</strong></td>
+                  <td>
+                    Bộ tiêu chuẩn accessibility của W3C. A là tối thiểu, AA là mức mà hầu
+                    hết hợp đồng và luật (EU Accessibility Act, Section 508) viện tới, AAA
+                    là mức rất khó đạt toàn phần. Repo này nhắm <strong>AA</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Contrast ratio</strong></td>
+                  <td>
+                    Tỉ số tương phản giữa màu chữ và màu nền, từ 1:1 (vô hình) tới 21:1 (đen
+                    trên trắng). WCAG AA cần <strong>4,5:1</strong> cho chữ thường. Nó là
+                    thuộc tính của một <em>cặp</em> màu — nên phải đo trong <em>từng</em>
+                    theme.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>axe</strong></td>
+                  <td>
+                    Thư viện quét accessibility tự động của Deque, chạy trong trình duyệt
+                    trên DOM thật. Mỗi phát hiện có mức <code>critical</code>,
+                    <code>serious</code>, <code>moderate</code>, <code>minor</code>. Nó bắt
+                    khoảng <strong>một phần ba</strong> vấn đề thật — con số này quyết định
+                    toàn bộ cách repo tổ chức việc kiểm tra.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>.visually-hidden</code></td>
+                  <td>
+                    Lớp CSS làm chữ <em>vô hình trên màn hình nhưng vẫn ở trong cây
+                    accessibility</em>. Dùng cho chú thích bảng, cho nhãn mà bố cục không có
+                    chỗ hiện. Không phải <code>display: none</code> — xem mục 4.9.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Modal</strong> / <strong>modality</strong></td>
+                  <td>
+                    Một lớp nội dung chặn mọi thứ phía sau nó. Với accessibility, "modal" là
+                    một hợp đồng bốn điều, không phải một hiệu ứng hình ảnh — mục 3.7.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>prefers-reduced-motion</code></td>
+                  <td>
+                    Media query cho biết người dùng đã bật "giảm chuyển động" ở mức hệ điều
+                    hành. Với một số người, chuyển động lớn gây chóng mặt và buồn nôn thật
+                    sự, không phải bất tiện thẩm mỹ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>inert</code></td>
+                  <td>
+                    Thuộc tính HTML làm một nhánh DOM "trơ": không nhận focus, không nhận
+                    click, bị gỡ khỏi cây accessibility. Repo <em>chưa</em> dùng; mục 6 nói
+                    vì sao và đánh đổi là gì.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Giải thích được <em>accessibility tree</em> là gì, và vì sao thẻ HTML đúng
+              nghĩa cho bạn role và name miễn phí.
+            </li>
+            <li>
+              Nói được ba nguồn của <em>accessible name</em>, và vì sao
+              <code>aria-label</code> là thứ nguy hiểm nhất trong ba nguồn đó.
+            </li>
+            <li>
+              Nối một field với lỗi của nó đúng cách: <code>aria-invalid</code>,
+              <code>aria-describedby</code> trỏ tới <em>id có tồn tại</em>, và
+              <code>role="alert"</code> để lỗi được đọc lên khi nó xuất hiện.
+            </li>
+            <li>
+              Kể được <strong>ba chỗ</strong> mà một SPA làm focus đi sai, và cách repo xử
+              lý từng chỗ (ADR-0037).
+            </li>
+            <li>
+              Phát biểu hợp đồng bốn điều của một dialog modal, và chỉ ra ai chịu trách
+              nhiệm từng điều trong <code>dialog.ts</code>.
+            </li>
+            <li>
+              Đọc được chiến lược kiểm tra: vì sao axe là một cổng chặn
+              <code>critical</code>/<code>serious</code> chứ không chặn tất cả, và vì sao bộ
+              test bàn phím <em>không có một lệnh <code>click()</code> nào</em>.
+            </li>
+            <li>
+              Tự kiểm tra một màn hình bạn mới viết, bằng bàn phím, trong mười phút.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>
+            Phép so sánh dùng được: <strong>mỗi trang của bạn phục vụ hai client.</strong>
+            Client thứ nhất là con mắt, nhận HTML đã được CSS vẽ ra. Client thứ hai là cây
+            accessibility, nhận một cấu trúc dữ liệu gồm role, name và state — và screen
+            reader, phần mềm điều khiển bằng giọng nói, thiết bị switch đều là consumer của
+            client thứ hai đó.
+          </p>
+
+          <p>
+            Nhìn thế thì accessibility không phải "làm tử tế thêm". Nó là
+            <strong>một response contract thứ hai</strong> mà cùng một đoạn template phải
+            trả đúng. Và vì là contract, nó có schema, nó sai được, và nó test được.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Response contract của API</td>
+                  <td>Cây accessibility của trang</td>
+                </tr>
+                <tr>
+                  <td>Schema: field nào, kiểu gì, bắt buộc không</td>
+                  <td>
+                    <em>role</em> (đây là cái gì), <em>name</em> (tên gì), <em>state</em>
+                    (đang thế nào)
+                  </td>
+                </tr>
+                <tr>
+                  <td>Dùng DTO và serializer có sẵn của framework</td>
+                  <td>
+                    Dùng thẻ HTML đúng nghĩa: <code>&lt;button&gt;</code>,
+                    <code>&lt;table&gt;</code>, <code>&lt;label for&gt;</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tự tay nối chuỗi JSON</td>
+                  <td>Tự tay viết <code>role="button"</code> và <code>aria-*</code></td>
+                </tr>
+                <tr>
+                  <td>Integration test gọi API thật</td>
+                  <td>
+                    axe quét DOM thật (<code>e2e/accessibility.spec.ts</code>) + hành trình
+                    bàn phím (<code>e2e/keyboard.spec.ts</code>)
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hai client (web, mobile) dùng cùng một API</td>
+                  <td>Hai client (mắt, screen reader) dùng cùng một template</td>
+                </tr>
+                <tr>
+                  <td>Contract test trong CI</td>
+                  <td>
+                    <code>templateAccessibility</code> của angular-eslint +
+                    <code>lint/styles.ts</code>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai — ba điểm, và cả ba đều đắt</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — ARIA chỉ <em>nói</em>, không <em>làm</em></span>
+            <p>
+              Ở backend, thêm một field vào schema thường đi kèm thêm hành vi. ARIA không
+              như vậy. <code>&lt;div role="button"&gt;</code> được <em>đọc</em> là một
+              button, nhưng nó:
+            </p>
+            <ul>
+              <li>không vào tab order (phải tự thêm <code>tabindex="0"</code>),</li>
+              <li>không phản ứng với Enter và Space (phải tự thêm handler),</li>
+              <li>không có trạng thái <code>:disabled</code>,</li>
+              <li>không nằm trong form submit.</li>
+            </ul>
+            <p>
+              Nên quy tắc số một của ARIA là <strong>đừng dùng ARIA</strong>: dùng
+              <code>&lt;button&gt;</code>. Repo cưỡng chế điều này —
+              <code>templateAccessibility</code> từ chối một <code>&lt;div&gt;</code> có
+              handler <code>(click)</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — ARIA sai tệ hơn không có ARIA</span>
+            <p>
+              Một field thiếu trong response thì client báo lỗi. Một
+              <code>aria-label</code> sai thì <em>không ai báo gì</em> — nó chỉ âm thầm
+              <strong>đè lên</strong> nội dung thật. Nút này:
+            </p>
+            <div class="code">
+              <div class="code__file">ví dụ sai — không có trong repo</div>
+              <pre><code>&lt;button aria-label="Save"&gt;Xoá khách hàng&lt;/button&gt;</code></pre>
+            </div>
+            <p>
+              hiện chữ "Xoá khách hàng" trên màn hình và được screen reader đọc là
+              <em>"Save, button"</em>. Hai client nhận hai câu trả lời khác nhau từ cùng một
+              thẻ. Và có một lỗi tương tự còn im lặng hơn: <code>aria-describedby</code> trỏ
+              tới một <code>id</code> không tồn tại khiến một số screen reader
+              <strong>không đọc gì cả</strong> cho cả field — mục 3.3.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — không có "đã audit xong"</span>
+            <p>
+              Một API có số endpoint hữu hạn; quét hết là xong. Một UI thì mỗi
+              <em>trạng thái</em> là một bề mặt mới: dialog đang mở, menu đang mở, form đang
+              hiện lỗi, drawer đang mở trên điện thoại, theme tối. Một dialog chưa bao giờ
+              được mở trong lúc quét là một dialog chưa bao giờ được quét.
+            </p>
+            <p>
+              Đó chính là lý do <code>e2e/accessibility.spec.ts</code> có một nhóm test tên
+              là <em>"states that exist only after an interaction"</em>, và vì sao nó nhân
+              toàn bộ danh sách route lên <strong>hai lần</strong> cho hai theme.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Một DOM, hai cây</h3>
+
+          <p>Khi trình duyệt dựng trang, nó tạo ra hai thứ từ cùng một DOM:</p>
+
+          <ul>
+            <li>
+              <strong>cây render</strong> — ai nằm ở đâu, màu gì, to bao nhiêu. CSS tham gia
+              ở đây.
+            </li>
+            <li>
+              <strong>cây accessibility</strong> — mỗi nút là một
+              <em>(role, name, state)</em>. CSS gần như không tham gia, trừ hai ngoại lệ
+              quan trọng: <code>display: none</code> và <code>visibility: hidden</code>
+              <em>gỡ</em> nút khỏi cây này.
+            </li>
+          </ul>
+
+          <p>Hai hệ quả bạn nên nhớ suốt bài:</p>
+
+          <ol>
+            <li>
+              <strong>Thứ tự trên màn hình không phải thứ tự Tab.</strong> Tab đi theo DOM.
+              Một <code>order: -1</code> trong flexbox chuyển một nút ra trước mắt nhưng
+              không chuyển nó ra trước trong tab order — nên nó sẽ được <em>nhìn thấy</em>
+              đầu tiên mà <em>đến</em> cuối cùng.
+            </li>
+            <li>
+              <strong>Màu không phải thông tin.</strong> Trong cây accessibility không có
+              màu. Badge trạng thái màu đỏ chỉ được đọc là chữ nằm trong nó — nên chữ phải
+              tự nói đủ (repo ghi rõ điều này: màu của badge là <em>dư thừa có chủ ý</em>).
+            </li>
+          </ol>
+
+          <h3>3.2 Accessible name đến từ đâu</h3>
+
+          <p>
+            Trình duyệt tính <em>accessible name</em> theo một thứ tự ưu tiên. Bản rút gọn,
+            đủ cho mọi việc trong repo này:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ưu tiên</th>
+                  <th>Nguồn</th>
+                  <th>Khi nào dùng</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td><code>aria-labelledby="id-khac"</code></td>
+                  <td>
+                    Khi tên <em>đã hiện trên màn hình</em> ở một thẻ khác. Dialog dùng cách
+                    này: tên nó là chính cái <code>&lt;h2&gt;</code> của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><code>aria-label="..."</code></td>
+                  <td>
+                    Khi <strong>không có</strong> chữ nào để trỏ tới — nút chỉ có icon, một
+                    vùng cần tên. Mạnh nhất nên nguy hiểm nhất: nó đè nội dung.
+                  </td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>&lt;label for="id-input"&gt;</code></td>
+                  <td>
+                    <strong>Mặc định cho mọi field.</strong> Lợi thêm: click vào nhãn cũng
+                    focus vào field, và vùng bấm to ra — lợi cho cả người dùng chuột.
+                  </td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td>Nội dung bên trong thẻ</td>
+                  <td>
+                    Mặc định cho button và link.
+                    <code>&lt;button&gt;Lưu&lt;/button&gt;</code> đã có name — không cần gì
+                    thêm.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label"
+              >Vì sao <code>&lt;label for&gt;</code> chứ không bọc input vào label</span
+            >
+            <p>
+              Bọc (<code>&lt;label&gt;Email &lt;input&gt;&lt;/label&gt;</code>) cũng hoạt
+              động và đỡ phải sinh <code>id</code>. Repo vẫn chọn <code>for</code> +
+              <code>id</code> tường minh, vì cùng cái <code>id</code> đó còn là đích của
+              <code>aria-describedby</code> cho hint và lỗi. Đã phải có <code>id</code> rồi
+              thì dùng nó cho cả hai việc, và đừng có hai cơ chế nối trong một component.
+            </p>
+          </div>
+
+          <h3>3.3 <code>aria-describedby</code>, và cái bẫy im lặng hoàn toàn</h3>
+
+          <p>
+            <em>Name</em> là tên field. <em>Description</em> là mọi thứ nói thêm: gợi ý,
+            định dạng mong đợi, và <strong>thông báo lỗi</strong>. Nối bằng
+            <code>aria-describedby="id1 id2"</code> — danh sách id, cách nhau bằng dấu cách.
+          </p>
+
+          <p>
+            Cái bẫy: nếu một id trong danh sách đó <strong>không tồn tại</strong> trong DOM,
+            một số screen reader không đọc gì cho <em>cả field</em>. Không phải "bỏ qua phần
+            thiếu" — im lặng toàn bộ. Mà đây đúng là tình huống mặc định của một form động:
+            thẻ lỗi chỉ tồn tại <em>khi</em> có lỗi.
+          </p>
+
+          <p>
+            Nên <code>aria-describedby</code> phải được <strong>tính</strong>, không phải
+            viết cứng. Repo tính nó bằng một <code>computed</code> — mục 4.1 đọc từng dòng.
+          </p>
+
+          <p>
+            Và lỗi cần thêm một thứ nữa: <code>role="alert"</code>. Không có nó, thông báo
+            lỗi chỉ được đọc khi người dùng quay lại field đó lần nữa. Có nó, lỗi được đọc
+            <em>ngay khi xuất hiện</em>.
+          </p>
+
+          <h3>3.4 Focus: thứ duy nhất người dùng bàn phím có</h3>
+
+          <p>
+            Người dùng chuột có con trỏ, nhìn thấy mọi lúc, đi đâu cũng được. Người dùng bàn
+            phím chỉ có <strong>một</strong> focus, đi tuần tự, và nếu nó biến mất thì họ
+            mất vị trí trong trang. Bốn quy tắc:
+          </p>
+
+          <ol>
+            <li>
+              <strong>Mọi thứ bấm được phải tới được bằng Tab</strong>, theo thứ tự DOM hợp
+              lý. Thử nghiệm: bấm Tab từ đầu trang và đếm — nếu có control bạn không bao giờ
+              tới, nó không tồn tại với một nửa người dùng.
+            </li>
+            <li>
+              <strong>Focus phải thấy được.</strong> <code>outline: none</code> là lỗi
+              accessibility phổ biến nhất trên web, và nó bị
+              <code>lint/styles.ts</code> chặn trong repo này.
+            </li>
+            <li>
+              <strong>Focus không được mất.</strong> Nếu phần tử đang có focus bị huỷ, focus
+              rơi về <code>&lt;body&gt;</code> và Tab tiếp theo bắt đầu lại từ đầu trang.
+              Đây là nguồn của cả ba vấn đề ở mục 3.6.
+            </li>
+            <li>
+              <strong>Focus không được giam sai chỗ.</strong> Giam trong dialog đang mở là
+              đúng. Giam ở bất cứ đâu khác là một cái bẫy.
+            </li>
+          </ol>
+
+          <div class="box box--note">
+            <span class="box__label"><code>tabindex</code>: ba giá trị, ba ý nghĩa</span>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Giá trị</th>
+                    <th>Nghĩa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>tabindex="0"</code></td>
+                    <td>
+                      Đưa vào tab order, ở đúng vị trí DOM. Dùng cho vùng cuộn được —
+                      <code>app-table</code> dùng nó.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>tabindex="-1"</code></td>
+                    <td>
+                      Focus được <em>bằng script</em>, không bao giờ là một chặng Tab. Dùng
+                      cho <code>&lt;h1&gt;</code> và <code>&lt;main&gt;</code>.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>tabindex="2"</code> và mọi số dương</td>
+                    <td>
+                      <strong>Đừng.</strong> Nó chen ngang thứ tự toàn tài liệu và không ai
+                      giữ nổi khi trang lớn lên. Repo không có một giá trị dương nào.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <h3>3.5 Live region phải tồn tại trước khi có nội dung</h3>
+
+          <p>
+            Screen reader chỉ đọc thay đổi trong một vùng mà nó <em>đã đang theo dõi</em>.
+            Nếu bạn tạo mới cả thẻ <code>&lt;div aria-live="polite"&gt;</code> cùng lúc với
+            nội dung trong nó, thường <strong>không có gì được đọc</strong>: vùng đó mới
+            xuất hiện, chưa kịp được đăng ký.
+          </p>
+
+          <p>
+            Hệ quả kiến trúc: hai vùng live — polite và assertive — phải được
+            <strong>vẽ sẵn, rỗng</strong>, ngay trong shell, trước khi có thông báo nào. Đó
+            chính xác là hình dạng của <code>toast-region.ts</code> ở mục 4.7.
+          </p>
+
+          <p>
+            Trạng thái "đang tải" thì khác: nó cần một <strong>câu</strong> để đọc
+            (<code>role="status"</code> trên một câu như "Đang tải khách hàng…") cộng với
+            <code>aria-busy="true"</code> trên vùng đang được thay nội dung. Spinner và
+            skeleton là đồ trang trí và bị ẩn khỏi cây accessibility — một hình chữ nhật
+            nhấp nháy không có gì để đọc.
+          </p>
+
+          <h3>3.6 Ba chỗ một SPA làm focus đi sai</h3>
+
+          <p>
+            Trang truyền thống tải lại: trình duyệt tự đặt focus về đầu tài liệu và đọc tiêu
+            đề trang mới. SPA thì <em>không tải lại</em> — nó thay nội dung dưới chân focus
+            mà trình duyệt không hay biết. Đợt rà soát bàn phím ở Phase 6 tìm ra ba chỗ, và
+            ADR-0037 ghi lại cả ba:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Chuyện gì xảy ra</th>
+                  <th>Người dùng bàn phím thấy gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td>
+                    Sau một lần điều hướng, focus ở lại cái link vừa bấm — hoặc rơi về
+                    <code>&lt;body&gt;</code> nếu link đó bị huỷ
+                  </td>
+                  <td>
+                    Screen reader <strong>không đọc gì</strong>: trang đã đổi trong im lặng
+                  </td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td>Save thất bại, focus ở lại nút Save dưới cùng form</td>
+                  <td>
+                    Field sai có thể ở trên ba màn hình; phải Shift+Tab qua cả form để tìm
+                  </td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td>
+                    Đổi trang hoặc đổi sort → kết quả mới chưa có cache → skeleton thay cả
+                    bảng, <em>huỷ luôn</em> cái nút phân trang đang có focus
+                  </td>
+                  <td>
+                    Focus rơi về <code>&lt;body&gt;</code>; Tab tiếp theo về đầu tài liệu
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý vấn đề 3: nó <em>chỉ</em> xảy ra khi trang chưa có trong cache — bài 12 nói
+            trang đã cache được vẽ ngay, không qua skeleton, nên không có gì bị huỷ. Một lỗi
+            accessibility phụ thuộc trạng thái cache. Đây là loại lỗi mà
+            <strong>chỉ</strong> việc đi bằng bàn phím thật mới tìm ra, còn axe thì không
+            bao giờ.
+          </p>
+
+          <h3>3.7 Modality là một hợp đồng bốn điều</h3>
+
+          <p>
+            Với người dùng chuột, "dialog" là một ô nổi trên tấm mờ. Với accessibility, nó
+            là bốn điều phải cùng đúng:
+          </p>
+
+          <ol>
+            <li><strong>Focus đi vào</strong> dialog khi nó mở.</li>
+            <li><strong>Focus không ra được</strong> bằng Tab khi nó còn mở.</li>
+            <li><strong>Escape đóng</strong> nó.</li>
+            <li><strong>Focus trở về</strong> đúng cái đã mở nó.</li>
+          </ol>
+
+          <p>
+            Thiếu (1) thì người dùng screen reader không biết có gì vừa xuất hiện. Thiếu (2)
+            thì họ Tab ra sau tấm mờ và bấm vào thứ họ không thấy. Thiếu (3) thì không có
+            đường thoát bằng bàn phím. Thiếu (4) — hay gặp nhất — thì sau khi đóng dialog,
+            focus rơi về đầu trang và họ mất chỗ.
+          </p>
+
+          <p>
+            Điều (4) là phần khó: phải <em>nhớ</em> cái trigger qua một lần re-render. Đó là
+            lý do repo <strong>soạn lại</strong> (compose) <code>cdkTrapFocus</code> của CDK
+            chứ không tự viết — mục 4.2.
+          </p>
+
+          <h3>3.8 Reduced motion: <code>0.01ms</code>, không phải <code>0</code></h3>
+
+          <p>
+            Với một số người, chuyển động lớn trên màn hình gây chóng mặt và buồn nôn thật.
+            Khi họ bật "giảm chuyển động" ở mức hệ điều hành,
+            <code>prefers-reduced-motion: reduce</code> khớp, và repo thu mọi transition và
+            animation về <strong>0,01 mili-giây</strong> trong đúng một rule:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_base.scss</div>
+            <pre><code>@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Vì sao <code>0.01ms</code> mà không phải <code>0s</code>? Vì một transition dài
+            <code>0</code> ở nhiều trình duyệt <strong>không bắn</strong>
+            <code>transitionend</code>. Bất cứ đoạn code nào đang chờ sự kiện đó sẽ treo
+            mãi. Một transition dài 0,01 ms thì mắt không thấy, nhưng vẫn
+            <em>kết thúc</em> — nên vẫn bắn.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Một dòng CSS, nhưng chỉ đúng vì có bài 06</span>
+            <p>
+              Rule này quét được toàn bộ ứng dụng chỉ vì <em>mọi</em> thời lượng trong repo
+              đến từ một token (<code>--motion-fast</code>…). Nếu có component tự viết
+              <code>transition: 300ms</code> thì nó vẫn bị <code>!important</code> ở đây đè —
+              nhưng đây là ví dụ cho thấy kỷ luật token ở bài 06 trả nợ ở một chỗ hoàn toàn
+              khác.
+            </p>
+          </div>
+
+          <h3>3.9 Contrast là thuộc tính của một <em>cặp</em> màu</h3>
+
+          <p>
+            "Màu chữ này có đạt AA không?" là một câu hỏi không trả lời được. Chỉ có
+            "<em>chữ màu này trên nền màu kia</em> có đạt 4,5:1 không?". Nên:
+          </p>
+
+          <ul>
+            <li>
+              một token chữ có thể đạt trong theme sáng và trượt trong theme tối — bề mặt đã
+              đổi;
+            </li>
+            <li>
+              vì vậy việc kiểm tra phải chạy <strong>mọi route trong cả hai theme</strong>,
+              và đó chính là hình dạng của <code>accessibility.spec.ts</code>: hai vòng
+              <code>for</code> lồng nhau, theme bên ngoài.
+            </li>
+          </ul>
+
+          <p>
+            Phát hiện thật của Phase 6 từ đúng chỗ này: nút nguy hiểm trong theme tối là
+            <code>red-400</code> dưới chữ trắng — <strong>2,6:1</strong>, trong khi AA cần
+            4,5:1. Cách sửa cũng dạy một bài về hệ màu: thêm một token
+            <code>--danger-solid</code> <em>không đổi giữa hai theme</em>, dùng cho những bề
+            mặt đặc có chữ trắng. Bề mặt mang chữ trắng thì không được sáng lên trong theme
+            tối, dù mọi bề mặt khác đều sáng lên.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Một field "accessible" — bản rút gọn, rồi bản thật</h3>
+
+          <p>Sàn tối thiểu của một field chỉ là hai dòng:</p>
+
+          <div class="code">
+            <div class="code__file">bản rút gọn — ý tưởng</div>
+            <pre><code>&lt;label for="email"&gt;Email&lt;/label&gt;
+&lt;input id="email" /&gt;</code></pre>
+          </div>
+
+          <p>
+            Thế là đã có <em>name</em> ("Email"), có <em>role</em>
+            (<code>textbox</code>), và click vào nhãn cũng focus vào field. Vấn đề bắt đầu
+            khi thêm gợi ý và thông báo lỗi: lúc đó cần <code>aria-describedby</code>, và
+            danh sách id trong nó phải khớp với <em>những thẻ đang thực sự tồn tại</em>. Đây
+            là bản thật:
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/text-input/text-input.ts — template</div>
+            <pre><code>&lt;div class="field"&gt;
+  &lt;label class="field__label" [attr.for]="inputId"&gt;
+    {{ label() }}
+    @if (required()) {
+      &lt;span aria-hidden="true"&gt;*&lt;/span&gt;
+    }
+  &lt;/label&gt;
+
+  &lt;input
+    class="field__control"
+    [id]="inputId"
+    [attr.type]="type()"
+    [value]="value()"
+    [disabled]="isDisabled()"
+    [required]="required()"
+    [attr.aria-invalid]="error() ? 'true' : null"
+    [attr.aria-describedby]="describedBy()"
+    (input)="handleInput($event)"
+    (blur)="handleBlur()"
+  /&gt;
+
+  @if (hint()) {
+    &lt;p class="field__hint" [id]="hintId"&gt;{{ hint() }}&lt;/p&gt;
+  }
+  @if (error()) {
+    &lt;!-- role="alert" so the message is announced when it appears, rather
+         than only when the field is focused again. --&gt;
+    &lt;p class="field__error" [id]="errorId" role="alert"&gt;{{ error() }}&lt;/p&gt;
+  }
+&lt;/div&gt;</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó làm gì, và vì sao viết thế</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>[attr.for]="inputId"</code> + <code>[id]="inputId"</code></td>
+                  <td>
+                    Cặp nối nhãn với field. Cùng một giá trị ở hai chỗ, nên nó phải là
+                    <em>một</em> biến, không phải hai chuỗi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;span aria-hidden="true"&gt;*&lt;/span&gt;</code></td>
+                  <td>
+                    Dấu hoa thị là <strong>đồ trang trí</strong>. Thông tin "bắt buộc" đã
+                    nằm ở thuộc tính <code>required</code> thật, mà screen reader đọc là
+                    "required". Không ẩn nó thì field được đọc là "Email sao" — một ngôi sao
+                    thừa trong tên.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[required]="required()"</code></td>
+                  <td>
+                    Thuộc tính DOM thật, không phải <code>aria-required</code>. Dùng được
+                    cái HTML có sẵn thì không dùng ARIA.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>[attr.aria-invalid]="error() ? 'true' : null"</code>
+                  </td>
+                  <td>
+                    <code>null</code> làm Angular <strong>gỡ</strong> thuộc tính khỏi DOM.
+                    Quan trọng: <code>aria-invalid="false"</code> vẫn là một thuộc tính
+                    <em>có</em>, và bộ chọn CSS cũng như câu truy vấn
+                    <code>[aria-invalid="true"]</code> ở mục 4.6 đều dựa vào chuyện nó chỉ
+                    xuất hiện khi thật sự sai.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[attr.aria-describedby]="describedBy()"</code></td>
+                  <td>
+                    Một <code>computed</code>, không phải chuỗi cứng — vì hint và lỗi
+                    xuất hiện rồi biến mất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>role="alert"</code> trên thẻ lỗi</td>
+                  <td>
+                    Để lỗi được đọc <em>khi nó xuất hiện</em>. Không có nó, người dùng chỉ
+                    nghe lỗi nếu tự quay lại field.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và đây là <code>computed</code> đã nhắc ba lần:</p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/text-input/text-input.ts</div>
+            <pre><code>/**
+ * Points at whichever of hint and error is currently rendered.
+ *
+ * Referencing an element that does not exist is not a harmless no-op: some
+ * screen readers announce nothing at all for the whole field.
+ */
+protected readonly describedBy = computed(() =&gt; {
+  const ids = [this.hint() ? this.hintId : '', this.error() ? this.errorId : ''].filter(Boolean);
+  return ids.length ? ids.join(' ') : null;
+});</code></pre>
+          </div>
+
+          <p>
+            Bốn tổ hợp, bốn giá trị: không có gì → <code>null</code> (thuộc tính bị gỡ); chỉ
+            hint → một id; chỉ lỗi → một id; cả hai → hai id cách nhau bằng dấu cách. Đây là
+            bài 03 đang làm việc: <code>describedBy</code> là một <em>hàm dẫn xuất</em> từ
+            <code>hint()</code> và <code>error()</code>, nên nó không bao giờ lệch pha với
+            thực tế — khác hẳn việc gọi <code>setAttribute</code> ở hai chỗ và hy vọng cả
+            hai cùng chạy.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao <code>id</code> là biến đếm, không phải số ngẫu nhiên</span>
+            <div class="code">
+              <div class="code__file">shared/ui/text-input/text-input.ts</div>
+              <pre><code>/** Unique within a document; see the note on `inputId` below. */
+let nextId = 0;
+// ...
+protected readonly inputId = `app-input-${nextId++}`;
+protected readonly hintId = `${this.inputId}-hint`;
+protected readonly errorId = `${this.inputId}-error`;</code></pre>
+            </div>
+            <p>
+              Chú thích trong code nói rõ lý do:
+              <em
+                >"A counter rather than a random id: two renders of the same component tree
+                produce the same ids, which is what keeps server-rendered markup and its
+                hydrated counterpart identical."</em
+              >
+            </p>
+            <p>
+              Tức là một quyết định accessibility bị ràng buộc bởi một quyết định
+              <em>rendering</em>: ứng dụng này có SSR, nên HTML sinh trên server và HTML sinh
+              lại trên client phải trùng nhau từng ký tự. Một <code>id</code> ngẫu nhiên sẽ
+              khác nhau giữa hai lần và làm hydration báo lệch.
+            </p>
+          </div>
+
+          <h3>4.2 Dialog: ai chịu trách nhiệm điều nào trong hợp đồng bốn điều</h3>
+
+          <p>
+            Chú thích đầu <code>dialog.ts</code> phát biểu nguyên văn hợp đồng ở mục 3.7, rồi
+            <em>phân vai</em>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/dialog/dialog.ts — chú thích</div>
+            <pre><code>Modality is an accessibility contract, not a visual effect. Four things have
+to hold or the dialog is a trap for some users and a no-op for others:
+
+ 1. focus moves into the dialog when it opens;
+ 2. focus cannot leave it by Tab while it is open;
+ 3. Escape closes it;
+ 4. focus returns to whatever opened it.
+
+CDK's `cdkTrapFocus` with `autoCapture` provides 1, 2 and 4 - including the
+hard part of 4, which is remembering the trigger across a re-render. Writing
+that by hand is a well-known source of "the page still works but keyboard
+users are stuck", so this composes rather than reimplements. 3 is one
+binding, and is here.</code></pre>
+          </div>
+
+          <p>
+            Đây là một ví dụ mẫu mực của quy tắc 8 trong <code>CLAUDE.md</code> ("không thêm
+            trừu tượng mà không nêu được lý do") dùng theo chiều ngược: <em>không viết lại
+            thứ đã có</em>. CDK lo ba điều khó, component lo một điều dễ. Và nó nói rõ điều
+            khó nhất là gì — nhớ cái trigger qua một lần re-render.
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/dialog/dialog.ts — template (rút gọn)</div>
+            <pre><code>&lt;div
+  class="dialog"
+  role="dialog"
+  aria-modal="true"
+  [attr.aria-labelledby]="headingId"
+  cdkTrapFocus
+  [cdkTrapFocusAutoCapture]="true"
+  (keydown.escape)="close()"
+&gt;
+  &lt;header class="dialog__header"&gt;
+    &lt;h2 class="dialog__heading" [id]="headingId"&gt;{{ heading() }}&lt;/h2&gt;
+    ...</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thuộc tính</th>
+                  <th>Vai trò</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>role="dialog"</code></td>
+                  <td>"Đây là một hộp thoại" — nếu không, nó chỉ là một cái div.</td>
+                </tr>
+                <tr>
+                  <td><code>aria-modal="true"</code></td>
+                  <td>
+                    "Mọi thứ phía sau tôi coi như không tồn tại." Đây là
+                    <strong>điều duy nhất</strong> che phần còn lại của trang khỏi screen
+                    reader — mục 6 nói vì sao repo chấp nhận thế.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>[attr.aria-labelledby]="headingId"</code></td>
+                  <td>
+                    Tên của dialog là chính cái <code>&lt;h2&gt;</code> của nó. Không nhân
+                    đôi chuỗi, không lệch pha được.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>cdkTrapFocus</code> +
+                    <code>[cdkTrapFocusAutoCapture]="true"</code>
+                  </td>
+                  <td>Điều 1, 2 và 4 của hợp đồng.</td>
+                </tr>
+                <tr>
+                  <td><code>(keydown.escape)="close()"</code></td>
+                  <td>
+                    Điều 3. Cú pháp <code>keydown.escape</code> là của Angular: nó tự lọc
+                    đúng phím, bạn không phải so <code>event.key</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Chi tiết hay nhất của component này nằm trong một comment giữa template — nút
+            "bấm ra ngoài để đóng":
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/dialog/dialog.ts — comment trong template</div>
+            <pre><code>Dismissing by clicking outside, as a real button rather than a click
+handler on the backdrop div. A div with a click handler is invisible
+to a keyboard and to assistive technology, which is why lint rejects
+it; a button is announced and operable.
+
+It comes after the dialog in the DOM - and only sits behind it
+visually - so focus lands on the dialog's own controls first and this
+is the last stop, rather than the first thing a keyboard user meets.</code></pre>
+          </div>
+
+          <p>
+            Hai quyết định trong một đoạn ba câu. <strong>Thứ nhất</strong>: tấm mờ bấm được
+            là một <code>&lt;button&gt;</code> thật, không phải <code>&lt;div (click)&gt;</code>
+            — nhắc lại mục 2, ARIA không thêm hành vi, và lint từ chối cái thứ hai.
+            <strong>Thứ hai</strong>: nó được đặt <em>sau</em> dialog trong DOM và chỉ
+            <em>nằm dưới</em> bằng CSS. Nhớ mục 3.1: Tab đi theo DOM, không theo mắt. Nếu đặt
+            trước, người dùng bàn phím mở dialog ra là gặp ngay một nút vô danh tên "đóng",
+            trước cả nội dung họ cần đọc.
+          </p>
+
+          <h3>4.3 Trang phía sau không được cuộn</h3>
+
+          <p>
+            Hàm <code>lockScrollWhile</code> nhận một signal và khoá cuộn trong lúc signal đó
+            là <code>true</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">shared/ui/scroll-lock.ts</div>
+            <pre><code>export function lockScrollWhile(active: Signal&lt;boolean&gt;): void {
+  const strategy = createBlockScrollStrategy(inject(Injector));
+  let locked = false;
+
+  const release = () =&gt; {
+    if (locked) {
+      strategy.disable();
+      locked = false;
+    }
+  };
+
+  effect(() =&gt; {
+    if (active() &amp;&amp; !locked) {
+      strategy.enable();
+      locked = true;
+    } else if (!active()) {
+      release();
+    }
+  });
+
+  inject(DestroyRef).onDestroy(release);
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Dùng block strategy của CDK, không tự viết <code>overflow: hidden</code></td>
+                  <td>
+                    Chú thích nói rõ phần mà bản tự viết luôn làm sai: CDK
+                    <em>ghim</em> <code>&lt;html&gt;</code> ở đúng độ cuộn hiện tại và
+                    <em>trả lại</em> khi nhả. Chỉ đặt <code>overflow: hidden</code> thì
+                    trang nhảy về đầu, và đóng dialog ra là người dùng ở một chỗ khác.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Biến <code>locked</code> ngoài effect</td>
+                  <td>
+                    Để <code>enable()</code> không bị gọi hai lần. Khoá là một tài nguyên
+                    có đếm tham chiếu, không phải một giá trị.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>inject(DestroyRef).onDestroy(release)</code></td>
+                  <td>
+                    Dòng quan trọng nhất. Một modal <em>bị huỷ trong lúc đang mở</em> (ví
+                    dụ người dùng bấm back) sẽ không bao giờ chạy nhánh nhả của effect. Không
+                    có dòng này, trang bị đóng băng vĩnh viễn và không ai biết tại sao.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hai caller: dialog và drawer di động</td>
+                  <td>
+                    Quy tắc 8: trừu tượng này được tạo <em>vì</em> gọi được tên caller thứ
+                    hai. Trước đó nó là "debt row 9".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.4 Focus sau khi điều hướng — và ba ngoại lệ</h3>
+
+          <p>
+            Đây là vấn đề 1 ở mục 3.6. Toàn bộ cách xử lý nằm trong
+            <code>AppShell</code>, và điều đáng học không phải phần "đưa focus tới
+            <code>&lt;h1&gt;</code>" — mà là ba ngoại lệ:
+          </p>
+
+          <div class="code">
+            <div class="code__file">layout/app-shell.ts</div>
+            <pre><code>private focusNewPage(navigationId: number, url: string): void {
+  const path = url.split(/[?#]/)[0];
+  const previous = this.lastPath;
+  this.lastPath = path;
+  if (navigationId === 1 || previous === path) {
+    return;
+  }
+  afterNextRender(
+    () =&gt; {
+      const main = this.mainContent().nativeElement;
+      const heading = main.querySelector&lt;HTMLElement&gt;('h1');
+      const target = heading ?? main;
+      if (heading &amp;&amp; !heading.hasAttribute('tabindex')) {
+        // Focusable by script only; never a Tab stop.
+        heading.setAttribute('tabindex', '-1');
+      }
+      target.focus({ preventScroll: true });
+    },
+    { injector: this.injector },
+  );
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó làm gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>url.split(/[?#]/)[0]</code></td>
+                  <td>
+                    Cắt bỏ query string và fragment, chỉ giữ đường dẫn. Chuẩn bị cho ngoại
+                    lệ thứ hai.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>navigationId === 1</code></td>
+                  <td>
+                    <strong>Ngoại lệ 1</strong> — lần điều hướng đầu tiên là một lần tải
+                    trang; trình duyệt đã ở đầu tài liệu. Tinh tế: đi từ trang đăng nhập
+                    sang danh sách <em>không</em> phải lần đầu, nên focus
+                    <em>có</em> di chuyển — và nên di chuyển, vì cái form đang giữ focus vừa
+                    biến mất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>previous === path</code></td>
+                  <td>
+                    <strong>Ngoại lệ 2</strong> — chỉ query string hoặc fragment đổi. Một
+                    lần lọc, một lần sort, một trang kết quả <em>không phải một trang
+                    mới</em>. Chú thích gọi việc giật focus khỏi hộp tìm kiếm giữa lúc đang
+                    gõ là <em>"hostile"</em>, và đó là từ đúng. Đây cũng chính là lý do bài 17
+                    (URL là state) phải gặp bài 22: khi mọi thứ đều là URL thì "URL đổi" không
+                    còn đồng nghĩa với "trang đổi".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>afterNextRender(...)</code></td>
+                  <td>
+                    Chờ Angular vẽ xong trang mới. Trước thời điểm đó,
+                    <code>&lt;h1&gt;</code> của trang mới chưa tồn tại trong DOM.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>heading ?? main</code></td>
+                  <td>
+                    <strong>Ngoại lệ 3</strong> — trang không có <code>&lt;h1&gt;</code> thì
+                    focus vào <code>&lt;main&gt;</code>. Luôn có một đích.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>setAttribute('tabindex', '-1')</code></td>
+                  <td>
+                    <code>&lt;h1&gt;</code> không focus được theo mặc định. Giá trị
+                    <code>-1</code> cho ta focus bằng script mà
+                    <strong>không</strong> thêm một chặng Tab cho mọi người.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>focus({ preventScroll: true })</code></td>
+                  <td>
+                    Đặt focus mà không để trình duyệt tự cuộn. Việc cuộn đã do chiến lược
+                    scroll của router lo; hai bên cùng cuộn thì màn hình giật.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và ở nơi khác trong cùng file, cái <em>skip link</em> — chặng Tab đầu tiên của
+            toàn ứng dụng:
+          </p>
+
+          <div class="code">
+            <div class="code__file">layout/app-shell.ts</div>
+            <pre><code>/**
+ * Moves focus into the content.
+ *
+ * Scrolling is not enough: without focus, the next Tab starts again at the
+ * top of the navigation the user just asked to skip.
+ */
+protected skipToContent(event: Event): void {
+  event.preventDefault();
+  this.mainContent().nativeElement.focus();
+}</code></pre>
+          </div>
+
+          <p>
+            <code>event.preventDefault()</code> chặn hành vi mặc định của một liên kết
+            <code>#id</code> (thêm một mục vào history và cuộn), rồi đặt focus bằng tay. Câu
+            chú thích giải thích vì sao phải thế: một liên kết neo chỉ <em>cuộn</em>; nếu
+            không đặt focus thì Tab tiếp theo lại bắt đầu từ đầu thanh điều hướng mà người
+            dùng vừa xin được bỏ qua.
+          </p>
+
+          <h3>4.5 Focus khi chính cái control đang có focus bị huỷ</h3>
+
+          <p>
+            Đây là vấn đề 3 ở mục 3.6 và là phần tinh vi nhất của bài. Người dùng bấm Enter
+            trên nút "trang sau". Trang mới chưa có cache → skeleton thay cả bảng → cái nút
+            vừa bấm <em>không còn tồn tại</em>.
+          </p>
+
+          <p>Giải pháp đi theo hai bước. Bước một, control khai nó sống ở đâu:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>protected goToPage(page: number): void {
+  this.applyCriteria({ ...this.criteria(), page }, 'app-pagination [aria-current="page"]');
+}</code></pre>
+          </div>
+
+          <p>
+            Tham số thứ hai không phải "cái nút này" — nó là
+            <strong>bộ chọn CSS của bản sao của nó trong lần render tới</strong>. Nút "trang
+            2" của lần render sau chính là nút mang <code>aria-current="page"</code>. Trạng
+            thái ARIA, thứ ta thêm vào vì screen reader, lại đang được dùng làm địa chỉ bền
+            của một phần tử qua một lần re-render. Đó là phần thưởng cho việc viết đúng
+            semantics.
+          </p>
+
+          <p>Bước hai, effect đặt focus lại — nhưng có bốn cửa phải qua:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-list/customer-list-page.ts</div>
+            <pre><code>// See `returnFocusTo`.
+effect(() =&gt; {
+  const target = this.focusReturn();
+  if (
+    target === null ||
+    criteriaKey(this.criteria()) !== target.criteria ||
+    this.view() !== 'rows' ||
+    this.pending()
+  ) {
+    return;
+  }
+  this.focusReturn.set(null);
+  const selector = target.selector;
+  afterNextRender(
+    () =&gt; {
+      const active = this.host.nativeElement.ownerDocument.activeElement;
+      const lost = active === null || active === this.host.nativeElement.ownerDocument.body;
+      if (lost) {
+        this.host.nativeElement.querySelector&lt;HTMLElement&gt;(selector)?.focus();
+      }
+    },
+    { injector: this.injector },
+  );
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Điều kiện</th>
+                  <th>Nó ngăn chuyện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>target === null</code></td>
+                  <td>Không có ai xin được trả focus. Đa số lần render rơi vào đây.</td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>criteriaKey(this.criteria()) !== target.criteria</code>
+                  </td>
+                  <td>
+                    Yêu cầu được <strong>khoá theo tiêu chí</strong> mà nó đã xin. Người dùng
+                    bấm "trang sau" ba lần nhanh thì chỉ lần cuối khớp — và đó là trang họ
+                    thực sự đang xem. Đây là cùng một <code>criteriaKey</code> mà bài 12 dùng
+                    làm khoá cache.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>this.view() !== 'rows'</code></td>
+                  <td>
+                    Kết quả về rỗng, hoặc lỗi, thì không có bảng nào để trả focus vào. Đưa
+                    focus vào một bộ chọn không khớp là một lệnh không làm gì — nhưng cờ
+                    <code>focusReturn</code> sẽ còn treo lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>this.pending()</code></td>
+                  <td>
+                    <strong>Vẫn đang tải.</strong> Phải chờ tới khi
+                    <em>chính những kết quả đó</em> lên màn hình, không phải lúc URL vừa đổi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lost</code> — kiểm tra trong <code>afterNextRender</code></td>
+                  <td>
+                    Điều kiện hay nhất: <strong>chỉ</strong> trả focus nếu nó
+                    <em>thật sự</em> đã mất (đang ở <code>&lt;body&gt;</code> hoặc không có
+                    gì). Trang đã cache thì vẽ ngay, không qua skeleton, nên focus không hề
+                    mất — và lúc đó effect này phải
+                    <strong>không làm gì</strong>. Người dùng đã Tab đi chỗ khác thì cũng giữ
+                    nguyên focus của họ. Một tính năng accessibility mà biết im lặng khi
+                    không cần thiết.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao đây là đoạn code đáng đọc hai lần</span>
+            <p>
+              Nó là chỗ bốn bài học trước gặp nhau: <em>bài 03</em> (effect đọc signal),
+              <em>bài 11</em> (<code>pending</code>, <code>view</code> là trạng thái dẫn
+              xuất), <em>bài 12</em> (<code>criteriaKey</code> và cache), <em>bài 17</em> (mọi
+              thay đổi đều là một lần điều hướng). Không có bốn thứ đó, "trả focus lại" là
+              một hàm <code>setTimeout</code> đoán mò.
+            </p>
+          </div>
+
+          <h3>4.6 Focus sau khi save thất bại</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-form/customer-form-page.ts</div>
+            <pre><code>private focusFirstInvalidField(): void {
+  afterNextRender(
+    () =&gt; {
+      this.host.nativeElement.querySelector&lt;HTMLElement&gt;('[aria-invalid="true"]')?.focus();
+    },
+    { injector: this.injector },
+  );
+}</code></pre>
+          </div>
+
+          <p>
+            Năm dòng, nhưng để ý: câu truy vấn là
+            <code>[aria-invalid="true"]</code> — tức là nó dùng chính thuộc tính
+            <em>accessibility</em> làm nguồn chân lý cho "field nào đang sai", chứ không đi
+            hỏi lại <code>FormGroup</code>. Và nó hoạt động bất kể lỗi đến từ validator phía
+            client hay từ một phản hồi 422 của server, vì cả hai đều kết thúc ở cùng một
+            thuộc tính. Chú thích giải thích vì sao phải
+            <code>afterNextRender</code>: các dấu <code>aria-invalid</code> mà nó đi tìm
+            được viết ra bởi đúng lần change detection mà cú save thất bại vừa gây ra.
+          </p>
+
+          <p>Hàm này được gọi ở <strong>ba</strong> chỗ, và đó là điều đáng chú ý:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nơi gọi</th>
+                  <th>Tình huống</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Khi submit mà form không hợp lệ</td>
+                  <td>Validator phía client từ chối</td>
+                </tr>
+                <tr>
+                  <td>Khi server trả 422 kèm <code>fieldErrors</code></td>
+                  <td>Server từ chối một field cụ thể</td>
+                </tr>
+                <tr>
+                  <td>Khi email bị trùng</td>
+                  <td>Một luật nghiệp vụ chỉ server biết</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba nguồn lỗi, một hành vi. Đó là nhờ bài 14: lỗi của server được trình bày bằng
+            <em>cùng một cơ chế</em> như lỗi của client (ADR-0035), nên phần accessibility
+            không cần biết lỗi từ đâu tới.
+          </p>
+
+          <p>
+            ADR-0037 còn ghi một chuyện thành thật mà ít ADR nào ghi:
+            <em
+              >"Phase 2's comment in the form page said focus should not move on a failed
+              save; the keyboard pass disagreed, and the comment was replaced with the
+              reason."</em
+            >
+            Một quyết định cũ có lý lẽ, bị một lần thử bằng bàn phím thật bác bỏ.
+          </p>
+
+          <h3>4.7 Toast không được tự tắt khi người ta đang đọc nó</h3>
+
+          <p>
+            Hai vùng live của toàn ứng dụng — lưu ý chúng được
+            <strong>vẽ sẵn và rỗng</strong>, đúng như mục 3.5 đòi:
+          </p>
+
+          <div class="code">
+            <div class="code__file">layout/toast-region.ts — template (rút gọn)</div>
+            <pre><code>&lt;div class="region__stack" role="status" aria-live="polite" data-testid="toasts"&gt;
+  @for (message of polite(); track message.id) { ... }
+&lt;/div&gt;
+&lt;div class="region__stack" role="alert" aria-live="assertive" data-testid="alerts"&gt;
+  @for (message of urgent(); track message.id) { ... }
+&lt;/div&gt;</code></pre>
+          </div>
+
+          <p>
+            Hai thẻ luôn ở đó; <code>@for</code> chỉ đổ nội dung vào. Và cả
+            <code>role="status"</code> <em>lẫn</em> <code>aria-live="polite"</code> cùng được
+            viết, dù role đã bao hàm aria-live — chú thích đầu file nói đó là để đi qua những
+            screen reader cũ: thiếu một trong hai thì
+            <em>"its content is often not announced at all"</em>. Đây là loại kiến thức chỉ
+            có từ việc thử trên thiết bị thật.
+          </p>
+
+          <p>Phần hành vi — và một tiêu chí WCAG mà rất ít ứng dụng để ý:</p>
+
+          <div class="code">
+            <div class="code__file">layout/toast-region.ts</div>
+            <pre><code>/** `focusout` also fires when focus moves between two buttons inside. */
+protected focusLeft(event: FocusEvent): void {
+  const region = event.currentTarget as HTMLElement;
+  const next = event.relatedTarget as Node | null;
+  this.setFocusInside(next !== null &amp;&amp; region.contains(next));
+}
+
+private applyHold(): void {
+  if (this.pointerInside || this.focusInside) {
+    this.notifications.hold();
+  } else {
+    this.notifications.release();
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Vấn đề (debt row 23): toast tự biến mất sau 5 giây —
+            <em>kể cả khi</em> người dùng đang đọc nó, hoặc đang Tab tới cái nút trong nó. Với
+            người đọc chậm, người dùng screen reader, người đang dùng bàn phím, 5 giây không
+            đủ. WCAG 2.2.1 (<em>Timing Adjustable</em>) nói đúng về tình huống này.
+          </p>
+
+          <p>
+            Bản sửa: con trỏ ở trên vùng đó, <em>hoặc</em> focus ở trong đó, thì
+            <strong>mọi</strong> đồng hồ bị giữ; rời ra thì mỗi cái tiếp tục với thời gian
+            còn lại, nhưng không bao giờ ít hơn 2 giây. Và cái comment một dòng trên
+            <code>focusLeft</code> là phần thực tế: <code>focusout</code> cũng bắn khi focus
+            chỉ di chuyển giữa <em>hai nút bên trong</em> vùng đó, nên phải hỏi
+            <code>relatedTarget</code> xem đích đến có còn nằm trong vùng không. Bỏ quên chi
+            tiết này thì toast biến mất đúng lúc người dùng Tab tới nút của nó.
+          </p>
+
+          <h3>4.8 Bảng: role, caption, scope, aria-sort</h3>
+
+          <div class="code">
+            <div class="code__file">shared/ui/table/table.ts + customers/customer-list/customer-table.ts</div>
+            <pre><code>&lt;div class="table" role="region" tabindex="0" [attr.aria-label]="caption()"&gt;
+  ...
+&lt;app-table [caption]="t('pages.customers.list.table.caption')" *transloco="let t"&gt;
+  &lt;table&gt;
+    &lt;caption class="visually-hidden"&gt;{{ t('pages.customers.list.table.caption') }}&lt;/caption&gt;
+    ...
+        &lt;th scope="col" [attr.aria-sort]="ariaSort(column.field)"&gt;</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>role="region"</code> + <code>tabindex="0"</code> + <code>aria-label</code></td>
+                  <td>
+                    Bảng rộng cuộn ngang được. Một vùng cuộn mà
+                    <em>không</em> vào được bằng bàn phím là một vùng mà người dùng bàn phím
+                    không bao giờ thấy nửa bên phải. <code>tabindex="0"</code> đưa nó vào tab
+                    order; <code>aria-label</code> cho nó một cái tên để khi focus tới thì
+                    biết mình đang ở đâu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>&lt;caption class="visually-hidden"&gt;</code></td>
+                  <td>
+                    Bảng cần tên trong cây accessibility, nhưng thiết kế đã có
+                    <code>&lt;h1&gt;</code> ở trên nên hiện thêm một dòng chú thích là dư về
+                    mặt hình ảnh. <code>.visually-hidden</code> giữ chữ cho client thứ hai,
+                    bỏ nó khỏi client thứ nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>scope="col"</code></td>
+                  <td>
+                    Nối mỗi ô dữ liệu với tiêu đề cột của nó. Screen reader đọc "Họ tên:
+                    Nguyễn Văn A" thay vì chỉ "Nguyễn Văn A" — ở ô thứ bảy của hàng thứ ba
+                    mươi, đây là khác biệt giữa dùng được và không.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>aria-sort</code> trên <code>&lt;th&gt;</code>, và một
+                    <code>&lt;button&gt;</code> <em>bên trong</em> nó
+                  </td>
+                  <td>
+                    Chú thích trong <code>customer-table.ts</code> gọi đây là
+                    <em>"the documented pattern"</em>: cái bấm được là button, còn trạng thái
+                    sort thuộc về <em>ô tiêu đề</em>. Đặt <code>aria-sort</code> lên button là
+                    sai chỗ — không phải button đang được sắp xếp, mà cột.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.9 Hai lớp CSS toàn cục, và lý do từng dòng</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_a11y.scss</div>
+            <pre><code>/* Visible to assistive technology, invisible on screen.
+ *
+ * `display: none` and `visibility: hidden` would remove it from the
+ * accessibility tree too, which is the opposite of what this is for. */
+.visually-hidden:not(:focus):not(:active) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Vì sao chính xác thế</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>:not(:focus):not(:active)</code></td>
+                  <td>
+                    Để một phần tử <em>focus được</em> mang lớp này (ví dụ skip link) tự
+                    <strong>hiện ra</strong> khi được focus. Không có hai bộ chọn này thì
+                    skip link vô hình và không ai biết nó đang có focus.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>width: 1px; height: 1px</code> chứ không <code>0</code></td>
+                  <td>
+                    Một số trình duyệt gỡ phần tử kích thước <code>0</code> khỏi cây
+                    accessibility — đúng điều ta không muốn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>clip-path: inset(50%)</code></td>
+                  <td>Cắt hết phần nhìn thấy mà không đổi cách layout tính toán.</td>
+                </tr>
+                <tr>
+                  <td><code>white-space: nowrap</code></td>
+                  <td>
+                    Trong một ô rộng 1px, chữ sẽ gãy thành một ký tự mỗi dòng và một số
+                    screen reader đọc rời từng chữ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <em>không</em> dùng <code>display: none</code>
+                  </td>
+                  <td>
+                    Đó là cái bẫy mà cả lớp này tồn tại để tránh:
+                    <code>display: none</code> gỡ phần tử khỏi <strong>cả hai</strong> cây.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lớp này còn là nguồn của một lỗi bố cục rất khó đoán, ghi trong
+            <code>docs/accessibility.md</code> (phát hiện #9): chữ
+            <code>.visually-hidden</code> bên trong một ô bảng dùng
+            <code>position: absolute</code>, nên nó neo vào
+            <em>containing block</em> gần nhất. Nếu không có ancestor nào định vị, nó neo vào
+            cả trang — và trên điện thoại, trang bị cuộn ngang. Cách sửa:
+            <code>position: relative</code> trên vùng của <code>app-table</code>, để vùng đó
+            trở thành containing block. Một thuộc tính accessibility làm vỡ layout
+            responsive; hai thứ mà bạn vẫn nghĩ là hai lĩnh vực rời nhau.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/styles/_a11y.scss</div>
+            <pre><code>/* Skip link: the first thing in the tab order, hidden until focused.
+ *
+ * Without it, a keyboard user re-traverses the entire navigation on every page
+ * - which is exactly the cost that makes people stop using the keyboard. */
+.skip-link {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-start: var(--space-2);
+  z-index: var(--z-overlay);
+  ...
+  transform: translateY(-200%);
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}</code></pre>
+          </div>
+
+          <p>
+            Ba điều để ý. <code>inset-inline-start</code> thay cho <code>left</code> — bài 21
+            và bài 06, hướng logic để sẵn sàng RTL, và <code>lint/styles.ts</code> cưỡng chế.
+            <code>transform: translateY(-200%)</code> đẩy nó ra khỏi màn hình mà
+            <strong>vẫn ở trong cây accessibility</strong> và vẫn focus được — lại là cái bẫy
+            <code>display: none</code>. Và <code>:focus</code>, không phải
+            <code>:focus-visible</code>: liên kết này <em>chỉ</em> tồn tại cho người đang
+            dùng bàn phím, nên bất cứ cách nào focus tới nó cũng phải làm nó hiện ra.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một lần bấm "trang sau" bằng bàn phím</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng bàn phím
+    participant P as app-pagination
+    participant L as CustomerListPage
+    participant S as CustomerStore + cache
+    participant D as DOM
+
+    U-&gt;&gt;P: Tab tới nút Next page, bấm Enter
+    P-&gt;&gt;L: goToPage(2)
+    L-&gt;&gt;L: returnFocusTo('app-pagination [aria-current=page]', criteria)
+    L-&gt;&gt;L: router.navigate — query đổi, path KHÔNG đổi
+    Note over L: AppShell bỏ qua: previous === path<br/>nên focus không bị giật về h1
+
+    L-&gt;&gt;S: tải trang 2
+    alt trang 2 đã có trong cache
+        S--&gt;&gt;L: dữ liệu ngay
+        D-&gt;&gt;D: bảng được vẽ lại, KHÔNG qua skeleton
+        Note over D: focus vẫn trên nút cũ → lost = false<br/>effect không làm gì
+    else chưa có trong cache
+        D-&gt;&gt;D: skeleton thay cả bảng
+        Note over D: nút đang có focus bị HUỶ<br/>focus rơi về body
+        S--&gt;&gt;L: dữ liệu về
+        L-&gt;&gt;L: effect: criteria khớp? view = rows? pending = false?
+        L-&gt;&gt;D: afterNextRender → active === body ? focus(selector)
+        D--&gt;&gt;U: focus trên nút Go to page 2
+    end
+            </pre>
+            <figcaption>
+              Hai nhánh <code>alt</code> là toàn bộ cái khó: cùng một hành động của người
+              dùng, nhưng chỉ nhánh dưới làm mất focus. Một bản sửa không kiểm tra
+              <code>lost</code> sẽ giật focus của người dùng ở nhánh trên — sửa một lỗi, tạo
+              một lỗi khác.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Có gì vừa đổi? Focus đi đâu?</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    E{"Vừa có gì đổi trên màn hình?"}
+
+    E -->|"path đổi — trang khác"| N1{"lần điều hướng đầu tiên?"}
+    N1 -->|"có"| N2["KHÔNG làm gì<br/>trình duyệt đã ở đầu tài liệu"]
+    N1 -->|"không"| N3{"trang mới có h1?"}
+    N3 -->|"có"| N4["focus h1 — thêm tabindex=-1"]
+    N3 -->|"không"| N5["focus main"]
+
+    E -->|"chỉ query hoặc fragment đổi"| Q1["KHÔNG giật focus<br/>lọc · sort · trang không phải trang mới"]
+    Q1 --> Q2{"control đang có focus có bị huỷ không?"}
+    Q2 -->|"có — qua skeleton"| Q3["focus bản sao của nó<br/>khi ĐÚNG kết quả đó hiện ra"]
+    Q2 -->|"không — có cache"| Q4["KHÔNG làm gì"]
+
+    E -->|"save thất bại"| F1["focus field đầu tiên có aria-invalid=true<br/>lỗi của nó được đọc qua aria-describedby"]
+
+    E -->|"dialog mở"| D1["focus vào trong — cdkTrapFocus autoCapture"]
+    D1 --> D2["Tab bị giam lại · Escape đóng"]
+    D2 --> D3["focus TRỞ VỀ trigger"]
+
+    E -->|"drawer di động mở"| D1
+    E -->|"bấm skip link"| SK["preventDefault rồi focus main<br/>cuộn một mình là không đủ"]
+            </pre>
+            <figcaption>
+              Năm nhánh, và hai trong số đó kết thúc bằng
+              <strong>không làm gì</strong>. Quản lý focus đúng phần nhiều là biết
+              <em>khi nào không can thiệp</em>: mọi lần giật focus mà người dùng không yêu
+              cầu đều là một lần làm họ mất chỗ.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Cổng axe chỉ chặn <code>critical</code> và <code>serious</code></h4>
+          <p>
+            Phương án bị loại: chặn <em>mọi</em> phát hiện. Lý do loại được viết thẳng trong
+            file test:
+            <em
+              >"Hiding them would be worse than failing on them, and failing on advisory
+              rules would teach people to turn the scan off."</em
+            >
+            Một cổng chặn cả những luật mang tính khuyến nghị sẽ bị người ta tắt — và lúc đó
+            bạn mất luôn phần <code>critical</code>. Nên <code>moderate</code> và
+            <code>minor</code> được <strong>gắn vào báo cáo test</strong> và liệt kê trong
+            <code>docs/accessibility.md</code>, nơi mỗi mục đều được sửa hoặc được giải thích.
+            Đánh đổi: cần một con người đọc báo cáo. Repo chấp nhận, và trả giá bằng mục 4
+            của tài liệu đó.
+          </p>
+
+          <h4><code>aria-modal</code> một mình, chưa dùng <code>inert</code></h4>
+          <p>
+            Hiện tại <code>aria-modal="true"</code> là <strong>thứ duy nhất</strong> che phần
+            còn lại của trang khỏi screen reader. <code>docs/accessibility.md</code> ghi thẳng
+            đó là một điểm còn mở, với lý do: thuộc tính này được NVDA, JAWS, VoiceOver và
+            TalkBack hiện hành hỗ trợ; đặt <code>inert</code> lên phần còn lại của shell là
+            lớp bảo hiểm thứ hai và cần một service để điều phối (ai gỡ <code>inert</code> khi
+            có hai modal lồng nhau?). Đánh đổi được nêu tên, mức ảnh hưởng ghi là
+            <em>"none measured"</em>, và có chủ cho Phase 8.
+          </p>
+
+          <h4>Dialog vẽ tại chỗ, không qua CDK overlay</h4>
+          <p>
+            Overlay của CDK sẽ tự lo chuyện đặt dialog lên trên cùng — nhưng nó
+            <em>chuyển</em> DOM ra ngoài <code>&lt;body&gt;</code>, và khi đó dialog nằm ngoài
+            mọi landmark (đúng là phát hiện <code>region</code> mức moderate mà repo đang
+            chấp nhận cho menu). Lý do giữ cách vẽ tại chỗ:
+            <code>position: fixed</code> vỡ nếu có ancestor nào mang
+            <code>transform</code>, và trong repo thì
+            <strong>không có</strong> — mọi dialog đều treo ở gốc shell qua
+            <code>ConfirmationHost</code>. Đánh đổi được ghi kèm điều kiện phải xét lại: một
+            dialog nằm trong container có <code>transform</code> thì buộc phải chuyển sang
+            overlay.
+          </p>
+
+          <h4>Trên điện thoại là danh sách card, không phải bảng (ADR-0034)</h4>
+          <p>
+            Phương án bị loại: vẽ cả hai rồi ẩn một bằng CSS. Bị loại vì lý do đúng là lý do
+            accessibility, và chú thích trong <code>customer-list-page.ts</code> nói ra:
+            <em
+              >"rendering both and hiding one would put every row in the DOM twice and every
+              checkbox in the tab order twice."</em
+            >
+            Người dùng chuột sẽ không bao giờ phát hiện; người dùng bàn phím gặp mọi checkbox
+            hai lần. Nên việc chọn giữa hai thể hiện được quyết định trong
+            <strong>TypeScript</strong>, bằng <code>LayoutBreakpoints</code>, chứ không bằng
+            <code>display: none</code>.
+          </p>
+
+          <h4>Chưa có lần thử nào với screen reader thật</h4>
+          <p>
+            Mục 4 của <code>docs/accessibility.md</code> ghi đúng như thế, mức ảnh hưởng
+            <em>"unknown"</em>: môi trường chạy không có screen reader. Thay thế hiện tại là
+            bộ E2E khẳng định <em>role</em> và <em>name</em> — tức là chính thứ mà một screen
+            reader tiêu thụ. Đó là một thay thế thật, nhưng không phải cùng một thứ, và tài
+            liệu không giả vờ là nó giống. Đây là kiểu ghi nợ mà bạn nên bắt chước: nêu điều
+            chưa làm, nêu cái đang thay thế, nêu giới hạn của cái thay thế.
+          </p>
+
+          <h4>Hai khoá cuộn độc lập</h4>
+          <p>
+            Dialog và drawer mỗi cái gọi <code>lockScrollWhile</code> riêng. Hôm nay chúng
+            không bao giờ mở cùng lúc (không thể hỏi xác nhận trong khi drawer đang mở), nên
+            không sao. Nếu một ngày chúng chồng nhau, block strategy của CDK sẽ trả lại trạng
+            thái cuộn ở lần nhả <em>thứ nhất</em> — quá sớm. Lại là một dòng trong bảng "vấn
+            đề còn mở", với đúng điều kiện để phải xem lại.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <p>
+            Mười cách, xếp theo mức phổ biến. Tôi gặp cả mười trong code sản xuất thật, và
+            repo này chặn chín cách bằng lint hoặc bằng test.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>outline: none</code> vì vòng focus "xấu"</span>
+            <p>
+              Người dùng chuột không thấy gì đổi. Người dùng bàn phím mất hoàn toàn khả năng
+              biết mình đang ở đâu — ứng dụng trở nên không dùng được, không phải khó dùng.
+              Nếu lý do thật là "vòng focus hiện lên cả khi click chuột" thì câu trả lời là
+              <code>:focus-visible</code>, không phải tắt nó.
+            </p>
+            <p>
+              <strong>Repo chặn:</strong> <code>lint/styles.ts</code>, luật
+              <code>outline-removed</code>. Có cửa thoát, nhưng cửa thoát
+              <em>đòi một lý do</em>: comment <code>style-lint-allow: &lt;why&gt;</code> ở
+              dòng trên. Toàn repo có đúng một chỗ dùng — và lý do của nó đọc được:
+              <code
+                >/* style-lint-allow: focused only by script; the skip link is the ring
+                */</code
+              >.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. <code>&lt;div (click)&gt;</code> làm nút</span>
+            <p>
+              Không vào tab order, không nhận Enter/Space, không được đọc là button. Thêm
+              <code>role="button"</code> vào chỉ sửa điều thứ ba trong ba điều.
+              <strong>Repo chặn:</strong> bộ luật
+              <code>templateAccessibility</code> của angular-eslint, bật trong
+              <code>apps/web/eslint.config.js</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>aria-label</code> rắc lên mọi thứ "cho chắc"</span>
+            <p>
+              Nó <strong>đè</strong> nội dung thật. Nút hiện chữ "Lưu" mà mang
+              <code>aria-label="Submit form"</code> thì người dùng screen reader và người
+              dùng mắt đang nói về hai nút khác nhau — và khi hỗ trợ qua điện thoại, không ai
+              hiểu người kia đang nói gì. Chỉ dùng <code>aria-label</code> khi
+              <em>không có</em> chữ nào, như nút chỉ có icon.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. <code>aria-describedby</code> viết cứng</span>
+            <p>
+              <code>aria-describedby="email-error"</code> viết thẳng trong template, trong khi
+              thẻ lỗi chỉ tồn tại khi có lỗi. Lúc bình thường, nó trỏ vào hư không — và
+              <strong>một số screen reader im lặng hoàn toàn</strong> cho cả field. Người
+              dùng mắt thấy form hoàn hảo. Đây là lỗi accessibility khó phát hiện nhất trong
+              danh sách này, vì nó không hỏng thứ gì nhìn thấy được.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Dialog không giam focus</span>
+            <p>
+              Tab từ nút cuối trong dialog ra tiếp phần trang phía sau tấm mờ. Người dùng bàn
+              phím tiếp tục Tab vào những control họ
+              <em>không nhìn thấy</em>, bấm Enter, và một hành động nào đó xảy ra ở một trang
+              họ tưởng đã bị che. Tự viết focus trap thì thường sót đúng điều 4 — trả focus
+              về trigger — nên repo dùng <code>cdkTrapFocus</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Không ai nghĩ tới focus sau khi điều hướng</span>
+            <p>
+              Đây là lỗi mặc định của <em>mọi</em> SPA chưa xử lý: đổi trang trong im lặng.
+              Người dùng screen reader bấm một link, không nghe gì, và không có cách nào biết
+              là trang đã đổi hay là app bị treo. Nó không hiện ra trong axe, vì DOM sau khi
+              điều hướng hoàn toàn hợp lệ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Toast tự tắt sau 5 giây, không điều kiện</span>
+            <p>
+              Thông báo biến mất trong lúc đang được đọc, hoặc đúng lúc người dùng vừa Tab
+              tới cái nút "Hoàn tác" trong nó. Với người đọc chậm thì chưa kịp hết câu. Đây là
+              debt row 23 của repo — tức là nó <em>đã</em> được viết kiểu ngây thơ một lần,
+              rồi bị ghi nợ, rồi mới sửa.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. <code>display: none</code> để "ẩn mà vẫn cho screen reader đọc"</span>
+            <p>
+              Nó gỡ phần tử khỏi <strong>cả hai</strong> cây. Tức là làm đúng ngược lại điều
+              bạn muốn: ẩn với mắt <em>và</em> ẩn với screen reader. Đây là lý do
+              <code>.visually-hidden</code> dài tám dòng thay vì một.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. Kiểm contrast một lần, trong theme sáng</span>
+            <p>
+              Và đạt. Rồi theme tối đổi bề mặt, và một nửa token chữ trượt dưới 4,5:1 mà
+              không ai đo lại. Phát hiện #1 của Phase 6 đúng là thế: nút nguy hiểm
+              <strong>2,6:1</strong> trong theme tối. Contrast là thuộc tính của cặp màu, nên
+              cổng kiểm tra phải chạy <em>mỗi theme</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">10. Chạy axe trên trang chủ, kết luận "ứng dụng đạt AA"</span>
+            <p>
+              Quét một route trong một theme, không mở dialog nào, không có form nào đang hiện
+              lỗi. axe cũng chỉ bắt khoảng một phần ba vấn đề thật ngay cả trên những gì nó
+              <em>có</em> quét. Khoảng cách giữa "axe không báo gì" và "dùng được bằng bàn
+              phím" chính là nội dung của <code>e2e/keyboard.spec.ts</code> — và chỉ bộ test
+              đó mới bắt được các vấn đề 2, 3, 5, 6, 7 ở trên.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <h3>8.1 Bốn tầng, mỗi tầng bắt một loại lỗi khác nhau</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Ở đâu</th>
+                  <th>Nó bắt được gì — và không bắt được gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Lint template</td>
+                  <td><code>apps/web/eslint.config.js</code></td>
+                  <td>
+                    <code>templateAccessibility</code>: div bấm được, thiếu nhãn, role sai.
+                    Cộng với luật <code>i18n</code> bật
+                    <code>checkAttributes</code> — nên một
+                    <code>aria-label</code> viết cứng cũng là lỗi build. Không bắt được: bất
+                    cứ thứ gì chỉ hiện ra lúc chạy.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lint style</td>
+                  <td><code>lint/styles.ts</code></td>
+                  <td>
+                    Vòng focus bị gỡ; hướng vật lý (chuẩn bị RTL). Không bắt được: contrast —
+                    nó không biết màu nào nằm trên màu nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Unit test component</td>
+                  <td><code>*.spec.ts</code> cạnh mỗi component</td>
+                  <td>
+                    Nhãn, <code>aria-describedby</code>, <code>aria-invalid</code>, role,
+                    trạng thái checked. Đây là nơi khẳng định
+                    <em>hợp đồng</em> của một component. Không bắt được: chuyện xảy ra giữa
+                    các component, như focus sau điều hướng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>E2E</td>
+                  <td>
+                    <code>e2e/accessibility.spec.ts</code>,
+                    <code>e2e/keyboard.spec.ts</code>, <code>responsive</code>,
+                    <code>layout</code>
+                  </td>
+                  <td>
+                    axe trên mọi route trong hai theme; mọi hành trình bằng bàn phím thật.
+                    Đây là tầng duy nhất bắt được các vấn đề focus ở mục 3.6.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>8.2 Bộ axe: hình dạng của nó <em>là</em> lập luận của nó</h3>
+
+          <div class="code">
+            <div class="code__file">e2e/accessibility.spec.ts</div>
+            <pre><code>const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'];
+
+/** The route list. Kept here, flat, so a new route is one line. */
+const PUBLIC_ROUTES = [ '/login', '/rendering-lab/client', ... ];
+const APP_ROUTES = [ '/customers', '/customers/new', '/customers/:id', ... ];
+
+for (const theme of ['light', 'dark'] as const) {
+  test.describe(`axe, ${theme} theme`, () =&gt; {
+    // ... mọi route công khai, mọi route trong app,
+    // rồi: test.describe('states that exist only after an interaction', ...)
+  });
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao nó ở đó</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Vòng <code>for</code> theme ở <strong>ngoài</strong></td>
+                  <td>Mỗi route được quét hai lần. Đó là phép kiểm contrast cho cả hai theme.</td>
+                </tr>
+                <tr>
+                  <td>Danh sách route để phẳng, trong file</td>
+                  <td>
+                    Chú thích nói lý do: <em>"so a new route is one line"</em>. Một cổng mà
+                    thêm route vào tốn công thì sẽ có route không được thêm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>settle(page)</code> trước mỗi lần quét</td>
+                  <td>
+                    Chờ <code>&lt;h1&gt;</code> hiện và <code>[aria-busy="true"]</code> về 0.
+                    Quét lúc đang tải là đi <em>audit cái skeleton</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nhóm "states that exist only after an interaction"</td>
+                  <td>
+                    Dialog xác nhận, menu đang mở, bảng thông báo, form đang hiện lỗi, drawer
+                    di động. Mục 2 điểm 3: một dialog chưa mở là một dialog chưa quét.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nhóm <code>reduced motion</code>, test cả hai chiều
+                  </td>
+                  <td>
+                    Một test khẳng định thời lượng <code>&le; 0.00001</code> khi bật giảm
+                    chuyển động; test kia khẳng định
+                    <code>&gt; 0.05</code> khi không bật. Test thứ hai là phần hay: nó chứng
+                    minh rule kia <em>có điều kiện</em>, chứ không phải ai đó đã tắt animation
+                    của cả ứng dụng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Kết quả tại <code>phase-6-complete</code>, ghi trong
+            <code>docs/accessibility.md</code>: <strong>64 trạng thái</strong> được quét,
+            <strong>không</strong> có phát hiện <code>critical</code> hay
+            <code>serious</code>, một phát hiện <code>moderate</code> — và phát hiện đó được
+            kê tên trong mục 4 của tài liệu kèm lý do còn mở (overlay container của CDK nằm
+            ngoài landmark).
+          </p>
+
+          <h3>8.3 Bộ bàn phím: không có một lệnh <code>click()</code> nào</h3>
+
+          <div class="code">
+            <div class="code__file">e2e/keyboard.spec.ts — chú thích đầu file</div>
+            <pre><code>No `click()` in this file: focus moves by Tab, Shift+Tab and the arrow keys,
+and things are activated by Enter, Space and Escape - what a keyboard user,
+a switch user and most screen-reader users actually have. A control that is
+reachable only by pointer fails here, as does one that traps focus, loses
+it, or leaves it somewhere invisible.
+
+`tabTo` presses Tab until the target has focus, and fails if it never does.
+That is the assertion: the control is in the tab order, in a sensible
+place, within a bounded number of presses.</code></pre>
+          </div>
+
+          <p>
+            Đây là một ý tưởng test rất đáng mang đi: <strong>ràng buộc của bộ test chính là
+            điều nó khẳng định</strong>. Không cần viết một test riêng tên là "mọi control
+            đều tới được bằng bàn phím" — chỉ cần cấm <code>click()</code>, và mỗi hành trình
+            tự trở thành bằng chứng. <code>tabTo</code> ném lỗi nếu không tới được trong 60
+            lần bấm (120 cho thanh phân trang, vì nó ở xa dưới trang), nên "tới được" còn kèm
+            nghĩa "tới được <em>trong một số bước hợp lý</em>".
+          </p>
+
+          <p>Mười hai hành trình, chia thành năm nhóm:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nhóm</th>
+                  <th>Khẳng định đáng chú ý</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>signing in</code></td>
+                  <td>
+                    Từ form đăng nhập tới danh sách khách hàng, <em>và focus hạ xuống đúng
+                    tiêu đề trang</em> — tức là ngoại lệ "lần điều hướng đầu tiên" ở mục 4.4
+                    không được tính nhầm cho lần này.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>the shell</code></td>
+                  <td>
+                    Skip link là <strong>chặng đầu tiên</strong> và nó
+                    <em>di chuyển focus</em> vào nội dung; menu theme đi bằng phím mũi tên,
+                    chọn được, và trả focus về trigger; bảng thông báo đóng bằng Escape với
+                    focus được trả lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>the customer list</code></td>
+                  <td>
+                    Sort bằng Enter trên tiêu đề cột rồi
+                    <strong>focus vẫn ở trên tiêu đề đó</strong>, không phải
+                    <code>&lt;body&gt;</code>; đổi trang thì focus nằm trên nút của trang
+                    mới; chọn hàng bằng Space, xoá qua một dialog bị giam và trả focus.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>the customer form</code></td>
+                  <td>
+                    Save thất bại thì focus về field đầu tiên cần sửa; tạo một khách hàng từ
+                    đầu đến cuối chỉ bằng bàn phím.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>notifications</code></td>
+                  <td>Toast chờ khi con trỏ hoặc focus ở trên nó, và tắt được bằng bàn phím.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và cách kiểm một focus trap, đáng xem vì nó đơn giản đến mức thô:</p>
+
+          <div class="code">
+            <div class="code__file">e2e/keyboard.spec.ts</div>
+            <pre><code>// Ten presses of Tab and ten of Shift+Tab: focus never leaves the dialog.
+for (let press = 0; press &lt; 10; press++) {
+  await page.keyboard.press('Tab');
+  const inside = await page.evaluate(
+    () =&gt; !!document.activeElement?.closest('[role="dialog"], .scrim'),
+  );
+  expect(inside, `Tab ${press + 1} escaped to ${await focused(page)}`).toBe(true);
+}</code></pre>
+          </div>
+
+          <p>
+            Hai mươi lần bấm, mỗi lần một lần kiểm. Và tham số thứ hai của
+            <code>expect</code> là một thông báo lỗi <em>có ích</em>: nó nói Tab thứ mấy đã
+            lọt, và lọt tới phần tử nào (hàm <code>focused()</code> trả về tag kèm accessible
+            name). Khi test này đổ lúc 2 giờ sáng, dòng đó là thứ bạn cần.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Phần tôi thích nhất: test được kiểm xem có "răng"</span>
+            <p>
+              ADR-0037 ghi:
+              <em
+                >"Each is tested with the keyboard in e2e/keyboard.spec.ts, and the third was
+                checked for teeth: without the restore, the pagination and sort tests
+                fail."</em
+              >
+            </p>
+            <p>
+              Nghĩa là: họ <strong>gỡ bản sửa ra</strong> và xác nhận test đổ. Một test
+              accessibility luôn xanh có thể là vì ứng dụng đúng, mà cũng có thể là vì test
+              không khẳng định gì cả. Cách duy nhất phân biệt là phá cái nó canh. Bài tập 2 ở
+              dưới là bạn tự làm lại đúng việc đó — và tự ghi lại kết quả, chứ không tin câu
+              trên.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Tôi vừa viết một mẩu UI mới"}
+
+    S -->|"nó bấm được"| B1{"đã có component trong shared/ui chưa?"}
+    B1 -->|"có"| B2["DÙNG NÓ<br/>accessibility của nó đã được test"]
+    B1 -->|"không"| B3["phải là button hoặc a thật<br/>div có click bị lint từ chối"]
+    B3 --> B4["có accessible name chưa?<br/>chỉ icon thì cần aria-label"]
+
+    S -->|"nó là một field"| F1["label for + id thật"]
+    F1 --> F2["aria-invalid chỉ khi sai<br/>null để GỠ thuộc tính"]
+    F2 --> F3["aria-describedby là computed<br/>id không tồn tại = im lặng cả field"]
+    F3 --> F4["thẻ lỗi mang role=alert"]
+
+    S -->|"nó là modal"| M1["hợp đồng bốn điều<br/>vào · giam · Escape · trả về"]
+    M1 --> M2["cdkTrapFocus autoCapture lo 1 2 4"]
+    M2 --> M3["lockScrollWhile để trang sau không cuộn"]
+
+    S -->|"nó thông báo một việc"| L1{"người dùng vừa gây ra việc đó?"}
+    L1 -->|"không — hệ thống tự làm"| L2["live region vẽ SẴN và rỗng<br/>polite, hoặc assertive nếu là thất bại"]
+    L1 -->|"đang tải"| L3["role=status một CÂU + aria-busy trên vùng<br/>spinner là trang trí, aria-hidden"]
+
+    S -->|"nó huỷ phần tử đang có focus"| R1["nói focus đi đâu tiếp<br/>và CHỈ đặt lại nếu focus thật sự mất"]
+
+    S -->|"nó có chuyển động"| A1["thời lượng từ token<br/>prefers-reduced-motion đã lo phần còn lại"]
+
+    S --> Z["MỌI nhánh: chữ đi qua lớp dịch — bài 21<br/>kể cả aria-label"]
+    Z --> Y["thêm một dòng vào keyboard.spec.ts<br/>route mới thì thêm một dòng vào accessibility.spec.ts"]
+            </pre>
+            <figcaption>
+              Nhánh đầu tiên là nhánh quan trọng nhất: <em>đã có component chưa?</em> Mọi ô
+              còn lại trong sơ đồ này là việc mà
+              <code>shared/ui</code> đã làm một lần cho tất cả. Và hai ô cuối là điểm 2 trong
+              mục "When adding UI" của <code>docs/accessibility.md</code>: một pattern tương
+              tác mới được một dòng trong bộ test bàn phím, một route mới được một dòng trong
+              danh sách route của axe.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Một giờ không dùng chuột</h3>
+            <p class="task__meta">~40 phút · không sửa code</p>
+            <p>
+              Bài tập quan trọng nhất của cả bài này, và là thứ duy nhất không có công cụ nào
+              thay thế được. Đẩy chuột ra xa tay. Mở <code>/login</code>. Làm hết danh sách
+              dưới đây chỉ bằng Tab, Shift+Tab, phím mũi tên, Enter, Space, Escape.
+            </p>
+            <ol>
+              <li>Đăng nhập.</li>
+              <li>
+                Ngay sau khi vào danh sách, <strong>focus đang ở đâu?</strong> Bấm Tab một
+                lần để biết. (Gợi ý: nó phải ở tiêu đề trang.)
+              </li>
+              <li>
+                Bấm Tab một lần từ đầu trang. Chặng đầu tiên là gì? Bấm Enter vào nó. Sau đó
+                bấm Tab tiếp — bạn ở đâu?
+              </li>
+              <li>Đổi theme bằng menu theme, chỉ dùng phím mũi tên.</li>
+              <li>
+                Sort bảng theo một cột. <strong>Đếm</strong> xem sau khi sort xong thì cần bao
+                nhiêu lần Tab để tới lại cái tiêu đề đó. Ghi con số.
+              </li>
+              <li>Sang trang 2, rồi trang 3. Lặp lại phép đếm trên.</li>
+              <li>Chọn ba hàng bằng Space, mở hộp xác nhận xoá, rồi thoát bằng Escape.</li>
+              <li>
+                Vào <code>/customers/new</code>, bấm luôn nút tạo mà không điền gì. Focus nhảy
+                tới đâu?
+              </li>
+              <li>Tạo một khách hàng hợp lệ, từ đầu đến cuối.</li>
+              <li>
+                Thu cửa sổ về khoảng 375px rộng. Mở drawer điều hướng. Tab mười lần — focus có
+                lọt ra ngoài drawer không?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì, và cái gì là phát hiện</summary>
+              <p>
+                Bước 5 và 6 là tâm của bài: nếu con số bạn đếm là <em>một</em>, cơ chế trả
+                focus ở mục 4.5 đang chạy. Nếu nó là một số lớn (bạn phải Tab lại từ đầu
+                trang), bạn vừa tái hiện đúng lỗi mà Phase 6 tìm ra — hãy xem lại là trang đó
+                đã có trong cache chưa, vì đây là lỗi
+                <em>phụ thuộc cache</em>.
+              </p>
+              <p>
+                Bước 8: focus phải ở field đầu tiên có lỗi, không phải ở nút. Nếu bạn dùng
+                screen reader, bạn còn nghe cả nhãn và câu lỗi của nó.
+              </p>
+              <p>
+                Bất cứ chỗ nào bạn <strong>không biết mình đang ở đâu</strong> là một phát
+                hiện. Ghi lại. Đó chính là cách danh sách 12 phát hiện trong
+                <code>docs/accessibility.md</code> được tạo ra.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Gỡ bản sửa ra và xem test nào đổ</h3>
+            <p class="task__meta">~35 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Mục 8.3 dẫn một câu trong ADR-0037 nói rằng bỏ cơ chế trả focus thì
+              <em>hai</em> test đổ: phân trang và sort. <strong>Đừng tin câu đó.</strong> Tự
+              kiểm.
+            </p>
+            <ol>
+              <li>
+                Trong <code>customers/customer-list/customer-list-page.ts</code>, tìm effect
+                được chú thích <code>// See `returnFocusTo`.</code> và vô hiệu hoá
+                <em>chỉ</em> lệnh <code>focus()</code> bên trong nó.
+              </li>
+              <li>
+                Chạy <code>npx playwright test keyboard</code>. Ghi lại
+                <strong>chính xác</strong> những test nào đổ và thông báo lỗi của chúng.
+              </li>
+              <li>Hoàn nguyên. Chạy lại. Phải xanh hết.</li>
+              <li>
+                Giờ làm tương tự với một chỗ khác, tự chọn một trong ba: bỏ
+                <code>cdkTrapFocus</code> khỏi <code>dialog.ts</code>; bỏ
+                <code>role="alert"</code> khỏi thẻ lỗi của <code>text-input.ts</code>; đổi
+                <code>describedBy()</code> thành một chuỗi cứng
+                <code>"app-input-0-error"</code>.
+              </li>
+              <li>
+                Với mỗi lần phá: test nào đổ? axe có bắt không
+                (<code>npx playwright test accessibility</code>)? Hay
+                <strong>không gì đổ cả</strong>?
+              </li>
+            </ol>
+            <details>
+              <summary>Cách đọc kết quả</summary>
+              <p>
+                "Không có test nào đổ" là một kết quả hợp lệ và là kết quả
+                <em>thú vị nhất</em>: nó có nghĩa là hành vi đó chưa được canh. Nếu bạn tìm
+                được một chỗ như vậy, bạn vừa tìm ra một lỗ thật trong bộ test của repo — và
+                một dòng test mới để viết. Hãy ghi nó vào
+                <code>docs/learning/journal.md</code>.
+              </p>
+              <p>
+                Dự đoán của tôi cho bước 4: bỏ <code>role="alert"</code> thì axe
+                <strong>không</strong> bắt (DOM vẫn hợp lệ, chỉ là không có gì được đọc lên) —
+                nhưng spec của component có thể bắt. Hãy xem có đúng không, và nếu không đúng
+                thì tin kết quả của bạn, không tin dự đoán của tôi.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Ai bắt trước: lint, axe, hay không ai?</h3>
+            <p class="task__meta">~30 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Bài này để bạn cảm nhận được <em>biên</em> của từng tầng kiểm tra ở mục 8.1.
+              Với mỗi lỗi dưới đây, hãy dự đoán trước xem tầng nào bắt, rồi chạy cả ba và ghi
+              lại sự thật.
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Lỗi bạn cố tình đưa vào</th>
+                    <th>Dự đoán của bạn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      Một <code>&lt;div (click)="..."&gt;</code> thay cho một nút ở bất kỳ
+                      template nào
+                    </td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td><code>outline: none</code> trong <code>styles:</code> của một component</td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      Một <code>aria-label="Delete"</code> viết cứng (không qua lớp dịch)
+                    </td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      Đổi <code>--danger-solid</code> thành một màu nhạt hơn nhiều trong
+                      <code>_tokens.scss</code>
+                    </td>
+                    <td>?</td>
+                  </tr>
+                  <tr>
+                    <td>Xoá <code>scope="col"</code> khỏi tiêu đề cột của bảng khách hàng</td>
+                    <td>?</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Ba lệnh để chạy: <code>npm run lint</code>,
+              <code>npx playwright test accessibility</code>, và
+              <code>npm run test</code>.
+            </p>
+            <details>
+              <summary>Điều bài này muốn dạy</summary>
+              <p>
+                Mỗi tầng có một biên rõ ràng, và các biên đó
+                <strong>không phủ kín nhau</strong>. Lint bắt được những gì đọc được từ code
+                tĩnh. axe bắt được những gì đo được trên DOM đã vẽ — kể cả contrast, nên hàng
+                thứ tư sẽ bị bắt ở đó chứ không phải ở lint. Và sẽ có hàng mà
+                <em>không ai</em> bắt: đó là nơi bạn cần một con người đi bằng bàn phím, hoặc
+                một dòng test mới.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Screen reader đọc cái gì — DOM, hay cái khác?</summary>
+            <p>
+              Cây accessibility, thứ trình duyệt sinh ra từ DOM. Mỗi nút là một
+              <em>(role, name, state)</em>. Nó không có màu, không có vị trí, và thứ tự của nó
+              là thứ tự DOM — không phải thứ tự trên màn hình.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              2. Vì sao <code>&lt;div role="button" (click)&gt;</code> vẫn là sai?
+            </summary>
+            <p>
+              Vì ARIA chỉ <em>nói</em>, không <em>làm</em>. Cái div đó không vào tab order,
+              không phản ứng với Enter và Space, không có trạng thái disabled. Bạn đã khai nó
+              là một button mà không cho nó bất cứ hành vi nào của button — tức là nói với
+              client thứ hai một điều không đúng.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              3. <code>aria-describedby</code> trỏ tới một id không tồn tại thì sao?
+            </summary>
+            <p>
+              Một số screen reader <strong>không đọc gì cả</strong> cho cả field — không phải
+              chỉ bỏ qua phần thiếu. Vì thế repo tính nó bằng
+              <code>computed</code> từ <code>hint()</code> và <code>error()</code>, và trả về
+              <code>null</code> khi không có cái nào, để Angular gỡ hẳn thuộc tính.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Bốn điều của hợp đồng modal là gì, và ai lo điều nào?</summary>
+            <p>
+              Focus đi vào; focus không ra được bằng Tab; Escape đóng; focus trở về trigger.
+              <code>cdkTrapFocus</code> với <code>autoCapture</code> lo 1, 2 và 4 — kể cả phần
+              khó của 4 là nhớ trigger qua một lần re-render. Điều 3 là một binding
+              <code>(keydown.escape)</code> trong <code>dialog.ts</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              5. Vì sao effect trả focus ở trang danh sách kiểm tra <code>lost</code>?
+            </summary>
+            <p>
+              Vì trang đã có trong cache được vẽ ngay, không qua skeleton — nên không có gì bị
+              huỷ và focus không hề mất. Nếu không kiểm, effect sẽ
+              <em>giật</em> focus của người dùng về nút phân trang dù họ đã Tab đi chỗ khác.
+              Sửa một lỗi mà tạo ra một lỗi khác.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao axe không đủ, dù nó chạy trên mọi route trong hai theme?</summary>
+            <p>
+              Vì nó bắt khoảng một phần ba vấn đề thật, và vì có cả một lớp lỗi mà DOM vẫn
+              hoàn toàn hợp lệ: focus không di chuyển sau điều hướng, focus bị mất khi một
+              control bị huỷ, toast tắt trong lúc đang đọc, một control chỉ tới được bằng
+              chuột. Đó là nội dung của <code>keyboard.spec.ts</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              7. Vì sao bộ test bàn phím <em>cấm</em> <code>click()</code>?
+            </summary>
+            <p>
+              Vì ràng buộc đó chính là lời khẳng định. Khi cách duy nhất để chạm vào một
+              control là Tab và Enter, thì mỗi hành trình đi qua được đã tự chứng minh rằng
+              mọi control trên đường đi đều nằm trong tab order, đúng chỗ, và trong một số
+              bước hợp lý. Không cần viết thêm test nào cho điều đó.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao reduced motion dùng <code>0.01ms</code> chứ không <code>0</code>?</summary>
+            <p>
+              Vì một transition dài <code>0</code> ở nhiều trình duyệt không bắn
+              <code>transitionend</code>, nên code nào đang chờ sự kiện đó sẽ treo. 0,01 ms thì
+              mắt không thấy nhưng vẫn <em>kết thúc</em>. Và có một test khẳng định chiều
+              ngược lại — thời lượng phải <code>&gt; 0.05</code> khi người dùng
+              <em>không</em> xin giảm chuyển động — để chứng minh rule là có điều kiện.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              9. "Kiểm xem test có răng" nghĩa là gì, và vì sao nó đặc biệt quan trọng ở đây?
+            </summary>
+            <p>
+              Là gỡ bản sửa ra và xác nhận test đổ. Quan trọng đặc biệt với accessibility vì
+              một test ở đây rất dễ xanh mà không khẳng định gì: DOM hợp lệ, trang
+              <em>trông</em> đúng, và cái sai thì vô hình. ADR-0037 ghi rõ họ đã làm việc này
+              cho vấn đề thứ ba.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Tiếp theo</span>
+            <p>
+              Bài này vừa dựa vào bốn tầng test mà chưa nói tầng nào là gì. Bài 23 là bản đồ
+              đầy đủ: cái gì được test ở đâu, vì sao, và bằng công cụ nào — unit test với
+              Vitest, <code>HttpTestingController</code>,
+              <code>RouterTestingHarness</code>, ba bộ Playwright, visual regression, và cả
+              những script lint mà <em>bản thân chúng</em> cũng có test.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="21-i18n.html">← Bài 21</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

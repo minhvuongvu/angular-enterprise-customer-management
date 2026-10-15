@@ -1,0 +1,1763 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bài 24 — Biên kiến trúc &amp; CI: luật chạy được</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 4 — Như trong team enterprise → Bài 24
+        </p>
+        <h1>Biên kiến trúc &amp; CI: luật chạy được</h1>
+        <p class="lede">
+          Mọi quy tắc trong hai mươi ba bài trước đều có một điểm yếu chung: chúng là
+          <em>chữ</em>. Chữ thì trôi. Bài này về lớp cuối cùng — biến từng quy tắc thành
+          một <strong>chương trình chạy được</strong>, và ghép tất cả thành một đường ống mà
+          một commit phải đi qua.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 4 · bài cuối, dẫn tới Mốc 4</li>
+          <li class="tag">~2 giờ đọc + 2 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Import graph</strong>, <strong>edge</strong></td>
+                  <td>
+                    Đồ thị: mỗi file là một đỉnh, mỗi câu <code>import</code> là một
+                    <em>cạnh</em> có hướng. Gần như mọi luật kiến trúc trong bài này đều là
+                    một câu hỏi về cạnh: "cạnh từ A tới B có được phép không?"
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Import cycle</strong></td>
+                  <td>
+                    A import B, B import A (trực tiếp hoặc vòng qua nhiều file). Hậu quả
+                    thật: thứ tự khởi tạo module trở nên khó đoán, tree-shaking kém đi, và
+                    không còn đọc được một mảnh code mà không kéo theo cả cụm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Type-only import</strong></td>
+                  <td>
+                    <code>import type { X } from './x'</code> — bị xoá hoàn toàn khi biên
+                    dịch. Không tồn tại lúc chạy, nhưng <em>vẫn</em> là một ràng buộc kiến
+                    trúc: nó nói module này biết tới module kia.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Dynamic import</strong></td>
+                  <td>
+                    <code>import('./x')</code> — tải lúc chạy, là
+                    <em>biên lazy load</em> (bài 15). Về kiến trúc, đây là một cạnh
+                    <strong>hợp lệ và có chủ ý</strong>, nên nó được loại khỏi phép tìm chu
+                    trình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>AST</strong> (<em>abstract syntax tree</em>)</td>
+                  <td>
+                    Cây cú pháp mà trình biên dịch dựng từ code. Phân tích qua AST khác hẳn
+                    phân tích bằng biểu thức chính quy — mục 3.3.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>SCC</strong> / thuật toán <strong>Tarjan</strong>
+                  </td>
+                  <td>
+                    <em>Strongly connected component</em>: một cụm đỉnh mà từ bất kỳ đỉnh nào
+                    cũng đi tới mọi đỉnh khác. Trong đồ thị import, một SCC có từ hai đỉnh
+                    trở lên <em>chính là</em> một chu trình. Tarjan là thuật toán tìm chúng
+                    trong một lần duyệt.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Entry point</strong> của một feature</td>
+                  <td>
+                    Danh sách file mà bên ngoài được phép import. Mọi file khác trong feature
+                    là nội bộ — đổi tự do. Đây là quy tắc 4 trong
+                    <code>CLAUDE.md</code>, được viết thành dữ liệu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Bundle</strong>, <strong>chunk</strong>,
+                    <strong>initial</strong>, <strong>lazy</strong>
+                  </td>
+                  <td>
+                    Bundle là JavaScript đã đóng gói. <em>Initial</em> là phần tải ngay khi
+                    mở trang; <em>lazy chunk</em> là phần chỉ tải khi vào một route (bài 15).
+                    Hai thứ cần hai ngân sách khác nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>esbuild metafile</strong></td>
+                  <td>
+                    File JSON mà bộ đóng gói ghi ra, kể chi tiết: output nào, gồm input nào,
+                    bao nhiêu byte. Đây là <em>số đo</em>, không phải ước lượng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Tree-shaking</strong></td>
+                  <td>
+                    Bỏ code không bao giờ được dùng tới khỏi bundle. Nó phụ thuộc vào
+                    <em>cách bạn viết câu import</em> — mục 4.5 có một ví dụ 327 kB.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Ratchet</strong></td>
+                  <td>
+                    Bánh cóc: ngưỡng chỉ đi một chiều. Bài 23 đã gặp với coverage; bài này là
+                    với kích thước bundle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>CI</strong>, <strong>job</strong>, <strong>gate</strong></td>
+                  <td>
+                    <em>Continuous integration</em>: máy chạy lại mọi phép kiểm trên mỗi lần
+                    push. Một <em>job</em> là một đơn vị chạy độc lập; nó là một
+                    <em>gate</em> (cổng) khi đỏ thì chặn merge.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Shard</strong>, <strong>matrix</strong></td>
+                  <td>
+                    Chia một bộ test thành n phần chạy song song (<em>shard</em>); chạy cùng
+                    một job với nhiều tham số (<em>matrix</em>). Repo chia E2E làm hai shard.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Branch protection</strong>, <strong>required check</strong></td>
+                  <td>
+                    Cấu hình phía GitHub: nhánh chính chỉ nhận merge khi các check đã nêu
+                    tên đều xanh. <strong>Không commit được</strong> — đây là một đánh đổi
+                    thật, ghi trong ADR-0042.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Dependabot</strong></td>
+                  <td>
+                    Bot của GitHub, mở pull request khi có bản thư viện mới. Mỗi PR đi qua
+                    đúng đường ống CI như mọi thay đổi khác.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>npm audit</code></td>
+                  <td>
+                    Đối chiếu cây phụ thuộc với cơ sở dữ liệu lỗ hổng đã công bố. Repo chạy
+                    nó với <code>--omit=dev --audit-level=high</code> — mục 4.7 nói vì sao
+                    hai cờ đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Secret scanning</strong></td>
+                  <td>
+                    Quét repo tìm những <em>hình dạng</em> của khoá thật: private key, token
+                    đám mây, file <code>.env</code> bị commit.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau bài này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Giải thích được vì sao một quy tắc kiến trúc "được cưỡng chế bằng review"
+              <strong>luôn</strong> trôi, và điều gì đổi khi nó thành một script.
+            </li>
+            <li>
+              Đọc được <code>lint/architecture.ts</code>: cạnh là gì, luật là dữ liệu, và vì
+              sao mỗi luật mang theo <em>lý do</em> của nó.
+            </li>
+            <li>
+              Nói được vì sao phải phân tích bằng compiler chứ không bằng biểu thức chính
+              quy.
+            </li>
+            <li>
+              Hiểu ba loại ngân sách bundle, và biết loại thứ ba —
+              <em>"code không bao giờ được ship"</em> — canh cái gì.
+            </li>
+            <li>
+              Đọc được một file CI thật: tại sao tách job, tại sao chạy trong Docker image
+              ghim phiên bản, và câu nào trong đó là một quyết định chứ không phải cấu hình.
+            </li>
+            <li>
+              Thiết lập được bộ khung này cho dự án của bạn: ba script lint, một ngân sách,
+              một lệnh <code>verify</code>, một pipeline.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>ArchUnit (Java) / NetArchTest (.NET)</td>
+                  <td><code>lint/architecture.ts</code></td>
+                </tr>
+                <tr>
+                  <td>Checkstyle, SpotBugs</td>
+                  <td>ESLint + <code>lint/styles.ts</code></td>
+                </tr>
+                <tr>
+                  <td>Quy tắc "module A không được phụ thuộc module B" trong Maven/Gradle</td>
+                  <td>11 luật trong <code>RULES</code>, cộng phép tìm chu trình</td>
+                </tr>
+                <tr>
+                  <td>Jenkins pipeline / GitLab CI stages</td>
+                  <td><code>.github/workflows/ci.yml</code></td>
+                </tr>
+                <tr>
+                  <td>Jacoco coverage gate</td>
+                  <td><code>coverageThresholds</code> (bài 23)</td>
+                </tr>
+                <tr>
+                  <td>OWASP dependency-check</td>
+                  <td><code>npm audit</code> + Dependabot</td>
+                </tr>
+                <tr>
+                  <td>Giới hạn kích thước artifact / thời gian khởi động</td>
+                  <td><code>perf/check-budgets.ts</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "frontend không có kiến trúc để mà cưỡng chế"</span>
+            <p>
+              Đây là niềm tin phổ biến, và nó sai theo hướng tốn kém. Frontend
+              <em>có</em> tầng (core, shared, layout, feature), có hướng phụ thuộc, có biên
+              giới giữa các feature — y hệt backend. Khác biệt duy nhất: ở backend, hệ thống
+              module hoặc build tool thường <strong>bắt buộc</strong> bạn khai các biên đó.
+              Ở frontend thì không: một câu <code>import</code> với đủ dấu
+              <code>../</code> sẽ đi tới bất cứ đâu, và không có gì phàn nàn.
+            </p>
+            <p>
+              Nên biên ở frontend <em>phải</em> được dựng thêm. Không dựng thì sau hai năm
+              bạn có một quả cầu bùn mà mọi file import mọi file.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "lint là chuyện định dạng"</span>
+            <p>
+              Prettier lo định dạng, và repo tách bạch: <code>npm run format</code> là một
+              lệnh riêng. Còn <code>npm run lint</code> ở đây chạy
+              <strong>bốn</strong> thứ: ESLint, <code>lint/styles.ts</code>,
+              <code>lint/architecture.ts</code>, <code>lint/secrets.ts</code>. Ba cái sau
+              không nói gì về dấu cách — chúng nói về
+              <em>kiến trúc</em>, <em>hệ thiết kế</em> và <em>bảo mật</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "CI là chỗ chạy test"</span>
+            <p>
+              Trong repo này, test chỉ là ba trong tám job. Những job còn lại canh những thứ
+              mà không test nào canh: định dạng, kiến trúc, bí mật, kiểu dữ liệu, kích thước
+              bundle, pixel, và lỗ hổng phụ thuộc. Nếu bạn nghĩ CI là "chỗ chạy test", bạn
+              đang bỏ trống năm loại lỗi.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Vì sao "cưỡng chế bằng review" luôn thất bại</h3>
+
+          <p>
+            ADR-0041 mở đầu bằng đúng tình trạng đó:
+            <em>"Dependency direction was enforced by review (debt row 2)."</em> Quy tắc có
+            trong <code>CLAUDE.md</code>, có trong <code>docs/architecture.md</code>, và được
+            kiểm bằng một script dùng một lần ở cuối mỗi phase.
+          </p>
+
+          <p>Ba lý do nó không giữ được, không liên quan gì tới chất lượng con người:</p>
+
+          <ol>
+            <li>
+              <strong>Người review không thấy cạnh.</strong> Một pull request hiện ra phần
+              thay đổi, không hiện ra đồ thị. Câu
+              <code>import { X } from '../../other-feature/internal/thing'</code> nằm lẫn
+              giữa hai mươi câu import khác, và nó trông hoàn toàn bình thường.
+            </li>
+            <li>
+              <strong>Vi phạm thường đi kèm một lý do chính đáng tại chỗ.</strong> "Tôi chỉ
+              cần đúng một hàm từ feature kia." Lần nào cũng hợp lý. Mười lần như vậy thì
+              biên giới biến mất.
+            </li>
+            <li>
+              <strong>Quy tắc chỉ được kiểm khi có người nhớ.</strong> Và một quy tắc chỉ
+              được kiểm đôi khi thì, trên thực tế, không phải quy tắc.
+            </li>
+          </ol>
+
+          <p>
+            Lời của ADR, ngắn gọn hơn:
+            <em>"Debt row 2 said 'enforced by review'; this is the tool."</em>
+          </p>
+
+          <h3>3.2 Cạnh của đồ thị là gì</h3>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>export interface ImportEdge {
+  readonly from: string;
+  /** A repository-relative file, or a bare package specifier. */
+  readonly to: string;
+  readonly kind: 'file' | 'package';
+  /** `import type` / `export type`: erased at compile time. */
+  readonly typeOnly: boolean;
+  /** `import('...')`: a lazy boundary, loaded on demand. */
+  readonly dynamic: boolean;
+}</code></pre>
+          </div>
+
+          <p>
+            Năm trường, và ba trường cuối mới là phần thú vị — chúng cho phép các luật
+            <em>phân biệt</em> được:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trường</th>
+                  <th>Vì sao cần</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>kind: 'file' | 'package'</code></td>
+                  <td>
+                    <code>'./customer-store'</code> là một cạnh trong repo;
+                    <code>'zod'</code> hay <code>'node:fs'</code> là một cạnh ra ngoài. Hai
+                    loại có hai bộ luật khác nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>typeOnly</code></td>
+                  <td>
+                    Bị xoá lúc biên dịch, nên <em>không</em> gây chu trình lúc chạy. Nhưng
+                    repo vẫn tính nó khi tìm chu trình — xem 3.4.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>dynamic</code></td>
+                  <td>
+                    <code>import()</code> là một biên lazy load <em>có chủ ý</em> (bài 15).
+                    Tính nó vào chu trình sẽ báo động giả cho đúng cái cấu trúc mà kiến trúc
+                    này muốn có.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Vì sao parse bằng compiler, không bằng regex</h3>
+
+          <p>Chú thích đầu file nói lý do trong một mệnh đề:</p>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>It parses every TypeScript file
+with the TypeScript compiler - not a regular expression, so an `import(...)`
+in a comment is not an edge</code></pre>
+          </div>
+
+          <p>Biểu thức chính quy sẽ sai ở ít nhất bốn chỗ:</p>
+
+          <ul>
+            <li>một câu <code>import</code> nằm trong comment hoặc trong chuỗi;</li>
+            <li>
+              một đường dẫn tương đối — regex thấy <code>'../../core/x'</code>, nhưng luật cần
+              biết nó <em>giải ra</em> file nào;
+            </li>
+            <li><code>export ... from</code> cũng là một cạnh, mà người ta hay quên;</li>
+            <li>
+              <code>import type</code> và <code>import { type X }</code> — hai cú pháp cho
+              cùng một ý.
+            </li>
+          </ul>
+
+          <p>
+            Compiler thì biết hết, vì nó <em>là</em> thứ định nghĩa những điều đó. Và đây là
+            một dependency repo <strong>đã có sẵn</strong> — không phải cài thêm gì.
+          </p>
+
+          <h3>3.4 Chu trình, và vì sao cạnh type-only vẫn tính</h3>
+
+          <p>
+            Phép tìm chu trình dùng thuật toán Tarjan: tìm các
+            <em>strongly connected component</em>; thành phần nào có từ hai file trở lên là
+            một chu trình.
+          </p>
+
+          <p>
+            Quyết định thú vị là <strong>tính cả cạnh <code>import type</code></strong>, dù
+            chúng bị xoá khi biên dịch nên không thể gây lỗi khởi tạo. Lý do: một chu trình
+            type-only vẫn là một chu trình <em>khái niệm</em> — hai module không thể hiểu
+            được tách rời nhau, không thể tách ra khi refactor, và chỉ cần một ngày nào đó có
+            người cần một giá trị thay vì một kiểu là nó thành chu trình thật.
+          </p>
+
+          <p>
+            Ngược lại, cạnh <code>dynamic</code> bị <strong>loại</strong>. Hai quyết định trái
+            chiều, mỗi quyết định theo đúng ý nghĩa của loại cạnh — đó là cái bạn chỉ có khi
+            mô hình hoá cạnh đủ chi tiết ở 3.2.
+          </p>
+
+          <h3>3.5 Luật là dữ liệu, và mỗi luật mang theo lý do</h3>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>interface Rule {
+  readonly name: string;
+  readonly reason: string;
+  readonly check: (edge: ImportEdge) =&gt; string | null;
+}</code></pre>
+          </div>
+
+          <p>
+            Trường <code>reason</code> không phải để trang trí: khi một luật đổ, thông báo in
+            ra <em>kèm lý do</em>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>violations.push({
+  rule: rule.name,
+  message: `${edge.from}: ${problem}\n      why: ${rule.reason}`,
+});</code></pre>
+          </div>
+
+          <p>
+            So sánh hai trải nghiệm. Một lint báo
+            <code>"error: forbidden import"</code> — người nhận đi tìm ai đó hỏi, hoặc tìm
+            cách tắt nó. Một lint báo
+            <em>"No cross-feature imports (CLAUDE.md rule 4) — and the labs never leak into
+            the product"</em> — người nhận hiểu ngay, và học được kiến trúc ngay tại khoảnh
+            khắc họ cần biết. ADR-0041 gọi đó là
+            <em>"documentation that executes"</em>: tài liệu chạy được.
+          </p>
+
+          <h3>3.6 Ba loại ngân sách bundle</h3>
+
+          <p>
+            Angular đã có ngân sách cho bundle ban đầu. <code>perf/check-budgets.ts</code>
+            tồn tại vì ba thứ mà ngân sách đó <em>không diễn đạt được</em>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">perf/check-budgets.ts</div>
+            <pre><code> *  - **the largest lazy chunk** - a route that pulls in a heavy library is
+ *    invisible to an initial-bundle budget, and slow all the same;
+ *  - **all browser JavaScript** - the total a user downloads visiting
+ *    everything, which is what the service worker caches (ADR-0028);
+ *  - **code that must never ship** - modules behind a build-time flag
+ *    (ADR-0040) and test helpers. Present in a production bundle, they are a
+ *    build-time flag that silently stopped working.</code></pre>
+          </div>
+
+          <p>
+            Loại thứ ba là loại đáng học nhất. Nó không đo kích thước — nó đo
+            <strong>sự có mặt</strong>. Nếu <code>.spec.ts</code> hay
+            <code>/testing/</code> xuất hiện trong bundle production, con số có thể vẫn trong
+            ngưỡng, mà một cơ chế đã <em>hỏng trong im lặng</em>. Câu cuối nói đúng bản chất:
+            một build-time flag ngừng hoạt động mà không báo gì.
+          </p>
+
+          <h3>3.7 Bánh cóc, lần thứ hai</h3>
+
+          <div class="code">
+            <div class="code__file">perf/budgets.json</div>
+            <pre><code>{
+  "$comment": "Bundle budgets enforced by `npm run perf:budgets` in CI ... A ratchet: lower a number when the bundle shrinks; raise one only with the measurement that justifies it (node perf/bundle-report.ts) in the same commit.",
+  "initialKB": 520,
+  "largestLazyChunkKB": 80,
+  "totalBrowserJavaScriptKB": 1150,
+  "neverInProduction": ["src/app/core/logging/memory-log-sink.ts", "/testing/", ".spec.ts"]
+}</code></pre>
+          </div>
+
+          <p>
+            Câu quan trọng nhất trong file là câu trong <code>$comment</code>:
+            <strong>nâng một con số chỉ được phép kèm số đo biện minh cho nó, trong cùng một
+            commit.</strong> Nó không cấm nâng — đôi khi phải nâng. Nó chỉ đòi rằng việc nâng
+            là một <em>quyết định có dữ liệu</em>, hiện ra trong lịch sử git, chứ không phải
+            một lần sửa số cho hết đỏ.
+          </p>
+
+          <h3>3.8 Quét bí mật: là sàn, không phải bảo đảm</h3>
+
+          <div class="code">
+            <div class="code__file">lint/secrets.ts</div>
+            <pre><code>High-signal patterns only - a rule that flags every
+`password: 'x'` in a test would be switched off within a week, and then it
+would catch nothing.
+...
+This is a floor, not a guarantee: a secret with no recognisable shape passes.</code></pre>
+          </div>
+
+          <p>
+            Hai câu, hai bài học. <strong>Một</strong>: một luật báo động quá nhiều sẽ bị tắt,
+            và một luật đã tắt bắt được số không — đây là cùng lập luận với cổng axe ở bài 22.
+            <strong>Hai</strong>: công cụ tự nói ra giới hạn của mình. Một mật khẩu không có
+            hình dạng nhận ra được sẽ lọt, và chú thích nói thẳng điều đó thay vì để người đọc
+            tưởng mình đã an toàn.
+          </p>
+
+          <h3>3.9 CI: mỗi job là một cổng</h3>
+
+          <p>
+            Lựa chọn thiết kế trung tâm, ghi trong ADR-0042: <strong>không</strong> chạy
+            <code>npm run verify</code> trong một job duy nhất, mà tách thành tám job song
+            song theo mức có thể. Lý do:
+          </p>
+
+          <ul>
+            <li>
+              một job đỏ <strong>nêu tên cổng đã đổ</strong> — "Accessibility" đỏ nói ngay vấn
+              đề thuộc loại nào;
+            </li>
+            <li>chạy song song: phản hồi tính bằng phút thay vì 25 phút nối đuôi;</li>
+            <li>
+              job rẻ chạy trước và chặn job đắt: sai định dạng thì không cần chạy E2E làm gì.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Mười một luật kiến trúc</h3>
+
+          <p>
+            Mỗi dòng dưới đây là một mục trong mảng <code>RULES</code>. Cột thứ hai là
+            <em>nguyên văn</em> trường <code>reason</code> — tức là chính câu mà một người vi
+            phạm sẽ đọc được trên màn hình.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tên luật</th>
+                  <th>Lý do (in ra khi đổ)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>contracts-depend-on-nothing</code></td>
+                  <td>
+                    Cả hai app phụ thuộc contracts; contracts không phụ thuộc gì của chúng.
+                    Ngoại lệ duy nhất được phép: <code>zod</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>apps-never-import-each-other</code></td>
+                  <td>
+                    App trình duyệt và backend giả chỉ chia nhau contracts; mọi thứ khác là
+                    một ràng buộc ẩn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>contracts-only-through-the-package</code></td>
+                  <td>
+                    API công khai của contracts là các entry của package; import sâu là phụ
+                    thuộc vào cách sắp xếp file của nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>core-depends-only-on-core</code></td>
+                  <td>
+                    <code>core/</code> là hạ tầng mà mọi feature đứng lên; import ngược lên
+                    sẽ làm nó phụ thuộc vào chính người dùng nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>shared-ui-is-a-leaf</code></td>
+                  <td>
+                    <code>shared/ui</code> không chứa từ ngữ nghiệp vụ và không chứa service;
+                    nó chỉ được định dạng qua <code>core/i18n</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>layout-knows-no-feature</code></td>
+                  <td>
+                    Shell đóng khung mọi feature; nó liên kết tới chúng bằng URL và không bao
+                    giờ import chúng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>features-are-isolated</code></td>
+                  <td>
+                    Không import chéo feature (quy tắc 4) — và các lab không bao giờ rò vào
+                    sản phẩm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>features-only-through-their-entry-points</code></td>
+                  <td>
+                    Gốc chạm tới một feature qua entry đã khai (<code>FEATURE_ENTRY_POINTS</code>),
+                    nên nội bộ feature đổi tự do.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>test-code-stays-in-tests</code></td>
+                  <td>
+                    Fixture và helper test không bao giờ được ship: code sản phẩm import một
+                    cái là đưa nó vào bundle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>browser-code-uses-no-node</code></td>
+                  <td>
+                    Ứng dụng cũng chạy trong trình duyệt; module Node ở đó làm vỡ build (quy
+                    tắc 2).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>no-dumping-grounds</code></td>
+                  <td>
+                    Không có thư mục <code>utils/</code>, <code>helpers/</code>,
+                    <code>common/</code>: code sống cạnh feature sở hữu nó (quy tắc 5).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đọc lại cột phải một lượt: đó <strong>chính là</strong> phần "Non-negotiable
+            rules" của <code>CLAUDE.md</code>, nhưng ở dạng chạy được. Đây là ý mà ADR-0041
+            gọi là <em>"The rules are the architecture"</em>.
+          </p>
+
+          <h3>4.2 Ba luật đọc kỹ</h3>
+
+          <h4>a. Entry point của contracts, với một ngoại lệ chỉ dành cho test</h4>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>check: (edge) =&gt; {
+  if (edge.kind === 'package' &amp;&amp; edge.to.startsWith('@ecm/contracts/')) {
+    if (edge.to === '@ecm/contracts/testing') {
+      return isTestCode(edge.from) ? null : 'imports the test data entry point outside a test';
+    }
+    return `imports ${edge.to}`;
+  }
+  if (
+    edge.kind === 'file' &amp;&amp;
+    edge.to.startsWith('packages/contracts/') &amp;&amp;
+    !edge.from.startsWith('packages/contracts/')
+  ) {
+    return `imports ${edge.to} by path`;
+  }
+  return null;
+},</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nhánh</th>
+                  <th>Nó chặn gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@ecm/contracts/testing</code> + <code>isTestCode</code></td>
+                  <td>
+                    Entry chứa fixture <em>được phép</em> — nhưng chỉ từ code test. Đây đúng
+                    là lời hứa ở bài 23 mục 4.7, được cưỡng chế ở đây.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Mọi <code>@ecm/contracts/&lt;gì đó&gt;</code> khác</td>
+                  <td>
+                    Chặn <em>deep import</em> qua package: nó khoá chặt bạn vào cấu trúc file
+                    nội bộ của thư viện.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>packages/contracts/...</code> bằng đường dẫn file
+                  </td>
+                  <td>
+                    Chặn đường vòng: nếu không có nhánh này, người ta sẽ đi
+                    <code>../../packages/contracts/src/customer</code> và luật trên vô hiệu.
+                    Một luật chỉ chặn <em>một</em> lối vào thì không phải một luật.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>b. Feature chỉ được chạm qua entry point đã khai</h4>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>const inside = edge.to.slice(`${WEB_APP}${to}/`.length);
+return FEATURE_ENTRY_POINTS[to]?.includes(inside)
+  ? null
+  : `reaches into ${to}/${inside}, which is not one of its entry points`;</code></pre>
+          </div>
+
+          <p>
+            Luật này cho bạn một thứ rất giá trị khi dự án lớn lên:
+            <strong>quyền đổi nội bộ một feature mà không phá ai</strong>. Nếu
+            <code>customers/</code> chỉ lộ ra hai file, thì mọi file khác bên trong nó là
+            riêng tư — bạn đổi tên, tách, gộp tuỳ ý. Không có luật này, mỗi file trong feature
+            đều có thể đang là API công khai của ai đó mà bạn không biết.
+          </p>
+
+          <h4>c. Không Node trong code chạy ở trình duyệt</h4>
+
+          <div class="code">
+            <div class="code__file">lint/architecture.ts</div>
+            <pre><code>check: (edge) =&gt;
+  edge.kind === 'package' &amp;&amp;
+  edge.from.startsWith(WEB) &amp;&amp;
+  !WEB_SERVER_FILES.has(edge.from) &amp;&amp;
+  !isTestCode(edge.from) &amp;&amp;
+  (edge.to.startsWith('node:') || edge.to === 'express')
+    ? `imports ${edge.to}`
+    : null,</code></pre>
+          </div>
+
+          <p>
+            Hai ngoại lệ, và cả hai đều có thật:
+            <code>WEB_SERVER_FILES</code> (vài file chạy phía server cho SSR —
+            <em>là</em> code Node theo định nghĩa) và code test (chạy trong Node). Một luật
+            không có ngoại lệ ở đây sẽ sai ngay trong ngày đầu, và rồi bị tắt. Luật tốt là
+            luật <em>biết</em> ngoại lệ của mình và nêu tên chúng.
+          </p>
+
+          <h3>4.3 <code>lint/styles.ts</code>: ngoại lệ phải có lý do</h3>
+
+          <p>
+            Bài 22 đã gặp luật <code>outline-removed</code>. Điều đáng nói ở đây là
+            <strong>cơ chế ngoại lệ</strong>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">lint/styles.ts</div>
+            <pre><code>A line that genuinely needs an exception carries a comment on the line
+above: `style-lint-allow: &lt;why&gt;`. The reason is required; an exception
+without one is reported like a violation.</code></pre>
+          </div>
+
+          <p>
+            <em>"The reason is required"</em> — một ngoại lệ không kèm lý do bị báo
+            <strong>y như một vi phạm</strong>. So với cách thường gặp
+            (<code>// eslint-disable-next-line</code>, không ai giải thích gì), khác biệt là:
+            sáu tháng sau, người đọc biết được ngoại lệ đó còn cần thiết không.
+          </p>
+
+          <h3>4.4 <code>lint/secrets.ts</code>: hình dạng, không phải từ khoá</h3>
+
+          <div class="code">
+            <div class="code__file">lint/secrets.ts</div>
+            <pre><code>export const SECRET_PATTERNS: readonly SecretPattern[] = [
+  { name: 'private key',  pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY( BLOCK)?-----/ },
+  { name: 'AWS access key id', pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/ },
+  { name: 'GitHub token', pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})\b/ },
+  { name: 'Slack token', pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/ },
+  { name: 'Stripe live key', pattern: /\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b/ },
+  ...
+];
+
+/** A committed env file is a secret store by convention, whatever it holds today. */
+export function isForbiddenFile(path: string): boolean { ... }</code></pre>
+          </div>
+
+          <p>
+            Để ý ba điều. <strong>Một</strong>: mỗi mẫu bắt một
+            <em>hình dạng cụ thể</em> của một khoá thật — <code>AKIA</code> +
+            16 ký tự, <code>ghp_</code> + 36 ký tự. Không có mẫu nào bắt từ "password".
+            <strong>Hai</strong>: <code>sk_live_</code> chứ không phải
+            <code>sk_test_</code> — khoá thử nghiệm của Stripe không phải bí mật, và bắt nó
+            chỉ tạo ra tiếng ồn. <strong>Ba</strong>: một file <code>.env</code> bị commit là
+            vi phạm <em>dù hôm nay nó chứa gì</em> — bắt theo quy ước, không theo nội dung,
+            vì nội dung sẽ đổi.
+          </p>
+
+          <p>
+            Và một dòng rất đáng chú ý trong chú thích:
+            <em>"None does today."</em> — tức là hiện tại
+            <strong>không có</strong> ngoại lệ <code>secret-scan-allow</code> nào trong repo.
+            Nói ra con số không là một cách báo cáo trung thực mà ít dự án làm.
+          </p>
+
+          <h3>4.5 Ngân sách bundle, và câu chuyện 327 kB của zod</h3>
+
+          <p>
+            ADR-0025 là ADR tôi khuyên bạn đọc nguyên bản. Tình huống: bundle ban đầu khoảng
+            <strong>800 kB</strong> so với ngân sách 500 kB, treo từ Phase 0.5 như một món nợ.
+            Hai phương án:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phương án</th>
+                  <th>Lập luận</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>A — Nâng ngân sách cho vừa</td>
+                  <td>
+                    Lợi: hết cảnh báo. Hại, nguyên văn:
+                    <em>"a budget moved to fit is a budget that will be moved again."</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td>B — <strong>Đo trước, rồi sửa đúng chỗ phép đo chỉ ra</strong> (đã chọn)</td>
+                  <td>
+                    Lợi: mỗi kilobyte có chủ. Hại: thêm một script phải nuôi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Phép đo chỉ ra điều không ai đoán được:</p>
+
+          <div class="code">
+            <div class="code__file">docs/decisions/0025-bundle-budget-as-a-ratchet.md</div>
+            <pre><code>1. `perf/bundle-report.ts` is the tool. Its first run showed **zod: 500.7 kB of
+   799 kB** - every locale (~250 kB) and the JSON-schema converters, none of
+   them used.
+2. The contracts package imports zod as a namespace - `import * as z from 'zod'` -
+   instead of `import { z } from 'zod'`. The named `z` is a
+   re-exported namespace _object_, which esbuild cannot tree-shake; the
+   namespace import lets it drop what is never referenced. **808.2 -&gt; 481.5 kB
+   raw, 183.5 -&gt; 131.5 kB transferred**, one line per contract file, no
+   behaviour change (all 155 contract and mock API tests unchanged).</code></pre>
+          </div>
+
+          <p>
+            <strong>Hơn 320 kB biến mất vì đổi cách viết một câu import.</strong>
+            <code>import { z } from 'zod'</code> lấy về một
+            <em>đối tượng namespace đã được re-export</em> — và esbuild không thể tỉa bên
+            trong một đối tượng, vì nó không biết thuộc tính nào sẽ được dùng.
+            <code>import * as z from 'zod'</code> thì esbuild theo dõi được từng tham chiếu,
+            nên mọi locale và mọi bộ chuyển JSON-schema không ai gọi tới đều bị bỏ.
+          </p>
+
+          <p>
+            Bài học không phải mẹo về zod. Bài học là trình tự:
+            <strong>đo → tìm chủ → sửa → biến con số đã đo thành ngân sách</strong>. Và dòng
+            cuối của ADR nói vì sao bước cuối quan trọng:
+            <em>"The CLI default of 500 kB was never a product decision."</em> Một ngưỡng mặc
+            định không phải quyết định của ai cả; một ngưỡng bằng số đo thật + vài kB thì có
+            nghĩa.
+          </p>
+
+          <h3>4.6 <code>npm run verify</code>: một lệnh, xếp từ rẻ tới đắt</h3>
+
+          <div class="code">
+            <div class="code__file">package.json</div>
+            <pre><code>"verify": "npm run format:check &amp;&amp; npm run lint &amp;&amp; npm run typecheck &amp;&amp; npm run test:coverage &amp;&amp; npm run build &amp;&amp; npm run perf:budgets &amp;&amp; npm run e2e &amp;&amp; npm run e2e:production"</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Bước</th>
+                  <th>Nó canh gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td><code>format:check</code></td>
+                  <td>Định dạng. Vài giây.</td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><code>lint</code></td>
+                  <td>
+                    ESLint + style + <strong>kiến trúc</strong> + <strong>bí mật</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>typecheck</code></td>
+                  <td>
+                    <code>strict</code> + <code>strictTemplates</code> — bài 02 nói vì sao
+                    phải là <code>ngc</code> chứ không phải <code>tsc</code> cho template
+                  </td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><code>test:coverage</code></td>
+                  <td>Bài 23, kèm bốn ngưỡng coverage</td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td><code>build</code></td>
+                  <td>Gồm cả bản build server (SSR)</td>
+                </tr>
+                <tr>
+                  <td>6</td>
+                  <td><code>perf:budgets</code></td>
+                  <td>
+                    Phải sau <code>build</code>: nó đọc metafile mà build vừa ghi ra
+                  </td>
+                </tr>
+                <tr>
+                  <td>7–8</td>
+                  <td><code>e2e</code>, <code>e2e:production</code></td>
+                  <td>Đắt nhất, nên ở cuối</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Dấu <code>&amp;&amp;</code> nghĩa là dừng ở lỗi đầu tiên. Thứ tự này là một
+            <em>phản hồi nhanh</em> có chủ ý: một dấu phẩy sai định dạng đổ sau ba giây, không
+            phải sau hai mươi phút E2E. Chính danh sách này là "Definition of Done" trong
+            <code>CLAUDE.md</code>, viết thành một lệnh.
+          </p>
+
+          <h3>4.7 CI: tám job, và mấy dòng là quyết định</h3>
+
+          <div class="code">
+            <div class="code__file">.github/workflows/ci.yml — phần đầu</div>
+            <pre><code># Every job is a gate: a red job fails the pipeline, and a pull request cannot
+# be merged past it once branch protection lists these checks (docs/ci.md,
+# "Required checks"). Nothing here is `continue-on-error` except the bundle
+# report, which only describes.
+#
+# Browser jobs run inside the Playwright image, so the browsers - and for the
+# visual suite, the fonts and the rendering - are exactly the ones the
+# baselines were made with. Its tag must match @playwright/test in
+# package.json; bump both together.
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Vì sao nó là một quyết định, không phải cấu hình</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>concurrency</code> + <code>cancel-in-progress</code>
+                  </td>
+                  <td>
+                    Comment trong file nói đúng ý:
+                    <em>"A newer push to the same branch makes an older run's answer
+                    irrelevant."</em> Vừa tiết kiệm máy, vừa tránh chuyện hai kết quả mâu
+                    thuẫn cùng hiện trên một PR.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>permissions: contents: read</code></td>
+                  <td>
+                    Token của CI <strong>chỉ đọc</strong>. Một workflow bị lợi dụng cũng không
+                    ghi được gì vào repo. Đặc quyền tối thiểu, dùng cho một thứ chạy code từ
+                    mọi pull request.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chạy trong Playwright image, tag phải khớp package.json</td>
+                  <td>
+                    Trình duyệt <em>và font</em> được ghim. Đây là điều kiện để visual
+                    regression đủ ổn định mà chặn merge — và cũng là lý do ảnh chuẩn tạo được
+                    ở bất kỳ máy nào có Docker.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không <code>continue-on-error</code>, trừ bundle report</td>
+                  <td>
+                    Một job "đỏ mà vẫn đi tiếp" là một job không ai sửa. Ngoại lệ duy nhất là
+                    cái chỉ <em>mô tả</em>, không khẳng định.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>npm audit --omit=dev --audit-level=high</code>
+                  </td>
+                  <td>
+                    <code>--omit=dev</code>: lỗ hổng trong công cụ build không đi tới người
+                    dùng. <code>--audit-level=high</code>: chặn ở mức cao trở lên. Hai cờ này
+                    là một lựa chọn giữa "ồn tới mức bị tắt" và "im tới mức vô dụng".
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.8 Dependabot: nhóm, chứ không phớt lờ</h3>
+
+          <div class="code">
+            <div class="code__file">.github/dependabot.yml</div>
+            <pre><code># Dependency updates as pull requests, each gated by CI (docs/ci.md).
+#
+# Angular, TypeScript and Vitest are locked by ADR-0001 and move together, by
+# hand, in a deliberate upgrade - so they are grouped rather than ignored: one
+# PR says an upgrade is available, and nobody merges it without the ADR.
+groups:
+  angular-stack:
+    patterns: ['@angular/*', '@angular-devkit/*', 'typescript', 'vitest', '@vitest/*']</code></pre>
+          </div>
+
+          <p>
+            Đây là một chi tiết nhỏ mà tinh tế. Angular, TypeScript và Vitest bị khoá cùng
+            nhau (ADR-0001 — nhớ bài 01: TypeScript 7 và Vitest 5
+            <em>không</em> tương thích), nên cập nhật tự động từng cái một là vô nghĩa. Hai
+            cách xử lý:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Phớt lờ</strong> chúng — và rồi không ai biết có bản mới cho tới khi
+              tụt hậu hai năm;
+            </li>
+            <li>
+              <strong>Gộp nhóm</strong> — một PR duy nhất nói "có bản nâng cấp", và không ai
+              merge nó nếu chưa có ADR.
+            </li>
+          </ul>
+
+          <p>
+            Cách thứ hai giữ được <em>thông tin</em> mà vẫn giữ được
+            <em>kỷ luật</em>. Đây là mẫu đáng chép: khi tự động hoá không quyết được, đừng tắt
+            nó — hãy để nó <strong>báo tin</strong> và để con người quyết.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Đồ thị tầng mà các luật cưỡng chế</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    ROOT["app.config · app.routes<br/><i>gốc</i>"]
+    LAYOUT["layout<br/><i>shell</i>"]
+    F1["customers<br/><i>feature</i>"]
+    F2["technical-labs<br/><i>feature</i>"]
+    F3["login · forbidden · not-found"]
+    CORE["core<br/><i>hạ tầng</i>"]
+    UI["shared/ui<br/><i>lá</i>"]
+    I18N["core/i18n"]
+    CON["packages/contracts<br/><i>chỉ phụ thuộc zod</i>"]
+    API["apps/mock-api"]
+
+    ROOT -->|"lazy, qua entry point"| F1
+    ROOT -->|"lazy, qua entry point"| F2
+    ROOT --> F3
+    ROOT --> LAYOUT
+    LAYOUT --> UI
+    LAYOUT --> CORE
+    F1 --> UI
+    F1 --> CORE
+    F2 --> UI
+    F2 --> CORE
+    UI -->|"chỉ để định dạng"| I18N
+    I18N --> CORE
+    CORE --> CON
+    F1 --> CON
+    API --> CON
+            </pre>
+            <figcaption>
+              Chỉ các cạnh <strong>hợp lệ</strong>. Để ý <code>shared/ui</code>: nó được phép
+              chạm <code>core/i18n</code> <em>và chỉ thế</em> — định dạng thì được, service
+              thì không. Một ngoại lệ hẹp, viết thành một dòng điều kiện trong luật
+              <code>shared-ui-is-a-leaf</code>.
+            </figcaption>
+          </figure>
+
+          <p>
+            Và đây là những cạnh <strong>không</strong> có trong sơ đồ trên, kèm luật từ chối
+            chúng — mỗi dòng là một mũi tên mà repo cố tình không có:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cạnh bị cấm</th>
+                  <th>Luật từ chối</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customers</code> → <code>technical-labs</code></td>
+                  <td><code>features-are-isolated</code></td>
+                </tr>
+                <tr>
+                  <td><code>layout</code> → một feature bất kỳ</td>
+                  <td><code>layout-knows-no-feature</code></td>
+                </tr>
+                <tr>
+                  <td><code>core</code> → một feature bất kỳ</td>
+                  <td><code>core-depends-only-on-core</code></td>
+                </tr>
+                <tr>
+                  <td><code>shared/ui</code> → <code>core</code> (ngoài <code>core/i18n</code>)</td>
+                  <td><code>shared-ui-is-a-leaf</code></td>
+                </tr>
+                <tr>
+                  <td><code>packages/contracts</code> → bất cứ thứ gì của hai app</td>
+                  <td><code>contracts-depend-on-nothing</code></td>
+                </tr>
+                <tr>
+                  <td>gốc → một file nội bộ của feature (không phải entry point)</td>
+                  <td><code>features-only-through-their-entry-points</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>5.2 Một commit đi qua đường ống nào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    PUSH(["git push"]) --> Q["quality<br/>format · lint · kiến trúc<br/>bí mật · typecheck · npm audit"]
+
+    Q --> U["unit<br/>test + coverage gate"]
+    Q --> B["build<br/>production + ngân sách bundle"]
+
+    U --> E1["e2e shard 1/2"]
+    U --> E2["e2e shard 2/2"]
+    U --> A11Y["accessibility<br/>axe + bàn phím"]
+
+    B --> EP["e2e-production<br/>+ performance budgets"]
+    B --> V["visual<br/>14 ảnh, trong Docker image"]
+    B --> R["bundle report<br/><i>chỉ mô tả, không bao giờ làm đỏ</i>"]
+
+    E1 --> X["cross-browser<br/>Firefox + WebKit"]
+    E2 --> X
+
+    X --> M{"mọi check bắt buộc đều xanh?"}
+    M -->|"có"| OK(["merge được"])
+    M -->|"không"| NO(["branch protection chặn"])
+            </pre>
+            <figcaption>
+              Job rẻ ở bên trái và chặn job đắt ở bên phải: lint sai thì không máy nào phải
+              chạy Playwright. Ô <em>bundle report</em> là ô duy nhất không bao giờ làm đỏ —
+              nó mô tả chứ không khẳng định, và một job chỉ mô tả mà chặn merge thì sẽ bị tắt.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Tự viết script thay vì dependency-cruiser (ADR-0041)</h4>
+          <p>
+            Phương án bị loại: dependency-cruiser (chín chắn, nhiều loại luật, có xuất đồ
+            thị) và eslint-plugin-boundaries (chạy ngay trong editor). Lý do loại cái thứ
+            nhất: <em>"a dependency with its own configuration language, for a dozen
+            rules."</em> Lý do loại cái thứ hai: nó không tìm được chu trình nếu không thêm
+            một plugin nữa, và các mẫu đường dẫn trở nên không đọc nổi cho luật "một feature
+            chỉ qua entry của nó".
+          </p>
+          <p>
+            Cái giá phải trả được ghi thẳng: <em>"not in the editor; ours to maintain."</em>
+            Bạn chỉ biết mình vi phạm khi chạy lint, không phải lúc đang gõ. Đó là một mất
+            mát thật — và nó được nêu tên thay vì giấu đi.
+          </p>
+
+          <h4>Nhiều job thay vì một job <code>verify</code> (ADR-0042)</h4>
+          <p>
+            Phương án A — một job chạy <code>npm run verify</code> — có một ưu điểm thật:
+            giống hệt máy local. Bị loại vì hai lý do:
+            <em>"25+ minutes serial; one red step hides which gate failed."</em> Vế thứ hai
+            quan trọng hơn vế thứ nhất: một pipeline đỏ mà không nói đỏ ở đâu thì mỗi lần hỏng
+            đều tốn một lượt đọc log.
+          </p>
+
+          <h4>Docker image 1 GB cho các job trình duyệt</h4>
+          <p>
+            Phương án B — cài trình duyệt mỗi lần chạy — nhanh hơn ở lần đầu, nhưng ảnh chuẩn
+            visual phụ thuộc vào <em>font của runner image</em>, mà GitHub cập nhật không báo
+            trước. Nghĩa là một ngày nào đó toàn bộ visual test đỏ, không vì ai làm gì cả. Đổi
+            lấy: kéo một image 1 GB mỗi job (được cache sau lần đầu).
+          </p>
+
+          <h4>Branch protection không nằm trong repo</h4>
+          <p>
+            Điểm yếu thành thật nhất của toàn bộ thiết lập này, ghi trong "Consequences" của
+            ADR-0042: việc đánh dấu các check là <strong>bắt buộc</strong> là một
+            <em>cài đặt phía GitHub</em>, không commit được. Nên cổng cuối cùng —
+            thứ thực sự chặn merge — không nằm trong code. <code>docs/ci.md</code> liệt kê
+            danh sách check cần bật, và đó là tất cả những gì repo làm được.
+          </p>
+
+          <h4>Quét bí mật là một cái sàn</h4>
+          <p>
+            Chỉ bắt hình dạng đã biết. Một mật khẩu dạng
+            <code>const token = 'abc123'</code> sẽ lọt qua. Phần bù: CI cũng chạy nó trên các
+            file mà một pull request thay đổi, và GitHub secret scanning phủ phần lịch sử.
+            Ba lớp, mỗi lớp thủng ở một chỗ khác nhau.
+          </p>
+
+          <h4>Ngân sách là <em>raw bytes</em>, không phải bytes đã nén</h4>
+          <p>
+            <code>budgets.json</code> ghi rõ: <em>"Raw bytes, as Angular's own budget counts
+            them."</em> Người dùng thật tải về bản đã nén (ADR-0025 có cả hai số: 481,5 kB
+            raw ↔ 131,5 kB transferred). Đo raw thì dễ so sánh và không phụ thuộc cấu hình
+            nén của server — nhưng nó <em>không</em> phải con số người dùng cảm nhận. Biết
+            mình đang đo cái gì là một phần của việc đo.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. "Quy tắc kiến trúc thì review sẽ bắt"</span>
+            <p>
+              Không bắt được. Pull request hiện ra diff, không hiện ra đồ thị; mỗi vi phạm
+              đều có một lý do chính đáng tại chỗ; và quy tắc chỉ được kiểm khi có người nhớ.
+              Sau mười hai tháng bạn có một quả cầu bùn — và lúc đó việc sửa không còn là
+              thêm một script, mà là một dự án refactor.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Quét import bằng biểu thức chính quy</span>
+            <p>
+              Sẽ bắt nhầm một câu import trong comment, bỏ sót
+              <code>export ... from</code>, và không giải được đường dẫn tương đối ra file
+              thật — mà "file thật" chính là thứ mọi luật cần. Dùng parser của compiler:
+              repo đã có TypeScript rồi.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Nâng ngân sách cho vừa bundle</span>
+            <p>
+              <em>"A budget moved to fit is a budget that will be moved again."</em> Lần đầu
+              nâng từ 500 lên 800 vì "tạm thời". Lần sau 800 lên 1200. Đến lần thứ ba thì
+              không ai còn nhớ con số nghĩa là gì, và nó bị xoá. Nếu phải nâng — hãy đo
+              trước, và để số đo vào cùng commit.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Ngoại lệ không kèm lý do</span>
+            <p>
+              <code>// eslint-disable-next-line</code> trần. Sáu tháng sau không ai biết nó
+              còn cần không, nên không ai dám xoá, nên nó ở đó mãi — và số lượng chỉ tăng.
+              Repo bắt ngoại lệ phải có lý do, và báo ngoại lệ thiếu lý do
+              <em>y như một vi phạm</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Một job CI chạy tất cả</span>
+            <p>
+              25 phút nối đuôi, và khi đỏ thì chỉ biết "có gì đó sai". Người ta sẽ mở log,
+              cuộn tìm, và dần dần học cách không nhìn CI nữa. Tám job có tên làm việc ngược
+              lại: nhìn một cái là biết loại vấn đề.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Ảnh chuẩn visual tạo trên runner image</span>
+            <p>
+              Một hôm GitHub cập nhật font của image, và toàn bộ visual test đỏ mà không ai
+              làm gì cả. Sau hai lần như thế, cả bộ visual bị tắt. Ghim môi trường bằng một
+              Docker image có tag là cái giá phải trả để visual regression
+              <em>đáng được</em> chặn merge.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Quét bí mật bắt mọi chữ "password"</span>
+            <p>
+              Nó sẽ báo động ở mọi fixture test, mọi biến tên <code>password</code>, mọi
+              placeholder. Trong một tuần, có người thêm
+              <code>--no-verify</code> vào thói quen commit. Một luật ồn quá sẽ bị tắt, và
+              một luật đã tắt bắt được <strong>số không</strong> — cùng một lập luận với cổng
+              axe ở bài 22 và với <code>--audit-level=high</code> ở mục 4.7.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. <code>continue-on-error: true</code> cho job hay đỏ</span>
+            <p>
+              Cách nhanh nhất để biến một cổng thành đồ trang trí. Repo chỉ cho phép đúng một
+              ngoại lệ, và ngoại lệ đó là job <em>chỉ mô tả</em> chứ không khẳng định gì. Nếu
+              một job hay đỏ vì flaky, hãy sửa cái flaky — đừng hạ nó xuống thành lời khuyên.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. Tắt cập nhật cho những thư viện khó nâng</span>
+            <p>
+              Angular và TypeScript khó nâng, nên người ta cho vào
+              <code>ignore</code>. Hai năm sau, bạn tụt bốn phiên bản major và việc nâng trở
+              thành một dự án. Gộp nhóm thì khác: PR vẫn mở ra, bạn vẫn
+              <em>biết</em>, và việc merge vẫn do con người quyết.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">10. Mỗi quy tắc một công cụ mới</span>
+            <p>
+              dependency-cruiser cho kiến trúc, stylelint cho style, một plugin nữa cho chu
+              trình, một cái nữa cho bí mật. Bốn file cấu hình, bốn ngôn ngữ nhỏ, bốn thứ
+              phải nâng cấp. Repo chọn ngược lại: ba script TypeScript, mỗi script dưới hai
+              trăm dòng, dùng đúng những dependency đã có. Và nêu rõ điều kiện xem lại —
+              <em>"If the rule set grows past what a regular expression can say honestly,
+              that is the moment for stylelint."</em>
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>Các cổng cũng là code, nên chúng cũng phải được canh:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cổng</th>
+                  <th>Ai canh nó</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>lint/architecture.ts</code></td>
+                  <td>
+                    <code>lint/architecture.test.ts</code> — mỗi luật được cho xem
+                    <em>một vi phạm nó phải báo</em> và
+                    <em>một import hợp lệ nó không được báo</em>. Cộng với một test riêng cho
+                    phép tìm chu trình, <strong>kể cả chu trình chỉ gồm cạnh type-only</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lint/secrets.ts</code></td>
+                  <td>
+                    <code>lint/secrets.test.ts</code> — cùng hình dạng hai chiều. Tổng cộng
+                    16 test cho các công cụ lint, chạy bằng <code>node --test</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>perf/check-budgets.ts</code></td>
+                  <td>
+                    CI chạy nó <em>sau</em> job <code>build</code>, trên metafile thật của bản
+                    production. Không có bản build thì script tự ném lỗi với một thông báo nói
+                    rõ điều đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ngân sách <em>hiệu năng</em> (khác ngân sách bundle)</td>
+                  <td>
+                    <code>e2e-production/performance-budgets.spec.ts</code> chạy trên bản
+                    production, chạy một mình, và đọc số
+                    <strong>từ chính monitor của ứng dụng</strong> — nên nó đồng thời chứng
+                    minh monitor đó hoạt động.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chính các luật, như tài liệu</td>
+                  <td>
+                    <code>node lint/architecture.ts --graph</code> in ra đồ thị tầng
+                    <em>thật</em> dưới dạng Mermaid, để dán vào tài liệu. Tài liệu kiến trúc
+                    được sinh từ code thì không trôi được.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lưu ý tính hai chiều, vì đây là điều hầu hết dự án bỏ qua: kiểm một luật bằng ca
+            vi phạm chỉ chứng minh nó <em>báo</em>. Kiểm thêm bằng một import hợp lệ mới chứng
+            minh nó <em>không báo bừa</em> — và chính báo bừa mới là thứ làm người ta tắt một
+            luật.
+          </p>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <p>
+            Sơ đồ cuối của chặng 4, và nó tổng kết không chỉ bài này: <em>"tôi muốn một quy
+            tắc được giữ — đặt nó ở đâu?"</em> Càng lên trên càng rẻ và càng chắc.
+          </p>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q{"Tôi muốn quy tắc này luôn được giữ"}
+
+    Q -->|"diễn đạt được bằng KIỂU"| T["Hệ thống kiểu<br/>branded type · union · strictTemplates"]
+    T --> T2["RẺ NHẤT: sai là không biên dịch được<br/>phản hồi ngay trong editor"]
+
+    Q -->|"là một mẫu trong MỘT file"| L["Luật ESLint<br/>gồm cả bộ a11y và luật i18n"]
+    L --> L2["phản hồi trong editor<br/>sửa tự động được"]
+
+    Q -->|"nói về QUAN HỆ GIỮA các file"| S["Script riêng<br/>lint/architecture · styles · secrets"]
+    S --> S2["luật là dữ liệu, mỗi luật mang lý do<br/>và CHÍNH NÓ cũng có test hai chiều"]
+
+    Q -->|"là một HÀNH VI"| TE["Test<br/>unit · component · integration · E2E"]
+    TE --> TE2["nhớ: gỡ bản sửa ra một lần<br/>xem test có thật sự đổ không"]
+
+    Q -->|"là một CON SỐ"| B["Ngân sách kiểu bánh cóc<br/>coverage · bundle · hiệu năng"]
+    B --> B2["ngưỡng đặt ngay dưới số thật<br/>nâng thì phải kèm số đo"]
+
+    Q -->|"không máy nào kiểm được"| D["ADR + tài liệu"]
+    D --> D2["RẺ NHẤT ĐỂ VIẾT, YẾU NHẤT ĐỂ GIỮ<br/>chỉ dùng khi năm cách trên đều không được"]
+
+    T2 --> CI["CI chạy lại TẤT CẢ trên mỗi lần push"]
+    L2 --> CI
+    S2 --> CI
+    TE2 --> CI
+    B2 --> CI
+    CI --> P["branch protection biến check thành BẮT BUỘC<br/>— cài ở GitHub, không commit được"]
+            </pre>
+            <figcaption>
+              Thứ tự này là một thang: trước khi viết một quy tắc vào tài liệu, hãy hỏi xem
+              nó có <em>lên</em> được một bậc không. Và ô dưới cùng là lời nhắc thành thật —
+              cổng cuối cùng không nằm trong repo.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Vi phạm từng luật, đọc từng thông báo</h3>
+            <p class="task__meta">~40 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Mỗi lần: thêm <em>một</em> câu import, chạy
+              <code>npm run lint:architecture</code>, đọc nguyên văn thông báo, rồi hoàn
+              nguyên.
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Thêm câu import này</th>
+                    <th>Vào file</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>một thứ từ <code>technical-labs</code></td>
+                    <td>một file bất kỳ trong <code>customers/</code></td>
+                  </tr>
+                  <tr>
+                    <td>một component từ <code>customers/</code></td>
+                    <td>một file trong <code>layout/</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>import { readFileSync } from 'node:fs'</code></td>
+                    <td>một component bất kỳ của web</td>
+                  </tr>
+                  <tr>
+                    <td><code>@ecm/contracts/testing</code></td>
+                    <td>một file <strong>không</strong> phải test</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      một file sâu trong <code>customers/</code> (không phải entry point)
+                    </td>
+                    <td><code>app.routes.ts</code></td>
+                  </tr>
+                  <tr>
+                    <td>
+                      tạo <code>core/utils/x.ts</code> rồi import nó
+                    </td>
+                    <td>bất kỳ đâu</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Sau đó chạy <code>node lint/architecture.ts --graph</code> và so đồ thị in ra
+              với sơ đồ 5.1 của bài này. Có cạnh nào bạn không ngờ tới không?
+            </p>
+            <details>
+              <summary>Cái bạn đang luyện</summary>
+              <p>
+                Đọc <em>lý do</em> chứ không chỉ đọc "error". Sáu thông báo đó, gộp lại, chính
+                là bản tóm tắt ngắn nhất của kiến trúc repo này — và bạn đang học nó theo cách
+                mà một người mới vào team sẽ học: bằng cách vi phạm.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Đo bundle, rồi thử siết ngân sách</h3>
+            <p class="task__meta">~35 phút · không sửa code sản phẩm</p>
+            <ol>
+              <li><code>npm run build</code>, rồi <code>npm run perf:budgets</code>. Xanh chứ?</li>
+              <li>
+                <code>node perf/bundle-report.ts</code>. Package nào chiếm nhiều nhất trong
+                bundle ban đầu? So với con số của ADR-0025 (zod: 500,7 kB trên 799 kB
+                <em>trước</em> khi sửa).
+              </li>
+              <li>
+                Trong <code>perf/budgets.json</code>, hạ <code>initialKB</code> xuống
+                <em>dưới</em> số đo thật. Chạy lại <code>npm run perf:budgets</code>.
+                <strong>Thông báo lỗi có cho bạn đủ thông tin để hành động không?</strong>
+                (Số đo là bao nhiêu, giới hạn là bao nhiêu?)
+              </li>
+              <li>
+                Thử cả <code>largestLazyChunkKB</code>. Chunk lớn nhất là route nào? Nó có
+                hợp lý không?
+              </li>
+              <li>
+                Thêm <code>"/customers/"</code> vào <code>neverInProduction</code> và chạy
+                lại. Thông báo khác với các loại trên thế nào?
+              </li>
+              <li>Hoàn nguyên <code>budgets.json</code>.</li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 3 và 5 quan trọng</summary>
+              <p>
+                Một cổng chỉ hữu dụng bằng thông báo của nó. Khi CI đỏ lúc 11 giờ đêm, dòng
+                chữ đó là tất cả những gì bạn có. Hãy đánh giá nó như một người đang mệt: có
+                nói số đo không, có nói giới hạn không, có nói nên làm gì tiếp không.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Viết một luật kiến trúc mới, kèm test hai chiều</h3>
+            <p class="task__meta">~50 phút · viết code</p>
+            <p>Bài tập tổng kết cả chặng 4. Chọn một quy tắc chưa được cưỡng chế, ví dụ:</p>
+            <ul>
+              <li>
+                "không file nào ngoài <code>core/platform/</code> được import
+                <code>platform.tokens.ts</code> bằng đường dẫn sâu" (bài 05);
+              </li>
+              <li>
+                "không component nào import trực tiếp <code>HttpClient</code>" — quy tắc 3
+                trong <code>CLAUDE.md</code>, hiện đang được giữ bằng review;
+              </li>
+              <li>quy tắc của riêng bạn.</li>
+            </ul>
+            <ol>
+              <li>
+                Thêm một mục vào <code>RULES</code>, với <code>name</code>,
+                <code>reason</code> viết cho người sẽ đọc nó lúc đang đỏ, và
+                <code>check</code>.
+              </li>
+              <li>
+                Thêm <strong>hai</strong> test vào <code>lint/architecture.test.ts</code>: một
+                vi phạm phải bị báo, một import hợp lệ <em>không</em> được báo.
+              </li>
+              <li><code>npm run test:lint</code> rồi <code>npm run lint</code>.</li>
+              <li>
+                <strong>Luật của bạn có báo bừa chỗ nào trong repo thật không?</strong> Nếu
+                có: đó là một phát hiện — hoặc code thật vi phạm, hoặc luật của bạn quá rộng.
+                Hãy xác định là cái nào.
+              </li>
+              <li>
+                Nếu thấy luật thật sự có giá trị, viết một ADR ngắn cho nó rồi commit. Nếu
+                không, hoàn nguyên — và ghi vào <code>journal.md</code> lý do bạn kết luận thế.
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 4 là bài học thật</summary>
+              <p>
+                Hầu hết luật mới đều báo bừa ở lần chạy đầu. Khoảnh khắc đó là khoảnh khắc
+                quan trọng: nó buộc bạn phát biểu <em>chính xác</em> điều mình muốn, thay vì
+                phát biểu gần đúng. Đó cũng là lý do tại sao mỗi luật trong repo đều có ngoại
+                lệ được nêu tên — chúng đều từng đi qua bước 4 này.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao "cưỡng chế bằng review" luôn trôi?</summary>
+            <p>
+              Người review thấy diff chứ không thấy đồ thị; mỗi vi phạm đều có lý do chính
+              đáng tại chỗ; và quy tắc chỉ được kiểm khi có người nhớ. Một quy tắc chỉ được
+              kiểm đôi khi thì trên thực tế không phải quy tắc.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao cạnh <code>import type</code> vẫn tính vào chu trình, còn <code>import()</code> thì không?</summary>
+            <p>
+              Cạnh type-only tuy bị xoá khi biên dịch nhưng vẫn là một chu trình khái niệm:
+              hai module không tách rời được, và chỉ cần một ngày có người cần giá trị thay vì
+              kiểu là nó thành chu trình thật. Còn <code>import()</code> là một
+              <em>biên lazy load có chủ ý</em> — tính nó sẽ báo động giả cho đúng cấu trúc mà
+              kiến trúc này muốn có.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao mỗi luật mang theo một trường <code>reason</code>?</summary>
+            <p>
+              Vì lý do được <strong>in ra cùng thông báo lỗi</strong>. Người vi phạm học được
+              kiến trúc ngay tại khoảnh khắc họ cần biết, thay vì đi tìm người hỏi hoặc tìm
+              cách tắt luật. ADR-0041 gọi đó là "tài liệu chạy được".
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Ba loại ngân sách bundle là gì, và loại nào không đo kích thước?</summary>
+            <p>
+              Bundle ban đầu; lazy chunk lớn nhất; tổng JavaScript trình duyệt. Loại thứ tư —
+              <code>neverInProduction</code> — không đo kích thước mà đo
+              <strong>sự có mặt</strong>: nếu <code>.spec.ts</code> hay
+              <code>/testing/</code> lọt vào bundle production thì một build-time flag đã hỏng
+              trong im lặng.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Hơn 320 kB đã biến mất bằng cách nào?</summary>
+            <p>
+              Đổi <code>import { z } from 'zod'</code> thành
+              <code>import * as z from 'zod'</code>. Cái tên <code>z</code> được export là một
+              <em>đối tượng namespace</em> mà esbuild không tỉa được bên trong; import dạng
+              namespace cho phép nó bỏ mọi thứ không được tham chiếu — tất cả locale và các bộ
+              chuyển JSON-schema. 808,2 → 481,5 kB raw, không đổi hành vi.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao CI tách tám job thay vì chạy một lệnh <code>verify</code>?</summary>
+            <p>
+              Để một job đỏ <em>nêu tên cổng đã đổ</em>, và để chạy song song (25 phút nối
+              đuôi xuống còn vài phút). Job rẻ chạy trước và chặn job đắt.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao các job trình duyệt chạy trong Docker image ghim phiên bản?</summary>
+            <p>
+              Vì ảnh chuẩn visual phụ thuộc vào trình duyệt <em>và font</em>. Trên runner
+              image của GitHub, font đổi mà không báo trước và toàn bộ visual test sẽ đỏ mà
+              không ai làm gì. Ghim image là điều kiện để visual regression ổn định đủ mà chặn
+              merge — và để tạo lại ảnh chuẩn trên bất kỳ máy nào có Docker.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Điểm yếu thành thật nhất của thiết lập CI này là gì?</summary>
+            <p>
+              Branch protection — thứ thực sự biến các check thành
+              <em>bắt buộc</em> — là một cài đặt phía GitHub, không commit được. Nên cổng cuối
+              cùng không nằm trong repo. <code>docs/ci.md</code> liệt kê danh sách cần bật, và
+              đó là tất cả những gì repo làm được.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Thang năm bậc để giữ một quy tắc là gì?</summary>
+            <p>
+              Hệ thống kiểu → luật ESLint → script riêng → test → ngân sách bánh cóc → (cuối
+              cùng) ADR và tài liệu. Càng lên trên càng rẻ và càng chắc. Trước khi viết một
+              quy tắc vào tài liệu, hãy hỏi xem nó có lên được một bậc không.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Hết chặng 4 — bạn đang ở Mốc 4</span>
+            <p>
+              Hai mươi lăm bài, bốn chặng. Từ "component là gì" tới "kiến trúc được cưỡng chế
+              bằng chương trình". Mốc 4 trong <a href="index.html">lộ trình</a> có danh sách
+              kiểm — hãy tự chấm trung thực, và chỗ nào chưa chắc thì quay lại bài đó
+              <em>và làm bài tập</em>, đừng chỉ đọc lại.
+            </p>
+            <p>
+              Chặng 5 không phải một khoá học nữa: đó là <strong>11 brief tra cứu</strong>,
+              đọc khi bạn gặp đúng việc đó — realtime bằng SSE, đồng bộ nhiều tab và bầu
+              leader, upload file, import CSV hai pha, offline và service worker, chế độ
+              render và hydration, hiệu năng và ngân sách bundle, API trình duyệt và Web
+              Worker, observability, backend giả và tiêm lỗi, thông báo và hộp xác nhận.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="23-test.html">← Bài 23</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong bài này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
