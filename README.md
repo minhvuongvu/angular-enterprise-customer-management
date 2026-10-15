@@ -1,4 +1,4 @@
-# Enterprise Customer Management
+# Angular Enterprise Customer Management
 
 An enterprise-oriented Angular learning repository: a deliberately small business
 domain — customer management — with the architecture, engineering practices and
