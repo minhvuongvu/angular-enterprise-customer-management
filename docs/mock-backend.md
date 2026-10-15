@@ -217,7 +217,7 @@ fault injection sits before the real work so an injected failure costs nothing.
 
 ## 6. Tests
 
-`npm run test --workspace @ecm/mock-api` — 101 tests over 8 files.
+`npm run test --workspace @ecm/mock-api` — 133 tests over 9 files.
 
 They run against the **real server on an ephemeral port**, not against handlers invoked
 in process. Cookies, CORS, status codes and streaming are what this server exists to
@@ -233,3 +233,4 @@ provide, and none of them are exercised by calling an Express handler directly.
 | `seed.spec.ts`            | Determinism, prefix stability, data realism                                           |
 | `files.spec.ts`           | Upload, type rejection, CSV partial import, export                                    |
 | `events.spec.ts`          | SSE wire format, event ids, changed-field payloads                                    |
+| `observability.spec.ts`   | The request log, redaction, and `/api/_mock/logs` over HTTP (docs/observability.md)   |

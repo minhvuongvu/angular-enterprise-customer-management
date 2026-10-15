@@ -1,0 +1,2076 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 35 — Notification &amp; confirmation dialog</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 35
+        </p>
+        <h1>Notification &amp; confirmation dialog</h1>
+        <p class="lede">
+          Hai việc nghe như việc trang trí, nhưng cả hai đều là bài toán kiến trúc. Thứ nhất:
+          <strong>ai sở hữu một thông điệp</strong> khi thứ sinh ra nó và thứ hiển thị nó ở hai
+          nhánh khác nhau của cây component, và thông điệp phải sống lâu hơn cú điều hướng ngay
+          sau đó. Thứ hai: <strong>hỏi một câu có/không</strong> mà không phải nhân bản một hộp
+          thoại vào từng component muốn hỏi.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi bạn sắp gõ <code>alert()</code> hoặc <code>confirm()</code>, hoặc sắp thêm một
+              signal <code>showDialog</code> thứ ba vào một component. Và khi bạn cần quyết định
+              một thông điệp nên <em>bay qua</em> hay <em>nằm lại</em> — mục 3.2 là toàn bộ câu
+              trả lời cho câu đó.
+            </p>
+            <p>
+              Nền cần có: bài 03 (signal), bài 04 (component nói chuyện với nhau), bài 21
+              (i18n — vì mọi thông điệp ở đây là một khoá dịch), bài 22 (accessibility — live
+              region, focus trap).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Toast</strong></td>
+                  <td>
+                    Một mẩu thông điệp hiện lên rồi <em>tự biến mất</em>. Ở repo này: 5 giây,
+                    không có hành động nào, dùng cho <em>kết quả của việc người dùng vừa làm</em>.
+                    Tên gọi đến từ hình ảnh bánh mì nảy lên khỏi lò nướng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Snackbar</strong></td>
+                  <td>
+                    Như toast nhưng <strong>có đúng một nút</strong> và ở lâu hơn (10 giây). Dùng
+                    cho tin tức mà người dùng <em>có thể làm gì đó</em> với nó — "Làm mới",
+                    "Về danh sách".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Notification centre</strong></td>
+                  <td>
+                    Cái chuông trên header: một số chưa đọc, và lịch sử đằng sau nó. Thông điệp ở
+                    đây <strong>nằm lại tới khi được đọc</strong>, không tự biến mất.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Live region</strong></td>
+                  <td>
+                    Một vùng DOM mà trình đọc màn hình <em>theo dõi</em>: nội dung thay đổi thì nó
+                    đọc lên, dù con trỏ của người dùng đang ở đâu. Khai báo bằng
+                    <code>aria-live</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>polite</code> vs <code>assertive</code></strong></td>
+                  <td>
+                    Hai mức của live region. <code>polite</code> = đọc khi trình đọc rảnh,
+                    không cắt lời. <code>assertive</code> = <strong>cắt ngang</strong> ngay.
+                    Khác biệt này không phải sở thích — xem mục 3.4.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>role="status"</code> · <code>role="alert"</code></strong></td>
+                  <td>
+                    Hai role ngụ ý sẵn <code>polite</code> và <code>assertive</code>. Repo này ghi
+                    cả role lẫn <code>aria-live</code> cho rõ ràng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>WCAG 2.2.1 — Timing Adjustable</strong></td>
+                  <td>
+                    Tiêu chí nói rằng nội dung tự biến mất theo thời gian phải cho người dùng
+                    cách kéo dài hoặc tắt. Đây là lý do pháp lý <em>và</em> lý do thực dụng cho
+                    cơ chế tạm dừng ở mục 3.5.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Modal</strong></td>
+                  <td>
+                    Hộp thoại chặn mọi thứ phía sau nó: không bấm được, không Tab tới được, và
+                    trình đọc màn hình cũng không đi ra ngoài được. Khai báo bằng
+                    <code>aria-modal="true"</code> cộng một <em>focus trap</em> thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Focus trap</strong></td>
+                  <td>
+                    Cơ chế giữ con trỏ bàn phím ở trong hộp thoại: Tab từ phần tử cuối quay lại
+                    phần tử đầu. Repo dùng <code>cdkTrapFocus</code> của Angular CDK.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Scroll lock</strong></td>
+                  <td>
+                    Chặn trang phía sau cuộn khi hộp thoại đang mở (<code>lockScrollWhile</code>).
+                    Thiếu nó thì lăn chuột trong hộp thoại sẽ cuộn trang đằng sau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Root-provided state</strong></td>
+                  <td>
+                    <code>@Injectable({ providedIn: 'root' })</code> — một thực thể duy nhất cho
+                    cả ứng dụng, sống từ lúc khởi động đến lúc đóng tab. Ngược với state có phạm
+                    vi một route, bị huỷ khi rời route.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Transient vs durable</strong></td>
+                  <td>
+                    Thông điệp <em>bay qua</em> (toast, snackbar — có timer) so với thông điệp
+                    <em>nằm lại</em> (entry trong centre — có cờ <code>read</code>). Hai loại
+                    được giữ trong <strong>hai signal riêng</strong>, không phải một danh sách
+                    chung.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Khoá dịch (translation key)</strong></td>
+                  <td>
+                    Mọi thông điệp ở đây là một <em>khoá</em> cộng tham số, không bao giờ là một
+                    câu hoàn chỉnh và không bao giờ là văn bản của server. Nguyên tắc 1 và 6 của
+                    repo.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ol>
+            <li>
+              Quyết định được một thông điệp nên là <strong>toast</strong>,
+              <strong>snackbar</strong>, <strong>entry trong centre</strong>, hay
+              <strong>nhiều hơn một</strong> trong số đó — bằng một câu hỏi duy nhất, không phải
+              bằng cảm giác.
+            </li>
+            <li>
+              Giải thích được vì sao <code>NotificationService</code> là
+              <strong>ngoại lệ có lý</strong> của luật "state sống cùng feature sở hữu nó", và
+              nói được hai điều kiện làm nên ngoại lệ đó.
+            </li>
+            <li>
+              Dựng hai live region đúng cách, và nói được vì sao một thất bại phải đi vào vùng
+              <code>assertive</code> còn mọi thứ khác thì không.
+            </li>
+            <li>
+              Biến "hỏi một câu có/không" thành <strong>một service trả về Observable</strong> —
+              và hiểu vì sao <em>huỷ đăng ký</em> phải rút lại câu hỏi.
+            </li>
+            <li>
+              Phân biệt được <strong>một câu hỏi</strong> và <strong>một hộp thoại</strong>, và
+              biết khi nào <em>không</em> được dùng confirmation dùng chung.
+            </li>
+            <li>
+              Nhận ra bốn cách làm hỏng một toast mà vẫn trông như chạy được: không cho tạm dừng,
+              một live region cho mọi thứ, region tạo cùng lúc với nội dung, và dùng toast làm
+              kênh duy nhất.
+            </li>
+            <li>
+              Viết được một control mà bạn phải <em>nói thật về giới hạn của nó</em> — "cảnh báo
+              trước khi rời form" là tiện lợi, không phải bảo đảm.
+            </li>
+          </ol>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang đây
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây nó là</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Flash message — Rails <code>flash</code>, Spring <code>RedirectAttributes</code></td>
+                  <td>
+                    Toast. Cùng một ý: một thông điệp phải sống qua một lần chuyển trang rồi tự
+                    hết. Khác chỗ ai giữ nó — xem bên dưới.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Log level — <code>info</code> / <code>warn</code> / <code>error</code></td>
+                  <td>
+                    <code>NotificationTone</code>: <code>info</code>, <code>success</code>,
+                    <code>warning</code>, <code>danger</code>. Nhưng đây là <em>tông cho người
+                    dùng</em>, không phải mức cho máy đọc.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Inbox / hàng đợi thông báo trong DB</td>
+                  <td>
+                    Notification centre — nhưng <strong>chỉ trong RAM của tab này</strong>, mất
+                    khi tải lại trang. Xem mục 6.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Singleton bean có scope application</td>
+                  <td>
+                    <code>@Injectable({ providedIn: 'root' })</code>. Cùng khái niệm: một thực
+                    thể, sống bằng tuổi của ứng dụng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>CompletableFuture&lt;Boolean&gt;</code> cho một câu hỏi bất đồng bộ</td>
+                  <td>
+                    <code>Observable&lt;boolean&gt;</code> mà <code>confirm()</code> trả về. Khác
+                    một điểm quan trọng: Observable <em>huỷ được</em>, và việc huỷ ở đây có nghĩa
+                    là "rút lại câu hỏi".
+                  </td>
+                </tr>
+                <tr>
+                  <td>Transaction cần người xác nhận trước khi commit</td>
+                  <td>
+                    <code>ConfirmationService.confirm(...)</code> rồi mới gọi API. Nhưng xác nhận
+                    ở frontend là <em>UX</em>, không phải biên — nguyên tắc 10.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Flash message của server và toast ở đây khác nhau ở chỗ AI GIỮ</span>
+            <p>
+              Trong một ứng dụng render ở server, flash message sống trong
+              <strong>session ở server</strong>. Request sau lấy nó ra, in vào HTML, rồi xoá. Cấu
+              trúc đó cho bạn tính "sống qua một lần redirect" <em>miễn phí</em>.
+            </p>
+            <p>
+              Ở đây không có request nào ở giữa. Điều hướng là chuyện xảy ra
+              <em>trong một trang đang chạy</em>: component cũ bị huỷ, component mới được tạo.
+              Nên "sống qua điều hướng" không miễn phí — nó là lý do service này phải
+              <strong>root-provided</strong> chứ không thuộc về feature nào. Đây chính là nội dung
+              mục 3.1.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Toast không phải log, và hai thứ có luật NGƯỢC nhau</span>
+            <p>
+              Dễ nghĩ "cùng là ghi ra một dòng thông điệp". Không phải. Đối tượng đọc khác nhau,
+              nên luật ngược nhau:
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Log (brief 33)</th>
+                    <th>Notification</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Ai đọc</td>
+                    <td>Bạn, lúc 2 giờ sáng</td>
+                    <td>Người dùng, ngay lúc này</td>
+                  </tr>
+                  <tr>
+                    <td>Dữ liệu cá nhân</td>
+                    <td><strong>Tuyệt đối không</strong> — redaction chặn ở bốn lớp</td>
+                    <td>
+                      <strong>Phải có</strong> — "Khách hàng C-000042 vừa được người khác sửa"
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Ngôn ngữ</td>
+                    <td>Tiếng Anh cố định, máy đọc được</td>
+                    <td>Khoá dịch, theo locale của người dùng</td>
+                  </tr>
+                  <tr>
+                    <td>Văn bản của server</td>
+                    <td>Ghi nguyên văn, càng chi tiết càng tốt</td>
+                    <td><strong>Không bao giờ</strong> — nguyên tắc 6</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Lẫn hai thứ này cho ra hai lỗi cụ thể: một là toast hiện
+              <code>violates foreign key constraint fk_customer_org</code>, hai là log có tên
+              khách hàng trong đó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. <code>confirm()</code> của trình duyệt không phải phiên bản đơn giản của cái này</span>
+            <p>
+              Nó <strong>chặn luồng</strong> — mọi animation, mọi timer, mọi request đang chờ đều
+              đứng. Nó <strong>không dịch được</strong>: nút là "OK"/"Cancel" theo ngôn ngữ của
+              trình duyệt, không theo locale của ứng dụng. Nó
+              <strong>không tạo kiểu được</strong>. Và ở repo này nó còn vi phạm nguyên tắc 2 —
+              không được dùng global của trình duyệt trong code ứng dụng, vì bản build SSR không
+              có <code>window</code>.
+            </p>
+            <p>
+              Thêm một điểm ít ai nghĩ tới: trình duyệt hiện đại cho người dùng tick
+              "chặn các hộp thoại khác từ trang này". Khi đó <code>confirm()</code> trả
+              <code>false</code> ngay, không hiện gì — và luồng xoá của bạn im lặng không làm gì
+              cả.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. "Notification" ở đây không phải push notification</span>
+            <p>
+              Không có gì ra khỏi tab: không service worker, không Notification API, không server
+              nào lưu. Tải lại trang là mất sạch. Đó là một
+              <em>giới hạn đã biết và đã chọn</em>, không phải thiếu sót — mục 6 nói vì sao, và
+              ADR-0022 ghi điều kiện để xem lại: khi thông báo phải sống qua lần tải lại hoặc
+              qua nhiều thiết bị, thì đó là <strong>một chức năng của server</strong>, không phải
+              một store ở client.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Vì sao đây là ngoại lệ có lý của luật "state sống cùng feature"</h3>
+
+          <p>
+            Luật của repo (ADR-0013): state của server sống trong store của feature sở hữu nó, và
+            store đó có tuổi bằng một route. Luật này tồn tại để quyền sở hữu nhìn thấy được, và
+            để chống cái phản xạ "cho hết lên global cho dễ".
+          </p>
+
+          <p>
+            <code>NotificationService</code> là thứ đầu tiên <em>không</em> sống nổi dưới luật
+            đó, và nó phải trả bằng hai lý do cụ thể — không phải một lý do chung chung:
+          </p>
+
+          <ol>
+            <li>
+              <strong>Người sinh và người hiển thị ở hai nhánh khác nhau của cây.</strong> Thứ
+              sinh ra thông điệp: đồng bộ realtime, một lần import xong, một optimistic update bị
+              hoàn lại, một lần export, một lần đổi ảnh. Thứ hiển thị:
+              <code>app-toast-region</code> và cái chuông trong <code>app-header</code> — cả hai
+              đều ở <strong>shell</strong>. Không có component cha chung nào ngoài chính shell,
+              nên truyền qua input/output là bất khả thi.
+            </li>
+            <li>
+              <strong>Thông điệp phải sống lâu hơn cú điều hướng.</strong> Một toast về lần lưu
+              <em>vừa làm bạn rời trang</em>, và một entry người dùng đọc mười phút sau — cả hai
+              sẽ bị huỷ cùng store nếu store có phạm vi route. Nghĩa là đúng những thông điệp
+              quan trọng nhất sẽ không bao giờ xuất hiện.
+            </li>
+          </ol>
+
+          <div class="box box--note">
+            <span class="box__label">Cái giá của global, và chỗ repo trả nó</span>
+            <p>
+              State toàn cục có một cái giá về <em>quyền riêng tư</em> mà state theo route không
+              có: nó sống qua cả việc đổi người dùng. Lịch sử trong centre là thông tin
+              <strong>về khách hàng</strong>. Nếu không xử lý, người tiếp theo đăng nhập trên cùng
+              cái tab sẽ thấy thông báo về những khách hàng mà họ có thể không được xem.
+            </p>
+            <p>
+              Nên service <em>tự</em> đăng ký vào <code>SessionService.ended$</code> và xoá sạch.
+              Để ý thiết kế: nó tự dọn mình, không chờ ai gọi — vì một chỗ gọi bị quên là một lỗ
+              rò dữ liệu, không phải một lỗi nhỏ.
+            </p>
+          </div>
+
+          <h3>3.2 Ba loại, chia theo <em>người dùng làm được gì</em></h3>
+
+          <p>
+            Đây là mục quan trọng nhất của brief, và cái hay của nó nằm ở <em>tiêu chí chia</em>.
+            Cách chia theo trực giác là theo <strong>mức độ nghiêm trọng</strong>: info thì toast,
+            lỗi thì dialog. Cách đó sai, vì nó trộn hai trục vào nhau.
+          </p>
+
+          <p>Tiêu chí ở đây là: <strong>người dùng có thể làm gì với thông điệp này?</strong></p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Loại</th>
+                  <th>Ở lại</th>
+                  <th>Hành động</th>
+                  <th>Dùng cho</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>toast</strong></td>
+                  <td>5 giây</td>
+                  <td><strong>không có</strong></td>
+                  <td>
+                    Kết quả của việc <em>người dùng vừa tự làm</em>. Họ đang nhìn, họ biết họ vừa
+                    bấm gì, không cần làm gì thêm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>snackbar</strong></td>
+                  <td>10 giây</td>
+                  <td><strong>đúng một</strong></td>
+                  <td>
+                    Tin tức mà người dùng <em>có thể</em> muốn phản ứng: "Làm mới", "Về danh
+                    sách". Ở lâu hơn vì nó <em>hỏi</em> một điều gì đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>entry trong centre</strong></td>
+                  <td><strong>tới khi đọc</strong></td>
+                  <td>một liên kết</td>
+                  <td>Bất cứ thứ gì đáng tìm lại được sau này.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Ba hệ quả rơi ra từ cách chia này, và cả ba đều là thiết kế tốt:</p>
+
+          <ul>
+            <li>
+              <strong>Toast không có nút nào</strong> — nên không có gì để mất khi nó tự biến
+              mất. Một thông điệp có nút mà tự biến mất là một cái bẫy: người dùng vừa định bấm
+              thì nó hết.
+            </li>
+            <li>
+              <strong>Snackbar có đúng một nút</strong>, không phải hai. Hai nút là một câu hỏi,
+              và câu hỏi thì thuộc về <code>ConfirmationService</code>.
+            </li>
+            <li>
+              <strong>Một thông điệp có thể là nhiều loại cùng lúc.</strong> Và đây là chỗ hay
+              nhất: thứ gì <em>không được bỏ lỡ</em> thì vừa hiện tạm thời vừa
+              <code>record()</code> vào centre. Toast là để biết ngay; centre là để
+              <strong>đợi</strong>. Nhìn code của <code>customer-realtime-sync.ts</code> ở mục
+              4.6 sẽ thấy đúng khuôn đó.
+            </li>
+          </ul>
+
+          <h3>3.3 Mọi thông điệp là một khoá dịch, không bao giờ là một câu</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>export interface TransientMessage {
+  readonly id: number;
+  readonly kind: 'toast' | 'snackbar';
+  readonly messageKey: string;
+  readonly params: MessageParams;
+  readonly tone: NotificationTone;
+  readonly action: { readonly labelKey: string; readonly run: () =&gt; void } | null;
+}</code></pre>
+          </div>
+
+          <p>
+            <code>messageKey</code> và <code>params</code>, không có trường nào tên
+            <code>text</code>. Kể cả nhãn của nút cũng là <code>labelKey</code>. Đây là nguyên tắc
+            1 của repo được <strong>cưỡng chế bằng kiểu</strong>: muốn hiện một câu cứng, bạn
+            không có chỗ nào để nhét nó vào.
+          </p>
+
+          <p>
+            Và nó đồng thời cưỡng chế nguyên tắc 6 — không hiện lỗi thô của backend. Một chỗ gọi
+            muốn hiện message của server sẽ phải đi qua <code>messageKeyOf(error)</code>, tức là
+            ánh xạ qua taxonomy lỗi của bài 10 trước. Hãy để ý trong
+            <code>customer-list-page.ts</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/customers/customer-list/customer-list-page.ts</div>
+            <pre><code>error: (error: unknown) =&gt; {
+  this.exportProgress.set(null);
+  this.notifications.toast(messageKeyOf(error), { tone: 'danger' });
+},</code></pre>
+          </div>
+
+          <p>
+            <code>messageKeyOf(error)</code> trả về một <em>khoá</em>, không phải một câu. Nếu
+            <code>toast()</code> nhận chuỗi tự do thì dòng này rất dễ thành
+            <code>toast(error.message)</code> — và bạn vừa đưa thân lỗi của server ra trước mặt
+            người dùng.
+          </p>
+
+          <h3>3.4 Hai live region, không phải một</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/toast-region.ts</div>
+            <pre><code>&lt;div class="region__stack" role="status" aria-live="polite" data-testid="toasts"&gt;
+  @for (message of polite(); track message.id) { ... }
+&lt;/div&gt;
+&lt;div class="region__stack" role="alert" aria-live="assertive" data-testid="alerts"&gt;
+  @for (message of urgent(); track message.id) { ... }
+&lt;/div&gt;</code></pre>
+          </div>
+
+          <p>Và quy tắc phân loại chỉ có một dòng:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/toast-region.ts</div>
+            <pre><code>function isUrgent(message: TransientMessage): boolean {
+  return message.tone === 'danger';
+}</code></pre>
+          </div>
+
+          <p>
+            Lý do tách làm hai, viết nguyên văn trong chú thích của component, đáng đọc chậm:
+            <em>một người dùng không nghe được rằng thay đổi của họ đã bị hoàn lại sẽ tin rằng nó
+            đã được lưu.</em> Đó không phải sự bất tiện — đó là một người tưởng mình đã lưu dữ
+            liệu mà thực ra chưa.
+          </p>
+
+          <p>
+            Ngược lại, để <em>mọi thứ</em> vào <code>assertive</code> cũng là một lỗi: mỗi lần
+            export xong, mỗi lần đổi ảnh, trình đọc màn hình sẽ cắt lời chính nó. Kết quả là
+            người dùng tắt hết đi cho yên — và lúc đó thông điệp quan trọng cũng mất.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Chi tiết kỹ thuật dễ mất cả tính năng</span>
+            <p>
+              <strong>Cả hai vùng phải tồn tại trong DOM TRƯỚC khi có nội dung bỏ vào.</strong>
+              Một live region được tạo ra <em>cùng lúc</em> với nội dung đầu tiên của nó thường
+              <strong>không được đọc</strong> — trình đọc màn hình chỉ bắt đầu theo dõi khi nó
+              thấy vùng đó, và nó không nhìn lại quá khứ.
+            </p>
+            <p>
+              Nên trong code hai thẻ <code>div</code> luôn ở đó, rỗng, và
+              <code>@for</code> đổ nội dung vào. Rất dễ "tối ưu" thành
+              <code>@if (messages().length) { &lt;div aria-live&gt; ... }</code> — và mất sạch tính
+              năng đọc lên, trong khi mắt thường vẫn thấy toast hiện ra bình thường. Đây là một
+              lỗi <em>chỉ</em> test tự động hoặc một người dùng trình đọc màn hình mới phát hiện
+              được.
+            </p>
+          </div>
+
+          <h3>3.5 Timer: bốn hằng số, và vì sao tạm dừng khó hơn vẻ ngoài</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>export const TOAST_DURATION_MS = 5_000;
+export const SNACKBAR_DURATION_MS = 10_000;
+/** Messages on screen at once. More than this is noise, and the oldest go first. */
+export const MAX_VISIBLE_MESSAGES = 4;
+export const RESUME_MINIMUM_MS = 2_000;
+/** History kept in the centre. Older entries are dropped, not paged. */
+export const MAX_CENTRE_ENTRIES = 50;</code></pre>
+          </div>
+
+          <p>
+            Năm hằng số được <code>export</code> — nghĩa là test đọc được chúng, nên test không
+            phải viết lại con số 5000 ở chỗ khác rồi lệch nhau. Nhưng cái đáng học nằm ở
+            <code>RESUME_MINIMUM_MS</code>, và chú thích của nó nói rõ vấn đề:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>/**
+ * The least time a message is left on screen after the user stops hovering or
+ * focusing it. Resuming with the few milliseconds that were left would make
+ * it vanish the moment the pointer moved off - which is the opposite of what
+ * pausing is for.
+ */</code></pre>
+          </div>
+
+          <p>
+            Nghĩ kỹ chỗ này. Cách cài đặt "đúng" một cách máy móc: dừng timer, ghi lại còn bao
+            nhiêu, khi thả thì chạy tiếp đúng số đó. Người dùng đưa chuột vào ở giây thứ 4,9 để
+            đọc. Đọc xong, rút chuột ra — và toast biến mất sau <strong>100 ms</strong>. Họ vừa
+            tạm dừng nó, và hành động tạm dừng kết thúc bằng việc nó biến mất ngay trước mắt.
+            Ngược hẳn mục đích.
+          </p>
+
+          <p>
+            Nên khi thả, mỗi timer chạy lại với <code>Math.max(remaining, RESUME_MINIMUM_MS)</code>
+            — ít nhất hai giây để kịp dời mắt. Đây là một chi tiết UX nhỏ mà chỉ phát hiện ra khi
+            <em>tự dùng</em>, và nó là lý do tốt để đọc cả chú thích chứ không chỉ đọc code.
+          </p>
+
+          <p>Ba điểm nữa trong cơ chế timer:</p>
+
+          <ul>
+            <li>
+              <strong>Giữ là trạng thái của cả vùng, không của từng message.</strong>
+              <code>hold()</code> dừng <em>mọi</em> timer. Vì con trỏ nằm trên một toast nhưng mắt
+              người ta có thể đang đọc cái bên dưới.
+            </li>
+            <li>
+              <strong>Một message đến trong lúc đang giữ thì đợi cùng.</strong>
+              <code>show()</code> kiểm <code>if (this.held)</code> và đặt
+              <code>handle: null</code> — nó vào hàng với <code>remaining</code> đầy đủ chứ không
+              chạy timer ngay. Thiếu nhánh này thì message mới sẽ biến mất trong khi người dùng
+              đang giữ cả chồng.
+            </li>
+            <li>
+              <strong><code>MAX_VISIBLE_MESSAGES = 4</code>, cái cũ nhất đi trước</strong> — và
+              khi bị đẩy ra, timer của nó cũng bị xoá (<code>clearTimer</code>). Quên dọn timer là
+              một rò rỉ nhỏ nhưng vô hạn: một <code>setTimeout</code> treo cho mỗi message đã
+              biến mất.
+            </li>
+          </ul>
+
+          <h3>3.6 Trung tâm thông báo: mở panel <em>không</em> phải là đã đọc</h3>
+
+          <p>
+            Chú thích của <code>notification-center.ts</code> nói thẳng ý này:
+            <em>thấy rằng có năm thứ không giống như đã đọc năm thứ.</em>
+          </p>
+
+          <p>
+            Nên: mở panel không đổi gì cả. Một entry thành <em>đã đọc</em> khi
+            <strong>nó được mở</strong>, hoặc khi người dùng bấm "đánh dấu tất cả đã đọc". Nghe
+            là chuyện nhỏ, nhưng cách làm kia — mở panel là xoá sạch badge — phá đúng công dụng
+            của cái badge: người dùng mở ra xem, bị gián đoạn, quay lại và không còn biết mình
+            chưa xem những gì.
+          </p>
+
+          <p>Và số chưa đọc phải nằm trong <em>tên khả truy cập</em> của cái nút:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/notification-center.ts</div>
+            <pre><code>[attr.aria-label]="
+  notifications.unreadCount()
+    ? t('notifications.centerUnread', { count: format.number(notifications.unreadCount()) })
+    : t('notifications.center')
+"</code></pre>
+          </div>
+
+          <p>
+            Vì một badge chỉ là một con số có màu thì <strong>không nói gì</strong> với người dùng
+            trình đọc màn hình. Để ý thêm hai chi tiết: con số hiển thị được bọc
+            <code>aria-hidden="true"</code> để không bị đọc <em>hai lần</em>, và nó đi qua
+            <code>format.number(...)</code> nên theo đúng locale (bài 21). Còn mỗi entry chưa đọc
+            mang một nhãn <code>visually-hidden</code> — "Unread" — vì
+            <strong>in đậm không phải một thông tin</strong> với người không thấy nó.
+          </p>
+
+          <h3>3.7 Hỏi một câu có/không, như một service</h3>
+
+          <p>
+            Vấn đề mà <code>ConfirmationService</code> giải quyết rất cụ thể: trước nó, mỗi
+            component muốn hỏi một câu phải có một <code>&lt;app-dialog&gt;</code> trong template
+            cộng khoảng ba signal (<em>đang mở</em>, <em>đang chờ</em>, <em>ai đang hỏi</em>).
+            Nhân với số chỗ cần hỏi. Và mỗi bản sao là một chỗ có thể quên focus trap, quên Escape,
+            quên scroll lock.
+          </p>
+
+          <p>Cách làm ở đây: <strong>một hộp thoại duy nhất do shell vẽ</strong>, và một API:</p>
+
+          <div class="code">
+            <div class="code__file">hình dạng — chỗ gọi đọc như một câu</div>
+            <pre><code>confirmation.confirm({ headingKey, bodyKey, confirmKey, tone: 'danger' })
+  .subscribe((yes) =&gt; ...)</code></pre>
+          </div>
+
+          <p>Ba quyết định thiết kế trong đó, mỗi cái trả lời một tình huống thật:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Tình huống nó xử lý</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Trả về <code>Observable</code>, không phải <code>Promise</code></td>
+                  <td>
+                    <strong>Huỷ đăng ký rút lại câu hỏi.</strong> Một cú điều hướng không còn cần
+                    câu trả lời nữa thì không được để lại một hộp thoại mồ côi trên màn hình.
+                    <code>Promise</code> không có khái niệm "tôi thôi không chờ nữa".
+                  </td>
+                </tr>
+                <tr>
+                  <td>Câu thứ hai trả lời câu thứ nhất là <strong>không</strong></td>
+                  <td>
+                    Hai hộp thoại modal xếp lớp là một lỗi thiết kế. Và trong hai cách giải —
+                    chặn câu mới, hay huỷ câu cũ — <strong>huỷ câu cũ là cách không mất gì</strong>:
+                    "không" nghĩa là không làm gì cả.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Đóng bằng <em>bất kỳ</em> cách nào khác nút xác nhận = <strong>không</strong></td>
+                  <td>
+                    Escape, nút ×, bấm ra ngoài. Vì câu hỏi luôn có dạng "làm việc đó chứ?", và
+                    một người thoát ra <em>chưa nói có</em>. Mặc định an toàn là mặc định duy nhất
+                    đúng ở đây.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.8 Khi nào <em>không</em> được dùng confirmation dùng chung</h3>
+
+          <p>
+            Đây là phần phân biệt mà ADR-0022 nói rõ, và nó là một phân biệt đáng mang sang dự án
+            khác: <strong>một câu hỏi</strong> khác <strong>một hộp thoại</strong>.
+          </p>
+
+          <ul>
+            <li>
+              <strong>Câu hỏi</strong> nhận một câu trả lời rồi <em>đóng lại</em>. Hai chỗ trong
+              repo dùng nó: rời form khi còn thay đổi chưa lưu, và xoá hàng loạt.
+            </li>
+            <li>
+              <strong>Hộp thoại</strong> ở lại để hiện <em>kết quả</em> của việc nó vừa hỏi. Nút
+              xoá ở trang chi tiết là như vậy: nếu xoá thất bại, hộp thoại giữ nguyên và hiện lỗi
+              ngay tại đó. Nên nó <strong>không</strong> được chuyển sang
+              <code>ConfirmationService</code> — và điều này được ghi lại chứ không để người sau
+              tự đoán là đã bỏ sót.
+            </li>
+          </ul>
+
+          <p>
+            Cách tự kiểm: nếu sau khi người dùng bấm "Có" mà hộp thoại còn việc phải làm, thì đó
+            không phải một câu hỏi.
+          </p>
+
+          <h3>3.9 Guard rời form, và chỗ phải nói thật</h3>
+
+          <p>
+            Cảnh báo "bạn có thay đổi chưa lưu" được ghép từ hai nửa, và chỗ ghép là một ví dụ
+            tốt về phân chia trách nhiệm:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/customers/customer-form/unsaved-changes.guard.ts</div>
+            <pre><code>export const unsavedChangesGuard: CanDeactivateFn&lt;CanLeave | null&gt; = (component) =&gt;
+  component?.canLeave() ?? true;</code></pre>
+          </div>
+
+          <p>
+            Guard chỉ <em>hỏi</em> component. Lý do nằm trong chú thích của interface:
+            câu hỏi "có thay đổi chưa lưu không, và người dùng có muốn giữ không" cần
+            <strong>cái form</strong> và <strong>một hộp thoại</strong>, mà cả hai đều thuộc
+            component. Một guard tự thò vào component để tìm hiểu sẽ là cùng một mối ràng buộc
+            nhưng viết hai lần.
+          </p>
+
+          <p>Và <code>?? true</code> không phải phòng xa cho đẹp:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/customers/customer-form/unsaved-changes.guard.ts</div>
+            <pre><code>// `component` is genuinely nullable at runtime whatever the type says: the
+// router passes the outlet's component, and a route that was resolved but
+// never rendered has none. Nothing can be unsaved in that case, so the
+// answer is yes - and calling a method on null here would turn every
+// navigation away from the form into an unhandled error.</code></pre>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Chỗ phải nói thật — và vì sao nó thuộc về brief này</span>
+            <p>
+              Guard chỉ phủ <strong>điều hướng trong ứng dụng</strong>: một liên kết, nút back,
+              một redirect trong code. Nó <em>không</em> phủ việc đóng tab hay gõ một địa chỉ
+              khác — cái đó cần <code>beforeunload</code>, một API của trình duyệt (brief 32). Và
+              không gì ở đây cứu được một bản sửa đang dở nếu trình duyệt sập.
+            </p>
+            <p>
+              Nên chú thích viết thẳng: đây là <strong>một tiện lợi, không phải một bảo đảm</strong>.
+              Đó cùng một luật với nguyên tắc 10 — không được mô tả một cơ chế ở frontend như
+              thể nó là một biên. Người dùng <em>tin</em> cái cảnh báo này, nên mô tả nó quá lên
+              là một lời hứa mà code không giữ được.
+            </p>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <p>Bảy file, hai nhóm rõ rệt:</p>
+
+          <div class="code">
+            <div class="code__file">hình dạng — không phải code thật</div>
+            <pre><code>core/notifications/
+├── notification.service.ts     262 dòng  state: 2 signal + 1 computed + timer
+└── confirmation.service.ts      90 dòng  một câu hỏi, trả lời bằng Observable
+
+layout/
+├── toast-region.ts             223 dòng  HAI live region, đặt một lần ở shell
+├── notification-center.ts      290 dòng  cái chuông + panel, đặt trong header
+└── confirmation-host.ts         61 dòng  vẽ câu hỏi duy nhất, đặt một lần ở shell
+
+app-shell.ts      &lt;app-toast-region /&gt; &lt;app-confirmation-host /&gt;
+app-header.ts     &lt;app-notification-center /&gt;</code></pre>
+          </div>
+
+          <p>
+            Để ý tỷ lệ: <strong>state 352 dòng, hiển thị 574 dòng</strong>. Phần lớn độ dài của
+            ba component là CSS và template, còn toàn bộ quyết định nằm trong hai service. Đó là
+            dấu hiệu của sự phân chia đúng — và nó là lý do test của hai service chạy
+            <em>không cần dựng component nào</em>.
+          </p>
+
+          <h3>4.1 <code>notification.service.ts</code> — hai signal, không phải một</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>private readonly messageState = signal&lt;readonly TransientMessage[]&gt;([]);
+private readonly entryState = signal&lt;readonly NotificationEntry[]&gt;([]);
+
+readonly messages = this.messageState.asReadonly();
+readonly entries = this.entryState.asReadonly();
+readonly unreadCount = computed(() =&gt; this.entryState().filter((entry) =&gt; !entry.read).length);</code></pre>
+          </div>
+
+          <p>Đọc từng dòng:</p>
+
+          <ul>
+            <li>
+              <strong>Hai signal riêng</strong> cho hai loại tuổi thọ khác nhau. Gộp thành một
+              danh sách rồi lọc theo một trường <code>kind</code> sẽ làm mọi phép tính phải lọc,
+              và làm cái <code>computed</code> đếm chưa đọc phải bỏ qua những thứ không có khái
+              niệm "đã đọc". Hai loại dữ liệu khác bản chất thì để riêng.
+            </li>
+            <li>
+              <code>private</code> + <code>asReadonly()</code> — ra ngoài là
+              <code>Signal</code>, không phải <code>WritableSignal</code>. Không component nào
+              <code>set()</code> được vào đây; muốn đổi thì phải qua một method có tên nói rõ ý
+              định. Đây là khuôn <em>mọi</em> store trong repo dùng (bài 11).
+            </li>
+            <li>
+              <code>unreadCount</code> là <code>computed</code>, không phải một biến đếm được
+              cập nhật bằng tay. Một biến đếm riêng là hai nguồn sự thật, và nó sẽ lệch — ở lần
+              <code>markAllRead</code> hoặc ở lần entry cũ bị đẩy ra khỏi 50 chỗ.
+            </li>
+            <li>
+              <code>readonly TransientMessage[]</code> và các object <code>readonly</code> toàn
+              bộ: mọi thay đổi là <code>update()</code> dựng mảng mới, nên signal thực sự phát ra
+              thay đổi. Sửa tại chỗ một mảng thì signal không biết gì.
+            </li>
+          </ul>
+
+          <p>Hàm <code>show()</code> — chỗ cả ba luật của mục 3.5 gặp nhau:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>private show(message: Omit&lt;TransientMessage, 'id'&gt;): number {
+  const id = this.nextId++;
+  this.messageState.update((messages) =&gt; {
+    const next = [...messages, { ...message, id }];
+    for (const dropped of next.slice(0, Math.max(0, next.length - MAX_VISIBLE_MESSAGES))) {
+      this.clearTimer(dropped.id);
+    }
+    return next.slice(-MAX_VISIBLE_MESSAGES);
+  });
+  const duration = message.kind === 'snackbar' ? SNACKBAR_DURATION_MS : TOAST_DURATION_MS;
+  if (this.held) {
+    // Arrived while the user is reading the others: it waits with them.
+    this.timers.set(id, { handle: null, remaining: duration, startedAt: Date.now() });
+  } else {
+    this.start(id, duration);
+  }
+  return id;
+}</code></pre>
+          </div>
+
+          <ol>
+            <li>
+              <code>Omit&lt;TransientMessage, 'id'&gt;</code> — chỗ gọi không được tự đặt id;
+              service là nơi duy nhất cấp id. Kiểu nói ra điều đó thay vì một chú thích.
+            </li>
+            <li>
+              Vòng <code>for</code> trên phần <em>bị cắt</em> dọn timer trước khi
+              <code>slice(-4)</code> bỏ chúng đi. Không có vòng này: bốn message hiện, message
+              thứ năm đẩy message đầu ra khỏi màn hình, nhưng timer của nó vẫn chạy và
+              <code>dismiss()</code> một id không còn tồn tại. Vô hại — nhưng nhân với một phiên
+              làm việc dài thì đó là rác tích tụ, và là kiểu lỗi không bao giờ tự biểu hiện ra.
+            </li>
+            <li>
+              <code>return id</code> ở cả bốn method công khai (<code>toast</code>,
+              <code>snackbar</code>, <code>record</code>, và <code>show</code>) — để chỗ gọi
+              <code>dismiss(id)</code> được nếu nó muốn tự thu hồi thông điệp của mình.
+            </li>
+          </ol>
+
+          <p>Và chỗ dọn khi phiên kết thúc:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.ts</div>
+            <pre><code>constructor() {
+  inject(SessionService)
+    .ended$.pipe(takeUntilDestroyed(inject(DestroyRef)))
+    .subscribe(() =&gt; this.clearAll());
+}</code></pre>
+          </div>
+
+          <p>
+            Bốn dòng, ba điều đáng nói. <code>inject()</code> trong constructor thay vì tham số
+            constructor — khuôn của repo. <code>takeUntilDestroyed</code> để subscription chết
+            cùng service. Và quan trọng nhất: <strong>service tự đăng ký</strong>, không chờ ai
+            gọi <code>notifications.clear()</code> lúc đăng xuất. Một chỗ gọi bị quên ở đây không
+            phải lỗi nhỏ, nó là dữ liệu khách hàng hiện ra cho người tiếp theo.
+          </p>
+
+          <h3>4.2 <code>toast-region.ts</code> — một template cho hai vùng</h3>
+
+          <p>
+            Hai live region cần đúng cùng một cách vẽ một message. Chép đôi template là chép đôi
+            chỗ sửa. Giải pháp:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/toast-region.ts</div>
+            <pre><code>@for (message of polite(); track message.id) {
+  &lt;ng-container *ngTemplateOutlet="item; context: { $implicit: message }"&gt;&lt;/ng-container&gt;
+}
+...
+&lt;ng-template #item let-message&gt;
+  &lt;div class="toast" [attr.data-tone]="message.tone" [attr.data-kind]="message.kind"&gt;</code></pre>
+          </div>
+
+          <p>
+            <code>ng-template</code> định nghĩa một lần, <code>ngTemplateOutlet</code> gọi ở hai
+            chỗ, <code>$implicit</code> truyền message vào để <code>let-message</code> nhận. Đây
+            là cách Angular làm việc mà một hàm trong các framework khác làm — và nó là lý do
+            <code>NgTemplateOutlet</code> xuất hiện trong <code>imports</code>.
+          </p>
+
+          <p>Một chi tiết nhỏ dễ gây bug thật:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/toast-region.ts</div>
+            <pre><code>/** `focusout` also fires when focus moves between two buttons inside. */
+protected focusLeft(event: FocusEvent): void {
+  const region = event.currentTarget as HTMLElement;
+  const next = event.relatedTarget as Node | null;
+  this.setFocusInside(next !== null &amp;&amp; region.contains(next));
+}</code></pre>
+          </div>
+
+          <p>
+            <code>focusout</code> bắn cả khi focus chỉ nhảy từ nút "Làm mới" sang nút "Đóng"
+            <em>trong cùng</em> một toast. Xử lý ngây thơ —
+            <code>(focusout)="setFocusInside(false)"</code> — sẽ thả timer ngay giữa lúc người
+            dùng đang Tab trong vùng đó, và toast biến mất dưới ngón tay họ. Nên phải hỏi
+            <code>relatedTarget</code>: focus đi <em>đến đâu</em>, và chỗ đó có còn trong vùng
+            không.
+          </p>
+
+          <p>
+            Thêm một chi tiết CSS mang tính cơ chế:
+            <code>.region { pointer-events: none }</code> còn
+            <code>.toast { pointer-events: auto }</code>. Vùng chứa phủ một góc màn hình và
+            <strong>phải cho chuột đi xuyên qua</strong>; chỉ bản thân các toast mới nhận chuột.
+            Thiếu cặp này, một vùng trống suốt chiều cao 24rem sẽ chặn mọi cú bấm vào giao diện
+            phía sau.
+          </p>
+
+          <h3>4.3 <code>notification-center.ts</code> — focus đi và về</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/notification-center.ts</div>
+            <pre><code>protected toggle(): void {
+  this.open.update((open) =&gt; !open);
+  if (this.open()) {
+    // Into the panel once it exists, so its contents are next in the
+    // reading order rather than somewhere after the rest of the header.
+    afterNextRender(() =&gt; this.panel()?.nativeElement.focus(), { injector: this.injector });
+  }
+}
+
+protected close(): void {
+  if (this.open()) {
+    this.open.set(false);
+    this.trigger().nativeElement.focus();
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Cặp đi–về này là khuôn chuẩn cho mọi thứ bật ra rồi đóng lại:
+            <strong>mở thì chuyển focus vào, đóng thì trả focus về chỗ đã bấm</strong>. Thiếu nửa
+            sau, người dùng bàn phím đóng panel và focus rơi về <code>body</code> — họ phải Tab
+            lại từ đầu trang.
+          </p>
+
+          <p>
+            <code>afterNextRender</code> là bắt buộc, không phải cho chắc:
+            <code>this.panel()</code> chưa tồn tại ở thời điểm <code>open.set(true)</code> vì
+            <code>@if</code> chưa chạy. Và <code>{ injector: this.injector }</code> là vì
+            <code>afterNextRender</code> gọi ngoài ngữ cảnh khởi tạo thì cần injector tường minh.
+          </p>
+
+          <p>Còn <code>openEntry</code> gộp hai việc đúng thứ tự:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/notification-center.ts</div>
+            <pre><code>protected openEntry(entry: NotificationEntry): void {
+  this.notifications.markRead(entry.id);
+  if (entry.link) {
+    this.open.set(false);
+    void this.router.navigate([...entry.link]);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            Đánh dấu đã đọc <em>trước</em>, điều hướng sau — và đánh dấu
+            <strong>kể cả khi không có link</strong>. Một entry không đi đâu được (ví dụ khách
+            hàng đã bị xoá) thì bấm vào vẫn là đã đọc. Để ý <code>[...entry.link]</code>: sao chép
+            mảng vì <code>link</code> là <code>readonly</code> còn <code>navigate</code> nhận mảng
+            thường.
+          </p>
+
+          <h3>4.4 <code>confirmation.service.ts</code> — 25 dòng đáng đọc kỹ nhất brief này</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/confirmation.service.ts</div>
+            <pre><code>confirm(request: ConfirmationRequest): Observable&lt;boolean&gt; {
+  return new Observable&lt;boolean&gt;((subscriber) =&gt; {
+    this.pendingState()?.answer(false);
+
+    let answered = false;
+    const answer = (confirmed: boolean): void =&gt; {
+      if (answered) {
+        return;
+      }
+      answered = true;
+      if (this.pendingState()?.answer === answer) {
+        this.pendingState.set(null);
+      }
+      subscriber.next(confirmed);
+      subscriber.complete();
+    };
+
+    this.pendingState.set({ request, answer });
+    // Unsubscribing withdraws the question - a navigation that no longer
+    // needs the answer must not leave a dialog behind.
+    return () =&gt; {
+      if (!answered &amp;&amp; this.pendingState()?.answer === answer) {
+        this.pendingState.set(null);
+      }
+    };
+  });
+}</code></pre>
+          </div>
+
+          <p>Đi từng dòng, vì mỗi dòng ở đây xử lý một tình huống đã từng làm hỏng thứ gì đó:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó xử lý chuyện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>new Observable(...)</code></td>
+                  <td>
+                    Thân hàm chỉ chạy <strong>khi có người subscribe</strong>. Nghĩa là gọi
+                    <code>confirm()</code> mà không <code>subscribe</code> thì
+                    <em>không hiện hộp thoại nào</em> — đúng: chưa ai chờ câu trả lời thì chưa có
+                    câu hỏi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>this.pendingState()?.answer(false)</code></td>
+                  <td>
+                    Dòng đầu tiên: trả lời "không" cho câu đang treo, nếu có. Đây là luật
+                    "một câu hỏi một lúc" ở mục 3.7, và nó được đặt
+                    <strong>trước</strong> mọi thứ khác nên không có khoảnh khắc nào tồn tại hai
+                    câu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>let answered = false</code></td>
+                  <td>
+                    Một cái chốt. Không có nó, bấm "Có" hai lần nhanh sẽ gọi
+                    <code>subscriber.next()</code> sau <code>complete()</code>, và chỗ gọi chạy
+                    hành động xoá <em>hai lần</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>this.pendingState()?.answer === answer</code></td>
+                  <td>
+                    Kiểm tra <strong>danh tính</strong>, không phải sự tồn tại. Dịch ra:
+                    "câu đang treo có phải câu của <em>tôi</em> không?". Thiếu phép so này, một
+                    câu hỏi cũ được trả lời muộn sẽ xoá sạch câu hỏi mới đang hiện trên màn hình.
+                    Hai lần so, ở hai chỗ, cùng một lý do.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>return () =&gt; {...}</code></td>
+                  <td>
+                    Hàm dọn của Observable — chạy khi huỷ đăng ký. Đây là thứ làm cho một cú điều
+                    hướng <em>rút lại</em> câu hỏi thay vì để lại một hộp thoại mồ côi. Và nó chỉ
+                    dọn khi <code>!answered</code>: một câu đã trả lời thì không cần rút lại.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao đây là ví dụ tốt về Observable</span>
+            <p>
+              Bài 07 nói RxJS chỉ nên dùng ở chỗ nó trả lời một câu hỏi mà signal không trả lời
+              được. Đây đúng là một chỗ như vậy, và câu hỏi đó là:
+              <strong>"người gọi có còn muốn biết nữa không?"</strong>
+            </p>
+            <p>
+              Một <code>Promise</code> không có khái niệm đó — nó sẽ resolve dù không ai còn nghe,
+              và hộp thoại vẫn đứng đó. Một signal cũng không: signal là
+              <em>giá trị hiện tại</em>, không phải <em>một lần hỏi</em>. Observable có cả ba thứ
+              cần: lười (chưa subscribe thì chưa hỏi), một lần (<code>complete()</code>), và
+              huỷ được (hàm dọn).
+            </p>
+          </div>
+
+          <h3>4.5 <code>confirmation-host.ts</code> — tạo rồi huỷ, không phải ẩn rồi hiện</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/layout/confirmation-host.ts</div>
+            <pre><code>@if (request(); as ask) {
+  &lt;ng-container *transloco="let t"&gt;
+    &lt;!-- Created when there is a question and destroyed when it is
+         answered, so the focus trap captures focus on the way in and
+         gives it back to the control that asked on the way out. --&gt;
+    &lt;app-dialog
+      [open]="true"
+      [heading]="t(ask.headingKey, format.params(ask.params))"
+      (dismissed)="confirmation.answer(false)"
+    &gt;</code></pre>
+          </div>
+
+          <p>Ba chi tiết, mỗi cái là một quyết định:</p>
+
+          <ul>
+            <li>
+              <code>@if</code> <strong>tạo và huỷ</strong> hộp thoại thay vì giữ nó ẩn. Nhờ đó
+              <code>cdkTrapFocus</code> với <code>autoCapture</code> bắt focus lúc vào và
+              <em>trả về chỗ cũ</em> lúc ra — cơ chế đó dựa trên việc phần tử được tạo mới. Giữ
+              một hộp thoại ẩn sẵn rồi bật <code>display</code> sẽ mất nửa sau.
+            </li>
+            <li>
+              <code>[open]="true"</code> cứng. Nghe lạ, nhưng đúng:
+              <code>@if</code> đã quyết định có hay không, nên khi hộp thoại tồn tại thì nó
+              <em>luôn</em> đang mở. Trạng thái không bị giữ ở hai nơi.
+            </li>
+            <li>
+              <code>(dismissed)="confirmation.answer(false)"</code> — một dòng này phủ
+              <strong>cả ba</strong> cách thoát mà <code>app-dialog</code> gom lại: Escape, nút ×,
+              bấm ra ngoài. Đây là chỗ luật "đóng kiểu nào khác cũng là không" được cài đặt, và
+              nó rẻ như vậy vì <code>app-dialog</code> đã gom ba đường thành một output.
+            </li>
+          </ul>
+
+          <p>
+            Phần thân còn một chi tiết i18n: <code>ask.count === undefined</code> thì dịch thường,
+            còn có <code>count</code> thì đi qua <code>appPlural</code>. Vì
+            "Xoá 1 khách hàng?" và "Xoá 12 khách hàng?" là hai dạng số khác nhau, và ở một số
+            ngôn ngữ là nhiều hơn hai dạng (bài 21, ADR-0033). Chỗ gọi chỉ cần truyền
+            <code>count: this.selectedCount()</code>.
+          </p>
+
+          <h3>4.6 Ai sinh ra thông báo — và khuôn lặp lại ở mọi chỗ</h3>
+
+          <p>
+            Có <strong>sáu</strong> nơi trong ứng dụng sinh thông báo. Nơi đáng đọc nhất là
+            <code>customer-realtime-sync.ts</code>, vì nó dùng cả ba loại và cho thấy luật chọn
+            loại ở mục 3.2 trông như thế nào trong code:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/customers/state/customer-realtime-sync.ts</div>
+            <pre><code>this.notifications.record(messageKey, { params, link: link ?? undefined });
+
+if (onScreen &amp;&amp; change === 'updated') {
+  this.notifications.snackbar(messageKey, {
+    params,
+    actionKey: 'realtime.refresh',
+    action: () =&gt; this.store.refreshDetail(),
+  });
+} else if (onScreen &amp;&amp; change === 'deleted') {
+  this.notifications.snackbar(messageKey, {
+    params,
+    tone: 'warning',
+    actionKey: 'realtime.backToList',
+    action: () =&gt; void this.router.navigate(['/customers']),
+  });
+}</code></pre>
+          </div>
+
+          <p>Đọc kỹ cấu trúc, vì nó là khuôn đáng mang đi:</p>
+
+          <ul>
+            <li>
+              <strong><code>record()</code> chạy vô điều kiện.</strong> Mọi tin đều vào centre,
+              bất kể người dùng có đang xem hay không. Centre là <em>sổ</em>.
+            </li>
+            <li>
+              <strong><code>snackbar()</code> chỉ khi <code>onScreen</code>.</strong> Một nút
+              "Làm mới" chỉ có nghĩa nếu người dùng đang xem đúng bản ghi đó. Hiện nó khi họ đang
+              ở trang khác là một nút không làm được gì hữu ích.
+            </li>
+            <li>
+              <strong>Hành động khác nhau theo bản chất của tin.</strong> Sửa → "Làm mới"
+              (<code>refreshDetail</code>). Xoá → "Về danh sách", tông <code>warning</code>, vì
+              làm mới một bản ghi đã bị xoá là vô nghĩa.
+            </li>
+          </ul>
+
+          <p>Năm nơi còn lại, mỗi nơi minh hoạ một luật:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nơi</th>
+                  <th>Dùng gì · vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>customer-avatar.ts</code></td>
+                  <td>
+                    <code>toast</code> hai lần — xong và đã huỷ. Kết quả của việc người dùng tự
+                    làm, không có gì để hành động.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-list-page.ts</code></td>
+                  <td>
+                    <code>toast</code> cho export xong, <code>toast</code> tông
+                    <code>danger</code> cho lỗi. Chú thích nói rõ lý do chọn toast:
+                    <em>không có chỗ nào trên trang để cái lỗi đó thuộc về</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-import-page.ts</code></td>
+                  <td>
+                    <strong>chỉ</strong> <code>record</code>. Import là việc dài; kết quả đáng
+                    tìm lại được, và người dùng có thể đã đi chỗ khác.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>customer-detail-page.ts</code></td>
+                  <td><code>toast</code> cho kết quả một hành động trên bản ghi đang mở.</td>
+                </tr>
+                <tr>
+                  <td><code>offline-banner.ts</code></td>
+                  <td>
+                    <code>toast</code> tông <code>success</code> khi có mạng lại. Để ý: mất mạng
+                    thì dùng <em>banner</em> (trạng thái đang diễn ra), có mạng lại thì dùng
+                    <em>toast</em> (một sự kiện đã xong). Hai cơ chế cho hai bản chất.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và <code>confirm()</code> chỉ có <strong>hai</strong> chỗ gọi:
+            <code>customer-form-page.ts</code> (<code>canLeave</code>) và
+            <code>customer-list-page.ts</code> (<code>confirmBulkDelete</code>). Đúng nguyên tắc
+            8 của repo: hai chỗ gọi là đủ để biện minh cho một trừu tượng, và chú thích của
+            service <em>nêu tên</em> cả hai.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Tôi có một thông điệp — nó là loại nào, vào vùng nào?</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    A["Tôi có một thông điệp cho người dùng"] --&gt; Q1{"Người dùng LÀM ĐƯỢC GÌ với nó?"}
+
+    Q1 --&gt;|"không gì — chỉ cần biết kết quả việc mình vừa làm"| T["toast<br/>5 giây, KHÔNG có nút"]
+    Q1 --&gt;|"có MỘT việc nên làm: Làm mới, Về danh sách"| S["snackbar<br/>10 giây, ĐÚNG MỘT nút"]
+    Q1 --&gt;|"cần tìm lại được về sau"| C["record vào centre<br/>nằm tới khi được đọc"]
+    Q1 --&gt;|"phải trả lời CÓ hay KHÔNG trước khi đi tiếp"| K["ConfirmationService.confirm<br/>đây KHÔNG phải notification"]
+
+    T --&gt; Q2{"Được phép bỏ lỡ không?"}
+    S --&gt; Q2
+    Q2 --&gt;|"KHÔNG được bỏ lỡ"| BOTH["Gọi CẢ HAI<br/>toast để biết ngay + record để đợi"]
+    Q2 --&gt;|"bỏ lỡ cũng không sao"| ONE["Một mình là đủ"]
+
+    T --&gt; Q3{"tone là gì?"}
+    S --&gt; Q3
+    Q3 --&gt;|"danger — một thất bại"| AS["vùng ASSERTIVE, role alert<br/>CẮT NGANG: người không nghe sẽ tin là đã lưu"]
+    Q3 --&gt;|"info · success · warning"| PO["vùng POLITE, role status<br/>đọc khi trình đọc rảnh"]
+
+    K --&gt; Q4{"Sau khi người dùng bấm Có,<br/>hộp thoại còn việc gì nữa không?"}
+    Q4 --&gt;|"còn — phải hiện KẾT QUẢ"| OWN["Không phải một câu hỏi.<br/>Là một hộp thoại riêng — ví dụ nút xoá ở trang chi tiết"]
+    Q4 --&gt;|"hết — trả lời xong là đóng"| SHARED["Dùng confirmation dùng chung<br/>một hộp thoại duy nhất do shell vẽ"]
+            </pre>
+            <figcaption>
+              Câu hỏi đầu tiên — <em>người dùng làm được gì với nó</em> — là tiêu chí chia, và nó
+              khác với tiêu chí trực giác là <em>mức độ nghiêm trọng</em>. Nhánh
+              <code>Q2</code> là nhánh người ta quên: một toast tự biến mất <strong>không</strong>
+              phải một kênh đáng tin, nên thứ gì không được bỏ lỡ phải đi cả hai đường.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Một câu hỏi: ba cách kết thúc</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as Component (xoá hàng loạt)
+    participant S as ConfirmationService
+    participant H as app-confirmation-host
+    actor U as Người dùng
+
+    C-&gt;&gt;S: confirm(headingKey, bodyKey, count, tone danger)
+    Note over S: Observable LƯỜI — chưa subscribe thì chưa có câu hỏi nào
+    C-&gt;&gt;S: subscribe, kèm takeUntilDestroyed
+    S-&gt;&gt;S: trả lời câu đang treo (nếu có) là KHÔNG
+    S-&gt;&gt;S: pendingState.set — request + hàm answer
+    S--&gt;&gt;H: signal pending đổi
+    H-&gt;&gt;H: khối điều kiện TẠO app-dialog — cdkTrapFocus bắt focus, lockScrollWhile khoá cuộn
+    H--&gt;&gt;U: hộp thoại: nút Huỷ, nút Xoá màu danger
+
+    alt bấm đúng nút xác nhận
+        U-&gt;&gt;H: click
+        H-&gt;&gt;S: answer(true)
+        S-&gt;&gt;S: chốt answered — pendingState về null
+        S--&gt;&gt;C: next(true) rồi complete()
+        C-&gt;&gt;C: runBulk DELETE
+    else Escape · nút × · bấm ra ngoài
+        U-&gt;&gt;H: dismissed — một output gom cả ba đường
+        H-&gt;&gt;S: answer(false)
+        S--&gt;&gt;C: next(false) rồi complete()
+        Note over C: không làm gì — thoát ra CHƯA phải là nói có
+    else điều hướng đi, không cần câu trả lời nữa
+        C-&gt;&gt;S: unsubscribe
+        S-&gt;&gt;S: hàm dọn — chưa answered thì pendingState về null
+        S--&gt;&gt;H: pending là null
+        Note over H: không để lại một hộp thoại mồ côi trên màn hình
+    end
+
+    H-&gt;&gt;H: khối điều kiện HUỶ dialog
+    H--&gt;&gt;U: focus trả về đúng cái nút đã bấm
+            </pre>
+            <figcaption>
+              Nhánh thứ ba là nhánh phân biệt <code>Observable</code> với
+              <code>Promise</code>: chỉ Observable có khái niệm "người gọi thôi không chờ nữa",
+              và chỉ nhờ nó mà một cú điều hướng <em>rút lại</em> câu hỏi. Hai dòng cuối chạy ở cả
+              ba nhánh — hộp thoại bị huỷ, không phải bị ẩn, nên focus trap trả focus về chỗ cũ.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>State toàn cục cho thông báo (ADR-0022, ngoại lệ của ADR-0013)</h4>
+
+          <p>
+            <strong>Bị loại:</strong> store theo phạm vi route, như mọi state khác trong repo.
+            <strong>Giá:</strong> một thứ sống bằng tuổi ứng dụng, nên phải tự dọn khi phiên kết
+            thúc, nếu không là rò dữ liệu giữa hai người dùng.
+            <strong>Được lại:</strong> hai điều kiện ở mục 3.1 — người sinh và người hiển thị ở
+            hai nhánh khác nhau, và thông điệp sống lâu hơn cú điều hướng. Điểm đáng học không
+            phải là "có ngoại lệ", mà là <strong>ngoại lệ phải nêu được điều kiện cụ thể</strong>:
+            ADR nói rõ nó không rơi vào luật feature-store vì hai lý do nào, chứ không nói
+            "cái này toàn cục cho tiện".
+          </p>
+
+          <h4>Hộp thoại vẽ thẳng trong shell, không dùng CDK overlay</h4>
+
+          <p>
+            <strong>Bị loại:</strong> <code>Overlay</code> của CDK để bung hộp thoại vào một
+            container riêng. <strong>Lý do loại:</strong> overlay giải bài toán
+            <em>xếp lớp</em> — nhiều lớp nổi chồng nhau, định vị theo một phần tử gốc. Ở đây
+            <strong>confirmation không bao giờ xếp lớp</strong>: câu thứ hai trả lời câu thứ nhất
+            là không. Nên thứ overlay mua được, chỗ này không cần.
+            <strong>Giá:</strong> hộp thoại nằm trong cây DOM của shell, nên phải tự lo
+            <code>z-index</code> và scroll lock — và scroll lock từng là nợ kỹ thuật dòng 9, trả
+            ở Phase 6 bằng <code>lockScrollWhile</code>.
+          </p>
+
+          <h4><code>Observable&lt;boolean&gt;</code> chứ không phải <code>Promise</code> hay signal</h4>
+
+          <p>
+            <strong>Bị loại:</strong> <code>Promise&lt;boolean&gt;</code>, hoặc một signal
+            <code>pendingAnswer</code>. <strong>Giá:</strong> chỗ gọi phải
+            <code>subscribe</code> và phải nhớ <code>takeUntilDestroyed</code>.
+            <strong>Được lại:</strong> lười, một lần, và <strong>huỷ được</strong> — ba tính chất
+            ở mục 4.4. Và một lợi ích phụ: <code>CanDeactivateFn</code> của Angular Router nhận
+            thẳng <code>Observable&lt;boolean&gt;</code>, nên <code>canLeave()</code> trả về nó là
+            vừa khớp, không cần cầu nối nào.
+          </p>
+
+          <h4>Ba loại thông điệp, không phải một</h4>
+
+          <p>
+            <strong>Bị loại:</strong> một <code>notify(message, options)</code> duy nhất với một
+            lô tham số. <strong>Giá:</strong> ba method và ba khái niệm phải học.
+            <strong>Được lại:</strong> mỗi method <em>không nhận</em> những tham số vô nghĩa với
+            nó. <code>toast()</code> không có <code>actionKey</code> — nên không ai tạo được một
+            thông điệp có nút mà tự biến mất, tức là cái bẫy ở mục 3.2 bị chặn
+            <strong>bằng kiểu</strong>, không bằng quy ước.
+          </p>
+
+          <h4>Toast tự tắt theo thời gian, nhưng dừng khi có người đọc</h4>
+
+          <p>
+            <strong>Bị loại:</strong> toast phải tự tay đóng (không bao giờ tự tắt), hoặc tự tắt
+            mà không dừng được. <strong>Giá:</strong> một bản đồ timer, trạng thái
+            <code>held</code>, và hằng số <code>RESUME_MINIMUM_MS</code> — khoảng 40 dòng chỉ để
+            lo thời gian. <strong>Được lại:</strong> WCAG 2.2.1, và một hành vi mà người dùng
+            thực sự cảm nhận được. Chú thích nói rõ đây là nợ dòng 23, trả ở Phase 6 — tức là
+            bản đầu <em>đã</em> vi phạm và việc đó được ghi lại thay vì lặng lẽ sửa.
+          </p>
+
+          <h4>Không sống qua lần tải lại trang</h4>
+
+          <p>
+            <strong>Bị loại:</strong> lưu centre vào <code>localStorage</code>.
+            <strong>Lý do loại:</strong> nó là thông tin <em>về khách hàng</em>, và
+            <code>localStorage</code> thì không hết hạn, không theo phiên, không mã hoá, và đọc
+            được từ mọi tab cùng origin kể cả sau khi đăng xuất. Điều kiện xem lại được ADR-0022
+            ghi rõ: khi thông báo phải sống qua lần tải lại hoặc qua nhiều thiết bị, thì đó là
+            <strong>một chức năng của server</strong> — không phải một store ở client.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <h4>7.1 Dùng toast làm kênh duy nhất</h4>
+          <p>
+            Lưu xong → toast → 5 giây sau mất. Người dùng vừa quay sang trả lời tin nhắn. Họ
+            không biết đã lưu được hay chưa, và <strong>không có cách nào để biết</strong>. Luật:
+            thứ gì không được bỏ lỡ thì phải <code>record()</code> vào centre, nơi nó
+            <em>đợi</em>. Toast là để biết ngay, centre là để biết sau — và hai việc đó không thay
+            nhau được.
+          </p>
+
+          <h4>7.2 Một live region cho mọi thứ</h4>
+          <p>
+            Để tất cả vào <code>polite</code>: một thay đổi bị hoàn lại sẽ được đọc lên
+            <em>sau</em> khi người dùng đã chuyển sang việc khác, hoặc không được đọc nếu trình
+            đọc đang nói dở. Người dùng tin là đã lưu. Để tất cả vào <code>assertive</code>: mỗi
+            lần export xong, mỗi lần đổi ảnh đều cắt lời — và người dùng tắt hết đi cho yên, lúc
+            đó mất luôn cả thông điệp quan trọng. Phải là hai vùng, và quy tắc chia chỉ một dòng:
+            <code>tone === 'danger'</code>.
+          </p>
+
+          <h4>7.3 Tạo live region cùng lúc với nội dung</h4>
+          <p>
+            <code>@if (messages().length) { &lt;div aria-live="polite"&gt;...&lt;/div&gt; }</code> —
+            trông hợp lý, và <strong>mất sạch tính năng</strong>: trình đọc màn hình không đọc một
+            vùng vừa xuất hiện cùng nội dung của nó. Toast vẫn hiện bình thường trên màn hình, nên
+            không ai phát hiện. Đây là kiểu lỗi mà chỉ test tự động với axe, hoặc một người dùng
+            trình đọc màn hình, mới tìm ra.
+          </p>
+
+          <h4>7.4 Tự tắt mà không dừng được</h4>
+          <p>
+            Ba thứ vỡ cùng lúc. Vi phạm WCAG 2.2.1. Người đọc chậm mất thông điệp. Và nặng nhất:
+            nếu người dùng đang <strong>focus trong</strong> một snackbar — tay trên nút
+            "Làm mới" — mà nó biến mất, thì focus rơi về <code>body</code> và người dùng bàn phím
+            mất chỗ đứng giữa trang.
+          </p>
+
+          <h4>7.5 Chạy tiếp timer với đúng số thời gian còn lại</h4>
+          <p>
+            Phiên bản "đúng" theo kiểu máy móc, và nó phản tác dụng: đưa chuột vào ở giây 4,9 để
+            đọc, rút ra, toast biến mất sau 100 ms. Người dùng vừa làm động tác tạm dừng và nhận
+            được kết quả ngược lại. <code>RESUME_MINIMUM_MS = 2000</code> tồn tại chính vì chuyện
+            này — một chi tiết chỉ lộ ra khi tự dùng sản phẩm của mình.
+          </p>
+
+          <h4>7.6 Mở panel là đánh dấu đã đọc hết</h4>
+          <p>
+            Người dùng mở ra, bị gọi điện, quay lại — badge đã sạch và họ không còn biết mình chưa
+            xem những gì. <em>Thấy rằng có năm thứ không giống như đã đọc năm thứ.</em>
+          </p>
+
+          <h4>7.7 Một hộp thoại trong mỗi component muốn hỏi</h4>
+          <p>
+            Bốn hệ quả, và chúng đến theo thứ tự này: ba signal trạng thái nhân lên theo số chỗ
+            hỏi; hai hộp thoại modal có thể xếp lớp (và cái dưới không ai bấm được);
+            mỗi bản sao là một chỗ có thể quên focus trap, quên Escape, quên scroll lock; và khi
+            cần sửa hành vi "bấm ra ngoài thì sao", bạn phải sửa từng bản. Repo này từng có hai
+            bản tự dựng và chúng được thay bằng một service duy nhất.
+          </p>
+
+          <h4>7.8 Để câu hỏi treo lại sau khi không còn ai chờ</h4>
+          <p>
+            Dùng <code>Promise</code>, hoặc dùng Observable mà không viết hàm dọn. Người dùng bấm
+            một liên kết trong lúc hộp thoại đang mở; component bị huỷ; hộp thoại
+            <strong>vẫn còn đó</strong>, hỏi một câu về một trang không còn tồn tại. Bấm "Có" thì
+            nó gọi một hành động trên state đã bị huỷ.
+          </p>
+
+          <h4>7.9 Hiện message của server trong toast</h4>
+          <p>
+            <code>toast(error.message)</code>. Người dùng nhận
+            <code>violates foreign key constraint fk_customer_org</code> — hoặc tệ hơn, một mẩu
+            SQL hay một đường dẫn file trên server. Nguyên tắc 6 của repo chặn điều này, và
+            <strong>kiểu dữ liệu</strong> cũng chặn: <code>toast()</code> nhận
+            <code>messageKey</code>, nên muốn hiện một câu tự do thì không có chỗ nhét vào.
+          </p>
+
+          <h4>7.10 Không xoá khi phiên kết thúc</h4>
+          <p>
+            Người tiếp theo đăng nhập trên cùng cái tab thấy lịch sử thông báo về những khách hàng
+            mà họ có thể không có quyền xem. Và đây là loại lỗi
+            <em>không bao giờ xuất hiện trong lúc phát triển</em>, vì khi phát triển ta hay đăng
+            nhập một tài khoản duy nhất. Nên service phải <strong>tự</strong> đăng ký vào
+            <code>ended$</code> chứ không chờ chỗ đăng xuất gọi nó — một chỗ gọi bị quên ở đây là
+            một lỗ rò, không phải một lỗi nhỏ.
+          </p>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Hai service có <strong>13 + 3 test</strong>, và cả 16 đều chạy
+            <em>không dựng component nào</em> — bằng chứng rằng phần quyết định nằm trong service,
+            không nằm trong template.
+          </p>
+
+          <h3>Thời gian được điều khiển, không được chờ</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.spec.ts</div>
+            <pre><code>beforeEach(() =&gt; {
+  vi.useFakeTimers();
+  TestBed.configureTestingModule({ providers: [provideTestHttp()] });
+  notifications = TestBed.inject(NotificationService);
+});
+
+afterEach(() =&gt; vi.useRealTimers());</code></pre>
+          </div>
+
+          <p>
+            Không có <code>setTimeout</code> thật nào trong bộ test này.
+            <code>vi.advanceTimersByTime(5000)</code> nhảy năm giây trong một micro-giây. Một bộ
+            test khẳng định hành vi của timer mà lại <em>chờ thật</em> sẽ mất một phút cho mười
+            test, và sẽ flaky trên máy đang tải nặng.
+          </p>
+
+          <p>Và để ý chúng import hằng số từ chính service:</p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.spec.ts</div>
+            <pre><code>import {
+  MAX_VISIBLE_MESSAGES,
+  NotificationService,
+  RESUME_MINIMUM_MS,
+  SNACKBAR_DURATION_MS,
+  TOAST_DURATION_MS,
+} from './notification.service';</code></pre>
+          </div>
+
+          <p>
+            Đây là lý do những hằng số đó được <code>export</code>. Nếu test viết lại số
+            <code>5000</code>, thì đổi thời lượng toast sẽ làm test đỏ ở một chỗ
+            <em>không liên quan tới cái gì bị sai</em> — và người sửa sẽ sửa con số trong test
+            cho hết đỏ. Test phải khẳng định <em>quan hệ</em>, không khẳng định con số.
+          </p>
+
+          <h3>Ba test đáng đọc nguyên văn</h3>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.spec.ts</div>
+            <pre><code>it('keeps a snackbar longer, because it asks something', () =&gt; {
+  notifications.snackbar('realtime.customer.updated', {
+    actionKey: 'realtime.refresh',
+    action: () =&gt; undefined,
+  });
+
+  vi.advanceTimersByTime(TOAST_DURATION_MS);
+  expect(notifications.messages()).toHaveLength(1);
+  vi.advanceTimersByTime(SNACKBAR_DURATION_MS - TOAST_DURATION_MS);
+  expect(notifications.messages()).toHaveLength(0);
+});</code></pre>
+          </div>
+
+          <p>
+            Hai lần khẳng định, không phải một: <em>vẫn còn</em> sau thời lượng toast,
+            <em>đã hết</em> sau thời lượng snackbar. Chỉ khẳng định cái thứ hai thì một bug làm
+            snackbar sống bằng toast vẫn lọt.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/notification.service.spec.ts</div>
+            <pre><code>it('never resumes with less than a moment to read', () =&gt; {
+  notifications.toast('customers.avatar.done');
+  vi.advanceTimersByTime(TOAST_DURATION_MS - 10);
+  notifications.hold();
+  notifications.release();
+
+  vi.advanceTimersByTime(RESUME_MINIMUM_MS - 1);
+  expect(notifications.messages()).toHaveLength(1);
+  vi.advanceTimersByTime(1);
+  expect(notifications.messages()).toHaveLength(0);
+});</code></pre>
+          </div>
+
+          <p>
+            Đây là test cho đúng tình huống ở mục 7.5: chỉ còn 10 ms, giữ rồi thả, và nó phải
+            sống thêm <em>đúng</em> 2000 ms — không ít hơn (thì vô dụng), không nhiều hơn (thì
+            timer bị đặt lại từ đầu). Cặp <code>advanceTimersByTime(X - 1)</code> rồi
+            <code>(1)</code> là cách khẳng định một mốc <strong>chính xác</strong> thay vì
+            "khoảng chừng".
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/web/src/app/core/notifications/confirmation.service.spec.ts</div>
+            <pre><code>it('answers the first question "no" when a second is asked', () =&gt; {
+  const first: boolean[] = [];
+  const second: boolean[] = [];
+  confirmation.confirm(DELETE).subscribe((answer) =&gt; first.push(answer));
+  confirmation
+    .confirm({ ...DELETE, confirmKey: 'common.save' })
+    .subscribe((answer) =&gt; second.push(answer));
+
+  // Two stacked modal questions are a design error; cancelling the older
+  // one is the answer that loses nothing.
+  expect(first).toEqual([false]);
+  expect(confirmation.pending()?.request.confirmKey).toBe('common.save');
+
+  confirmation.answer(true);
+  expect(second).toEqual([true]);
+});</code></pre>
+          </div>
+
+          <p>
+            Thu câu trả lời vào <em>mảng</em> chứ không vào biến đơn — nhờ đó
+            <code>toEqual([false])</code> khẳng định cả <strong>giá trị</strong> lẫn
+            <strong>số lần</strong>. Một bug phát hai lần sẽ cho <code>[false, false]</code> và bị
+            bắt. Và test thứ ba trong file khẳng định cái khó nhất:
+            <code>subscription.unsubscribe()</code> làm <code>pending()</code> về
+            <code>null</code> — tức là câu hỏi được <em>rút lại</em>.
+          </p>
+
+          <h3>Và những gì chỉ E2E chứng minh được</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Khẳng định điều gì mà unit test không với tới</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>e2e/keyboard.spec.ts</code></td>
+                  <td>
+                    Con trỏ đặt lên một toast <strong>giữ nó quá 6 giây thật</strong>; rồi chuột
+                    rời đi và <em>focus bàn phím</em> giữ tiếp 6 giây nữa; rồi Enter trên nút đóng
+                    làm nó biến mất. Đây là mục 3.5 được kiểm bằng chuột và bàn phím thật — hai
+                    đường mà <code>hold()</code>/<code>release()</code> ở unit test không chạm
+                    tới.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/enterprise-ux.spec.ts</code></td>
+                  <td>
+                    Một người dùng khác sửa khách hàng → toast xuất hiện, bản ghi
+                    <em>được gắn cờ</em> chứ không bị thay dưới mắt người đọc, và entry nằm lại
+                    trong centre ở trạng thái <strong>Unread</strong>. Cộng một lần quét axe trên
+                    panel đang mở.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/cross-tab.spec.ts</code></td>
+                  <td>
+                    Tab B thấy toast về thay đổi của tab A, và
+                    <strong>tab A thì không</strong> — vì người gây ra thay đổi không cần được
+                    thông báo về chính mình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/customer-crud.spec.ts</code></td>
+                  <td>
+                    <code>confirm-accept</code> được bấm thật, và việc xoá hàng loạt thật sự chạy
+                    sau đó — tức là <code>Observable</code> nối được từ hộp thoại về chỗ gọi, qua
+                    cả <code>takeUntilDestroyed</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/accessibility.spec.ts</code></td>
+                  <td>
+                    Panel thông báo đang mở là một trong 64 trạng thái được quét bằng axe, ở cả
+                    sáng và tối.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TB
+    subgraph PROD["Người SINH ra thông điệp — 6 nơi, ở các nhánh khác nhau của cây"]
+        P1["customer-realtime-sync<br/>người khác sửa · tab khác sửa · import xong"]
+        P2["customer-list-page<br/>export xong · export lỗi"]
+        P3["customer-import-page<br/>CHỈ record: việc dài, cần tìm lại"]
+        P4["customer-avatar · customer-detail-page<br/>kết quả việc vừa làm"]
+        P5["offline-banner<br/>mất mạng là BANNER, có lại là TOAST"]
+    end
+
+    subgraph STATE["core/notifications — root-provided, LÝ DO ở ADR-0022"]
+        N1["messageState: toast + snackbar<br/>có timer, tối đa 4, cũ nhất đi trước"]
+        N2["entryState: lịch sử centre<br/>có cờ read, tối đa 50"]
+        N3["unreadCount = computed<br/>KHÔNG phải biến đếm riêng"]
+        N4["hold / release<br/>RESUME_MINIMUM_MS: ít nhất 2 giây để kịp dời mắt"]
+        N5["phiên kết thúc → clearAll<br/>TỰ đăng ký, không chờ ai gọi"]
+    end
+
+    subgraph VIEW["layout — đặt MỘT LẦN, ở shell và header"]
+        V1["toast-region: HAI live region<br/>polite cho tin · assertive cho danger"]
+        V2["notification-center: chuông + panel<br/>mở panel KHÔNG phải là đã đọc"]
+        V3["confirmation-host: TẠO rồi HUỶ, không ẩn rồi hiện<br/>nên focus trap trả focus về chỗ cũ"]
+    end
+
+    subgraph ASK["Hỏi một câu — chỉ 2 chỗ gọi"]
+        A1["customer-form-page.canLeave<br/>rời form khi còn thay đổi chưa lưu"]
+        A2["customer-list-page.confirmBulkDelete<br/>xoá hàng loạt, có count cho dạng số"]
+        A3["ConfirmationService: Observable lười · một lần · HUỶ ĐƯỢC<br/>câu thứ hai trả lời câu thứ nhất là KHÔNG"]
+    end
+
+    P1 --&gt; N1
+    P1 --&gt; N2
+    P2 --&gt; N1
+    P3 --&gt; N2
+    P4 --&gt; N1
+    P5 --&gt; N1
+    N1 --&gt; V1
+    N2 --&gt; V2
+    N3 --&gt; V2
+    N4 --&gt; V1
+    N5 --&gt; N1
+    N5 --&gt; N2
+
+    A1 --&gt; A3
+    A2 --&gt; A3
+    A3 --&gt; V3
+
+    subgraph RULE["Ba luật xuyên suốt, cưỡng chế bằng KIỂU chứ không bằng quy ước"]
+        R1["messageKey + params, không có trường text<br/>nguyên tắc 1 và 6: không chuỗi cứng, không lỗi thô của server"]
+        R2["toast không nhận actionKey<br/>nên không ai tạo được thông điệp CÓ NÚT mà TỰ BIẾN MẤT"]
+        R3["signal ra ngoài là asReadonly<br/>muốn đổi phải qua method có tên nói rõ ý định"]
+    end
+    STATE --&gt; RULE
+            </pre>
+            <figcaption>
+              Ba điều cả sơ đồ này nói: thông báo <strong>phải</strong> toàn cục vì người sinh và
+              người hiển thị không gặp nhau ở đâu khác ngoài shell; <strong>hai</strong> loại tuổi
+              thọ nên <strong>hai</strong> signal riêng; và ba luật quan trọng nhất được cài vào
+              <em>kiểu dữ liệu</em> — nên muốn làm sai thì không có chỗ nào để gõ, chứ không phải
+              là bị nhắc là đừng.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Nhìn ba loại bằng mắt, và thử phá chúng</h3>
+            <p class="task__meta">~35 phút · không sửa code</p>
+            <ol>
+              <li>
+                Chạy ứng dụng. Export CSV từ danh sách khách hàng — bạn thấy loại nào? Nó có nút
+                không? Có vào centre không?
+              </li>
+              <li>
+                Mở hai tab cùng đăng nhập. Ở tab A sửa một khách hàng; xem tab B. Tab B nhận
+                <em>mấy</em> thông điệp, loại gì? Rồi quay lại tab A — vì sao tab A không nhận gì?
+              </li>
+              <li>
+                Ở tab B, mở trang chi tiết đúng khách hàng đó, rồi lại sửa nó từ tab A. Giờ có
+                snackbar với nút "Làm mới" không? So với bước 2: điều gì làm nên khác biệt?
+                (Gợi ý: <code>isOnScreen</code>.)
+              </li>
+              <li>
+                Đưa chuột lên một toast và giữ 10 giây. Rồi thử: Tab tới nút đóng của nó và giữ
+                focus ở đó 10 giây. Cả hai cách đều giữ được chứ?
+              </li>
+              <li>
+                Mở panel thông báo nhưng <strong>đừng</strong> bấm vào entry nào. Đóng panel. Badge
+                còn không? Vì sao đây là thiết kế đúng?
+              </li>
+              <li>
+                Bật trình đọc màn hình (Narrator trên Windows: <kbd>Ctrl</kbd> +
+                <kbd>Win</kbd> + <kbd>Enter</kbd>). Làm một việc thành công, rồi làm một việc
+                thất bại. Hai thông điệp được đọc lên <em>khác nhau</em> thế nào?
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 6 là bước không thể thay bằng đọc code</summary>
+              <p>
+                Sự khác nhau giữa <code>polite</code> và <code>assertive</code> là thứ đọc code
+                thì thấy hai chuỗi khác nhau, còn nghe thì thấy một cái <em>chen vào</em> và một
+                cái <em>đợi</em>. Và đó là lúc câu "người dùng không nghe được rằng thay đổi đã bị
+                hoàn lại sẽ tin là đã lưu" chuyển từ một câu trong tài liệu thành một điều bạn
+                đã trải qua.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá bốn thứ, mỗi thứ một dòng, rồi hoàn nguyên</h3>
+            <p class="task__meta">~45 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Mục tiêu: thấy rằng mỗi quyết định ở mục 3 đang <em>chặn</em> một lỗi cụ thể. Làm
+              từng cái, quan sát, rồi <code>git checkout</code> lại.
+            </p>
+            <ol>
+              <li>
+                Trong <code>toast-region.ts</code>, bọc vùng <code>polite</code> bằng
+                <code>@if (polite().length) { ... }</code>. Trên màn hình còn đúng không? Bật
+                trình đọc màn hình: còn nghe thấy không? Rồi chạy
+                <code>e2e/accessibility.spec.ts</code> — nó có bắt được không? (Câu trả lời đáng
+                suy nghĩ.)
+              </li>
+              <li>
+                Đổi <code>isUrgent</code> thành <code>return false</code>. Làm một việc thất bại.
+                Bạn vừa tạo ra lỗi nào ở mục 7.2?
+              </li>
+              <li>
+                Trong <code>release()</code>, bỏ <code>Math.max(..., RESUME_MINIMUM_MS)</code>, chỉ
+                dùng <code>timer.remaining</code>. Đưa chuột lên toast ở giây gần cuối rồi rút ra.
+                Cảm giác thế nào? Rồi chạy unit test — test nào đỏ?
+              </li>
+              <li>
+                Trong <code>confirmation.service.ts</code>, bỏ hàm dọn (cái
+                <code>return () =&gt; {...}</code>). Mở form sửa, gõ gì đó, bấm một liên kết điều
+                hướng để hộp thoại hiện ra, rồi bấm nút back của trình duyệt. Có gì còn lại trên
+                màn hình không?
+              </li>
+              <li>
+                Bỏ phép so <code>this.pendingState()?.answer === answer</code> (cả hai chỗ). Dựng
+                một tình huống hai câu hỏi liên tiếp. Chuyện gì xảy ra với câu hỏi thứ hai?
+              </li>
+            </ol>
+            <details>
+              <summary>Điều đáng rút ra từ cả năm bước</summary>
+              <p>
+                Bốn trong năm lỗi này <strong>không hiện ra trên màn hình</strong>. Code vẫn chạy,
+                giao diện vẫn trông bình thường, và chỉ một người dùng trình đọc màn hình, hoặc
+                một người dùng bàn phím, hoặc một unit test chính xác tới từng milli-giây, mới
+                phát hiện được. Đó là lý do những quyết định này cần được
+                <em>viết ra</em> trong chú thích — người sửa sau sẽ không tự suy ra được.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Thêm một câu hỏi thứ ba, đúng cách</h3>
+            <p class="task__meta">~40 phút · sửa code</p>
+            <p>
+              Tình huống: thêm xác nhận cho hành động <em>bulk deactivate</em> (hiện tại chỉ
+              <em>delete</em> hỏi).
+            </p>
+            <ol>
+              <li>
+                Trước khi gõ: dùng mục 5.1 trả lời — đây là một <strong>câu hỏi</strong> hay một
+                <strong>hộp thoại</strong>? Sau khi người dùng bấm "Có", hộp thoại còn việc gì
+                không?
+              </li>
+              <li>
+                Thêm bốn khoá dịch. <code>bodyKey</code> phải có dạng số
+                (<code>…one</code>, <code>…other</code>) vì câu có số lượng trong đó — xem
+                <code>confirmBulkDelete</code> làm mẫu.
+              </li>
+              <li>
+                Gọi <code>confirm(...)</code> với <code>count</code> và
+                <code>tone: 'primary'</code> (đây không phải hành động phá huỷ). Đừng quên
+                <code>takeUntilDestroyed</code> — rồi tự hỏi
+                <em>chuyện gì xảy ra nếu quên</em>.
+              </li>
+              <li>
+                Chạy <code>npm run lint</code>. Nếu bạn gõ một chuỗi cứng vào đâu đó, cổng nào
+                bắt được? Thử gõ một chuỗi cứng để xem.
+              </li>
+              <li>
+                Viết một E2E: bấm deactivate, khẳng định hộp thoại hiện ra, bấm
+                <code>confirm-cancel</code>, và khẳng định <strong>không có gì bị deactivate</strong>.
+                Test cho nhánh "không" quan trọng hơn test cho nhánh "có" — vì sao?
+              </li>
+              <li>
+                Cuối cùng: mở ADR-0022 và tự hỏi quyết định của bạn có cần một ADR mới không. Câu
+                trả lời là không — và biết <em>vì sao</em> không mới là phần giá trị.
+              </li>
+            </ol>
+          </div>
+
+          <!-- =========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Hai điều kiện nào làm cho thông báo xứng đáng là state toàn cục?</summary>
+            <p>
+              Người sinh và người hiển thị ở <em>hai nhánh khác nhau</em> của cây component — chỉ
+              gặp nhau ở shell. Và thông điệp phải <em>sống lâu hơn cú điều hướng</em> ngay sau
+              nó. Một store theo phạm vi route sẽ huỷ đúng những thông điệp quan trọng nhất.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Ba loại thông điệp được chia theo tiêu chí gì — và tiêu chí nào là tiêu chí sai?</summary>
+            <p>
+              Theo <strong>người dùng làm được gì với nó</strong>. Tiêu chí sai là
+              <em>mức độ nghiêm trọng</em>, vì nó trộn hai trục: tông màu là một trục, còn
+              "có hành động hay không, ở lại bao lâu" là trục khác. Toast không có nút nên không
+              mất gì khi tự biến mất; snackbar có đúng một nút; hai nút thì đã là một câu hỏi.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao phải hai live region, và quy tắc chia là gì?</summary>
+            <p>
+              Vì một thất bại phải <em>cắt ngang</em>: người dùng không nghe được rằng thay đổi
+              của họ đã bị hoàn lại sẽ tin là đã lưu. Còn để mọi thứ vào
+              <code>assertive</code> thì trình đọc tự cắt lời liên tục và người dùng tắt hết.
+              Quy tắc chia đúng một dòng: <code>tone === 'danger'</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao hai thẻ live region phải luôn tồn tại, kể cả khi rỗng?</summary>
+            <p>
+              Vì một live region được tạo <em>cùng lúc</em> với nội dung đầu tiên của nó thường
+              không được đọc lên — trình đọc màn hình chỉ theo dõi từ lúc nó thấy vùng đó, và
+              không nhìn lại quá khứ. Bọc chúng trong <code>@if</code> làm mất tính năng mà
+              <strong>màn hình vẫn trông đúng</strong>.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>RESUME_MINIMUM_MS</code> giải quyết chuyện gì?</summary>
+            <p>
+              Chạy tiếp timer với đúng số thời gian còn lại sẽ làm toast biến mất ngay khi con
+              trỏ rời đi — nếu người dùng chỉ còn 100 ms. Tức là động tác tạm dừng kết thúc bằng
+              việc thông điệp mất ngay trước mắt, ngược hẳn mục đích. Nên khi thả, mỗi timer chạy
+              lại với ít nhất 2 giây.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao <code>confirm()</code> trả về <code>Observable</code> chứ không phải <code>Promise</code>?</summary>
+            <p>
+              Ba tính chất: <strong>lười</strong> (chưa subscribe thì chưa hiện câu hỏi),
+              <strong>một lần</strong> (<code>complete()</code>), và <strong>huỷ được</strong> —
+              hàm dọn rút lại câu hỏi khi không còn ai chờ, nên một cú điều hướng không để lại
+              một hộp thoại mồ côi. <code>Promise</code> không có khái niệm "tôi thôi không chờ
+              nữa".
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Phép so <code>this.pendingState()?.answer === answer</code> chặn lỗi nào?</summary>
+            <p>
+              Nó kiểm <em>danh tính</em>, không phải sự tồn tại: "câu đang treo có phải câu của
+              tôi không?". Thiếu nó, một câu hỏi cũ được trả lời muộn sẽ xoá sạch câu hỏi mới
+              đang hiện trên màn hình.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Khi nào <em>không</em> được dùng confirmation dùng chung?</summary>
+            <p>
+              Khi hộp thoại còn phải hiện <strong>kết quả</strong> của việc nó vừa hỏi — như nút
+              xoá ở trang chi tiết, giữ nguyên hộp thoại và hiện lỗi nếu xoá thất bại. Đó là một
+              hộp thoại riêng, không phải một câu hỏi. Cách tự kiểm: nếu sau khi bấm "Có" mà hộp
+              thoại còn việc phải làm, thì nó không phải một câu hỏi.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Guard "thay đổi chưa lưu" <em>không</em> phủ những gì?</summary>
+            <p>
+              Đóng tab và gõ một địa chỉ khác — cái đó cần <code>beforeunload</code>. Và không gì
+              cứu được một bản sửa dở nếu trình duyệt sập. Nên nó phải được mô tả là
+              <strong>một tiện lợi, không phải một bảo đảm</strong>: người dùng tin cái cảnh báo
+              này, nên nói quá lên là một lời hứa mà code không giữ được (nguyên tắc 10).
+            </p>
+          </details>
+
+          <details>
+            <summary>10. Ba luật nào ở đây được cưỡng chế bằng <em>kiểu</em> chứ không bằng quy ước?</summary>
+            <p>
+              <code>messageKey</code> + <code>params</code> và <strong>không có trường
+              <code>text</code></strong> — nên không có chỗ nào để nhét một chuỗi cứng hay một
+              message của server vào. <code>toast()</code> <strong>không nhận</strong>
+              <code>actionKey</code> — nên không ai tạo được một thông điệp có nút mà tự biến mất.
+              Và signal ra ngoài là <code>asReadonly()</code> — nên muốn đổi state phải qua một
+              method có tên nói rõ ý định.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 25</strong> và <strong>26</strong> là nguồn sinh ra phần lớn thông báo
+              ở đây (sự kiện realtime, thay đổi từ tab khác). <strong>Brief 28</strong> là nơi
+              dùng <code>record()</code> một mình. <strong>Brief 33</strong> là phía đối diện:
+              log thì <em>không bao giờ</em> được chứa dữ liệu cá nhân, còn notification thì
+              <em>phải</em> chứa. Và <strong>bài 21, 22</strong> là nền: khoá dịch với dạng số,
+              live region, focus trap.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="34-mock-backend-va-fault-injection.html">← Brief 34</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

@@ -1,0 +1,2086 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 34 — Mock backend &amp; fault injection</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 34
+        </p>
+        <h1>Mock backend &amp; fault injection</h1>
+        <p class="lede">
+          Bạn viết frontend. Backend chưa có — hoặc có rồi nhưng bạn không bắt nó trả 409 theo
+          ý mình được. Brief này về việc dựng một backend <em>giả mà thật</em>: một process
+          Express thật, cookie thật, status code thật. Và về cần gạt quan trọng nhất trong nó —
+          <strong>bắt nó hỏng đúng cái mình cần, đúng lúc mình cần, và hỏng y hệt nhau mọi
+          lần</strong>.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi bạn cần test một đường lỗi mà không dựng ra được: 409 vì người khác vừa lưu,
+              401 giữa phiên, mạng rụng giữa request, import CSV lỗi một phần. Và khi bạn sắp
+              viết một con mock cho dự án thật — mục 3.2 và mục 7 là hai mục đáng đọc trước khi
+              gõ dòng đầu tiên.
+            </p>
+            <p>
+              Nền cần có: bài 08 (HttpClient &amp; contract), bài 10 (taxonomy lỗi), bài 18 (ghi
+              dữ liệu an toàn, 409). Brief 33 (observability) là nửa còn lại của
+              <code>/api/_mock/logs</code>.
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Mock backend</strong></td>
+                  <td>
+                    Thứ đứng thay backend thật trong lúc phát triển. Ở repo này nó là
+                    <code>apps/mock-api</code> — một server Express chạy trong
+                    <em>process riêng</em>, nghe cổng 4300. Không phải một đoạn code chặn request
+                    bên trong Angular.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Stub · Fake · Mock</strong></td>
+                  <td>
+                    Ba thứ khác nhau mà cả tiếng Việt lẫn tiếng Anh thường gọi chung là "mock".
+                    <strong>Stub</strong> trả lời đóng hộp, không có state.
+                    <strong>Fake</strong> có bản cài đặt chạy được nhưng đi đường tắt (dữ liệu
+                    trong RAM thay vì trong database). <strong>Mock</strong> ghi lại xem nó bị
+                    gọi thế nào để bạn khẳng định (<code>verify()</code>).
+                    <code>apps/mock-api</code> đúng nghĩa là một <em>fake</em>: nó có dataset, có
+                    session, có version, có audit trail.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Fault injection</strong></td>
+                  <td>
+                    Chủ động bơm lỗi vào hệ thống để xem phần còn lại phản ứng thế nào. Ở đây:
+                    gửi một header, nhận đúng loại hỏng đã đặt hàng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Scenario</strong></td>
+                  <td>
+                    Tên một kiểu hỏng — <code>conflict</code>, <code>network-drop</code>,
+                    <code>expired-session</code>… Gửi bằng header
+                    <code>x-mock-scenario</code>. Repo này có <strong>14</strong> cái, danh mục
+                    phục vụ tại <code>/api/_mock/scenarios</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Deterministic</strong></td>
+                  <td>
+                    Cùng đầu vào thì cùng đầu ra, mọi lần. Đây là tính chất quan trọng nhất của
+                    con mock này — cả ở dữ liệu lẫn ở lỗi. Đối lập của nó là <em>random</em>, và
+                    random trong test có một cái tên riêng: <em>flaky</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Flaky test</strong></td>
+                  <td>
+                    Test có lúc xanh có lúc đỏ với cùng một code. Giá thật của nó không phải thời
+                    gian chạy lại, mà là nó <em>dạy người ta chạy lại thay vì đọc</em> — rồi một
+                    lỗi thật cũng bị chạy lại cho qua.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Transport · Handler</strong></td>
+                  <td>
+                    Hai chỗ một scenario có thể phát tác.
+                    <strong>Transport</strong>: chặn trước khi vào route, vì điều cần là "request
+                    này không bao giờ thành công".
+                    <strong>Handler</strong>: route tự đọc, vì điều cần có ngữ cảnh miền — bản ghi
+                    nào, người nào, dòng CSV thứ mấy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Middleware</strong></td>
+                  <td>
+                    Trong Express: một hàm <code>(req, res, next)</code> xếp thành hàng, mỗi cái
+                    gọi <code>next()</code> để chuyển cho cái sau. Đúng khái niệm filter chain của
+                    Servlet, hay middleware pipeline của ASP.NET Core.
+                    <strong>Thứ tự là ngữ nghĩa</strong>, không phải sở thích.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Control surface</strong></td>
+                  <td>
+                    Nhóm endpoint để điều khiển chính con mock, ở đây là
+                    <code>/api/_mock/*</code>. Không nằm trong contract — backend thật không có
+                    những đường này, và dấu gạch dưới giữ cho điều đó hiện ra trong mọi URL.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Seed (PRNG)</strong></td>
+                  <td>
+                    Số mồi của một bộ sinh số giả ngẫu nhiên. Cùng seed thì sinh ra cùng một
+                    dataset, byte này qua byte khác. Đây là thứ làm cho câu "khách hàng C-000042"
+                    có cùng nghĩa trên hai máy khác nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Prefix-stable</strong></td>
+                  <td>
+                    300 bản ghi đầu của dataset 300 giống <em>y hệt</em> 300 bản ghi đầu của
+                    dataset 50 000. Nhờ đó một bug tìm ra với dataset nhỏ tái hiện được với
+                    dataset lớn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Ephemeral port</strong></td>
+                  <td>
+                    Cổng 0 — xin hệ điều hành cấp một cổng rỗi bất kỳ. Test dùng nó để nhiều
+                    server chạy song song mà không tranh cổng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Fixed-window rate limit</strong></td>
+                  <td>
+                    Đếm request trong từng cửa sổ một phút cố định. Đơn giản — và có một khuyết
+                    điểm thật: vắt qua ranh giới hai cửa sổ thì client gửi được <em>gấp đôi</em>
+                    hạn mức. Mục 6 nói vì sao khuyết điểm đó được giữ lại và gọi tên ra.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ol>
+            <li>
+              Nói rõ được <strong>vì sao một interceptor giả trong Angular không đủ</strong>, và
+              liệt kê được những thứ chỉ một server thật mới cung cấp được.
+            </li>
+            <li>
+              Bắt backend trả về đúng loại hỏng bạn cần — 409, 401 giữa phiên, mất mạng không có
+              status, import lỗi một phần — bằng <strong>một header</strong>, lặp lại y hệt.
+            </li>
+            <li>
+              Phân biệt được lỗi nên bơm ở <strong>transport</strong> và lỗi phải bơm ở
+              <strong>handler</strong>, và giải thích được vì sao phải chia như vậy.
+            </li>
+            <li>
+              Đọc được thứ tự tám middleware trong <code>app.ts</code> và nói được chuyện gì vỡ
+              nếu đổi chỗ hai cái bất kỳ.
+            </li>
+            <li>
+              Thiết kế một con mock cho dự án thật mà <strong>không</strong> sinh ra một bộ test
+              flaky: biết vì sao cần gạt theo <em>từng request</em> thắng cần gạt
+              <em>toàn cục</em> khi test chạy song song.
+            </li>
+            <li>
+              Nhận ra một lỗi 429 trong CI là <em>tạo tác của việc chạy song song</em> chứ không
+              phải bug, và biết chỗ để kiểm tra điều đó. Mục 7.7 là một ca thật, vừa xảy ra
+              trong repo này.
+            </li>
+            <li>
+              Nói được những gì con mock này <strong>cố tình</strong> không làm thật, và vì sao
+              nói ra lại tốt hơn là làm nửa vời rồi im lặng.
+            </li>
+          </ol>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang đây
+          </h2>
+
+          <p>
+            Đây là brief mà nền backend của bạn giúp được nhiều nhất — gần như mọi khái niệm
+            đều có một cái tương ứng bạn đã biết.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết</th>
+                  <th>Ở đây nó là</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>WireMock, MockServer — dựng HTTP stub</td>
+                  <td>
+                    <code>apps/mock-api</code>. Cùng ý tưởng: một server đứng thay, nghe trên một
+                    cổng, trả lời theo kịch bản.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Filter chain (Servlet) · middleware pipeline (ASP.NET Core)</td>
+                  <td>
+                    Chuỗi <code>app.use(...)</code> trong <code>app.ts</code>. Tám cái, thứ tự có
+                    lý do, viết hẳn thành chú thích tại chỗ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>@ControllerAdvice</code> · exception filter</td>
+                  <td>
+                    <code>errorHandler</code> — một cửa ra duy nhất cho mọi thất bại. Route
+                    <code>throw</code>, chỗ này dựng envelope.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chaos engineering, Chaos Monkey</td>
+                  <td>
+                    Fault injection — nhưng <em>tiền định</em> và <em>trong lúc phát triển</em>,
+                    không phải random trong production. Xem mục 3.2.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Feature flag / config bật nóng</td>
+                  <td>
+                    <code>MockControls</code> (latency, jitter, errorRate) — sửa được lúc đang
+                    chạy qua <code>PATCH /api/_mock/controls</code>, khác với
+                    <code>MockApiConfig</code> cố định từ lúc khởi động.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Flyway seed · fixture SQL</td>
+                  <td>
+                    <code>domain/seed.ts</code> — sinh từ một số seed bằng PRNG nhỏ tự viết. Cùng
+                    seed, cùng 50 000 khách hàng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Testcontainers — chạy Postgres thật trong test</td>
+                  <td>
+                    <code>startTestServer()</code> — dựng server thật trên cổng tạm, dataset nhỏ,
+                    latency 0. Cùng tinh thần "test trên thứ thật", khác quy mô.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Idempotency key, optimistic locking bằng version</td>
+                  <td>
+                    Có thật trong con mock này: <code>version</code> trên mỗi khách hàng, PATCH
+                    sai version thì 409. Scenario <code>conflict</code> dựng ra 409 đó theo yêu
+                    cầu.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. "Mock" ở đây không phải mock của Mockito</span>
+            <p>
+              Mock trong unit test backend là thứ bạn <strong>khẳng định lên</strong>:
+              <code>verify(repo).save(any())</code>. Con mock này không có API nào như thế. Nó
+              không ghi lại "ai gọi tôi mấy lần" để bạn kiểm tra — nó
+              <em>cư xử như một backend</em> và bạn khẳng định lên <strong>client</strong>.
+            </p>
+            <p>
+              Có một ngoại lệ nhỏ và nó đáng biết: <code>GET /api/_mock/logs</code> cho phép tra
+              lại server đã ghi gì cho một <code>correlationId</code>. Nhưng đó là để
+              <em>chẩn đoán</em> và để chứng minh một id đi suốt hai phía (brief 33), không phải
+              để thay cho <code>verify()</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Nó không phải contract test, và không chứng minh gì về backend thật</span>
+            <p>
+              Đây là cái bẫy tư duy đắt nhất. Một con mock là
+              <strong>bản cài đặt thứ hai</strong> của contract, do chính đội frontend viết. Nó
+              hoàn toàn có thể trôi khỏi backend thật — và khi trôi, mọi test xanh của bạn vẫn
+              xanh.
+            </p>
+            <p>
+              Thứ chống trôi <em>không phải</em> con mock. Ở repo này đó là
+              <code>packages/contracts</code>: schema Zod là một nguồn duy nhất mà
+              <strong>cả hai phía đều import</strong> — web dùng để parse response, mock-api dùng
+              để validate request. Đổi contract thì cả hai phía vỡ lúc biên dịch. Con mock chỉ
+              hưởng lợi từ việc đó, chứ không tạo ra nó.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Interceptor giả KHÔNG phải một phiên bản nhẹ hơn của cái này</span>
+            <p>
+              Người ta hay nghĩ: "một server thật thì nặng, tôi làm một interceptor trả JSON là
+              xong, cùng tác dụng". Không cùng. Một interceptor nằm <em>bên trong</em> trình
+              duyệt, <em>sau</em> mọi cơ chế mà trình duyệt thực thi. Nghĩa là nó không tồn tại
+              những thứ này — xem mục 3.1.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. "Latency 120 ms" không phải để trang trí</span>
+            <p>
+              Một backend trả lời trong 1 ms che hết mọi loading state, mọi race, mọi bug huỷ
+              request. Code của bạn sẽ <em>trông như</em> đúng cho tới khi gặp mạng thật. Độ trễ
+              giả là một <strong>công cụ phát hiện bug</strong>, không phải một sự bất tiện cần
+              tắt đi.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Vì sao phải là một server thật</h3>
+
+          <p>
+            Quyết định này bị khoá ở <code>ANGULAR_PROJECT_CONTEXT.md</code> §5.4 và ADR-0007,
+            không phải một sở thích kiến trúc. Lý do: có một nhóm yêu cầu mà một thứ
+            <em>nằm trong trình duyệt</em> không thể cung cấp, kể cả về mặt nguyên lý.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thứ cần có</th>
+                  <th>Vì sao interceptor không làm được</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cookie <code>HttpOnly</code></td>
+                  <td>
+                    Chỉ server mới đặt được, và đúng cái làm nó an toàn là
+                    <strong>JavaScript không đọc được nó</strong>. Một interceptor viết bằng
+                    JavaScript không thể mô phỏng một thứ mà định nghĩa của nó là
+                    "JavaScript không thấy".
+                  </td>
+                </tr>
+                <tr>
+                  <td>CSRF double-submit</td>
+                  <td>
+                    Cần một phía <em>so</em> cookie với header và <em>từ chối</em> khi lệch. Tự so
+                    với chính mình thì không chứng minh được gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td>CORS, preflight</td>
+                  <td>
+                    Do <em>trình duyệt</em> thực thi dựa trên header của <em>server</em>. Không có
+                    server thì không có gì để thực thi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Security header, CSP</td>
+                  <td>Cũng vậy: trình duyệt thực thi, server khai báo.</td>
+                </tr>
+                <tr>
+                  <td>Upload progress</td>
+                  <td>
+                    Cần một phía nhận byte dần dần. Và <code>fetch</code> không báo tiến trình
+                    upload — đó là lý do repo dùng <code>XMLHttpRequest</code> cho việc này
+                    (ADR-0021, brief 27).
+                  </td>
+                </tr>
+                <tr>
+                  <td>SSE / streaming</td>
+                  <td>
+                    Cần một kết nối mở mà server đẩy dữ liệu vào, và cần
+                    <em>đóng được từ phía server</em> để test reconnect (brief 25).
+                  </td>
+                </tr>
+                <tr>
+                  <td>Authorization là biên thật</td>
+                  <td>
+                    Nguyên tắc số 10 của repo: frontend chỉ quyết định <em>hiện gì</em>. Muốn
+                    chứng minh biên tồn tại thì phải có một phía kiểm tra lại —
+                    và test gọi thẳng API với session VIEWER, không có UI nào tham gia.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Status code và <code>Retry-After</code> thật</td>
+                  <td>
+                    429 với <code>Retry-After: 30</code>, 413, 415 — đi qua đúng đường của
+                    <code>HttpClient</code> thật, không phải một object bạn tự dựng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Cái giá, nói cho công bằng</span>
+            <p>
+              Một process nữa phải chạy, một cổng nữa, một proxy dev, và
+              <code>npm run e2e</code> phải tự khởi động cả hai. Đó là chi phí thật. Đổi lại:
+              mọi thứ trong bảng trên trở thành <em>đường code có người chạy qua</em> thay vì một
+              nhánh chưa ai thử.
+            </p>
+          </div>
+
+          <h3>3.2 Lỗi theo <em>đặt hàng</em>, không theo xác suất</h3>
+
+          <p>
+            Đây là quyết định thiết kế quan trọng nhất của cả brief, và nó ngược với trực giác
+            "chaos engineering" mà nhiều người mang sang.
+          </p>
+
+          <p>
+            Có hai cách bơm lỗi. Cách thứ nhất: một tỷ lệ phần trăm request bị đánh hỏng ngẫu
+            nhiên. Cách thứ hai: client <em>yêu cầu</em> kiểu hỏng nó muốn, và nhận đúng kiểu đó,
+            mọi lần. Repo này có cả hai, nhưng chúng không ngang hàng nhau:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Header <code>x-mock-scenario</code></th>
+                  <th><code>MOCK_API_ERROR_RATE</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tính chất</td>
+                  <td>Tiền định — cùng header, cùng kết quả</td>
+                  <td>Ngẫu nhiên — <code>Math.random()</code></td>
+                </tr>
+                <tr>
+                  <td>Phạm vi</td>
+                  <td><strong>Một request</strong></td>
+                  <td><strong>Cả process</strong></td>
+                </tr>
+                <tr>
+                  <td>Mặc định</td>
+                  <td>Không có scenario nào</td>
+                  <td><code>0</code> — tắt</td>
+                </tr>
+                <tr>
+                  <td>Test dùng không?</td>
+                  <td>Có, đây là cách duy nhất test dùng</td>
+                  <td><strong>Không một test nào dùng</strong></td>
+                </tr>
+                <tr>
+                  <td>Để làm gì</td>
+                  <td>Test và tái hiện lỗi</td>
+                  <td>Biểu diễn khả năng chịu lỗi bằng tay, cho người xem</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lý do viết thẳng trong chú thích của <code>fault-injection.ts</code>: một con mock
+            hỏng ngẫu nhiên thì sinh ra test flaky, và <strong>một test flaky dạy người ta chạy
+            lại thay vì nhìn</strong>. Khi đã quen chạy lại, lần một lỗi thật xuất hiện, nó cũng
+            bị chạy lại cho qua. Cái mất không phải là mấy phút CI — cái mất là lòng tin vào bộ
+            test, và một bộ test không được tin thì bằng không.
+          </p>
+
+          <p>
+            Còn một lý do thứ hai, kỹ thuật hơn, mà mục 7.5 nói kỹ: phạm vi
+            <strong>một request</strong> so với <strong>cả process</strong>. Test chạy song song.
+            Một cần gạt toàn cục bị mọi test dùng chung.
+          </p>
+
+          <h3>3.3 Hai chỗ một lỗi có thể phát tác</h3>
+
+          <p>
+            14 scenario chia thành hai nhóm, và chỗ chia không phải tuỳ tiện: nó là
+            <strong>lỗi đó có cần biết gì về miền nghiệp vụ hay không</strong>.
+          </p>
+
+          <p>
+            <strong>Transport (9 cái)</strong> — <code>slow</code>, <code>server-error</code>,
+            <code>network-drop</code>, <code>unauthorized</code>, <code>forbidden</code>,
+            <code>not-found</code>, <code>validation-error</code>, <code>rate-limit</code>,
+            <code>payload-too-large</code>. Những cái này nói "request này không bao giờ thành
+            công", và chúng đúng với <em>mọi</em> endpoint. Nên middleware chặn trước khi vào
+            route: không cần biết đang gọi gì.
+          </p>
+
+          <p>
+            <strong>Handler (5 cái)</strong> — <code>conflict</code>,
+            <code>invalid-credentials</code>, <code>expired-session</code>,
+            <code>partial-bulk-failure</code>, <code>import-partial-failure</code>. Những cái này
+            cần ngữ cảnh: "PATCH <em>bản ghi nào</em> thì 409", "id <em>thứ mấy</em> trong batch
+            thì hỏng", "dòng CSV <em>thứ mấy</em> thì sai". Middleware không có thông tin đó, nên
+            route tự hỏi: <code>hasScenario(req, 'conflict')</code>.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Hệ quả thiết kế đáng mang sang dự án khác</span>
+            <p>
+              Cách chia này làm cho <strong>một nửa số lỗi không tốn gì</strong> để thêm: chín
+              scenario transport sống trong một hàm <code>switch</code> duy nhất, không chạm vào
+              bất kỳ route nào. Chỉ năm cái cần thiệp vào logic, và mỗi cái đúng một dòng
+              <code>if</code> tại chỗ cần nó. Nếu bạn gộp cả 14 vào trong các route, bạn sẽ có
+              lỗi bơm rải rác khắp codebase; nếu bạn cố nhồi cả 14 vào middleware, năm cái sau
+              sẽ không có đủ thông tin để làm đúng.
+            </p>
+          </div>
+
+          <h3>3.4 Thứ tự tám middleware, và chuyện gì vỡ nếu đổi chỗ</h3>
+
+          <p>
+            <code>app.ts</code> xếp tám middleware và viết hẳn lý do ra thành chú thích — chính
+            vì thứ tự là thứ dễ bị đổi "cho gọn" rồi vỡ âm thầm.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Middleware</th>
+                  <th>Vì sao ở đúng chỗ này</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td><code>correlationId</code></td>
+                  <td>
+                    Đầu tiên, để <em>mọi</em> thứ sau nó truy vết được. Nó dùng lại id client gửi
+                    tới, không sinh id mới — sinh mới là phá mối nối hai phía (brief 33).
+                  </td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><code>requestLog</code></td>
+                  <td>
+                    Ngay sau id, để <strong>mọi</strong> response được ghi kèm id đó — kể cả
+                    response lỗi, kể cả 404 không khớp route nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><code>cors</code></td>
+                  <td>
+                    Phải trả lời preflight <em>trước</em> mọi thứ khác. Một preflight bị rate
+                    limit hay bị fault injection chặn sẽ thành một lỗi CORS vô nghĩa trong
+                    Console.
+                  </td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><code>securityHeaders</code></td>
+                  <td>
+                    Trên mọi response, <em>kể cả response lỗi</em>. Đặt muộn hơn thì các đường
+                    thoát sớm sẽ không có header.
+                  </td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td><code>express.json</code> + <code>cookieParser</code></td>
+                  <td>
+                    Trước mọi thứ cần đọc body hoặc cookie. Giới hạn <code>1mb</code> ở đây là
+                    một biên thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td>6</td>
+                  <td><code>faultInjection</code></td>
+                  <td>
+                    <strong>Trước</strong> việc thật, để một lỗi được bơm không tốn một lần truy
+                    vấn dataset 50 000 bản ghi — và quan trọng hơn, để nó không kịp
+                    <em>thay đổi state</em> rồi mới báo lỗi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>7</td>
+                  <td><code>simulatedLatency</code></td>
+                  <td>
+                    Sau fault injection, và <strong>tự bỏ qua mình</strong> khi có scenario: một
+                    test xin <code>conflict</code> là muốn cái 409, không muốn chờ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>8</td>
+                  <td><code>rateLimit</code></td>
+                  <td>Sau khi đã biết đây là request thật.</td>
+                </tr>
+                <tr>
+                  <td>9</td>
+                  <td><code>authenticate</code></td>
+                  <td>
+                    Cuối, để route nào cũng hỏi được "ai đang gọi". Nó
+                    <em>không bao giờ từ chối</em> — chỉ giải cookie thành user;
+                    <code>requireAuth</code> mới là cái từ chối.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Thử đổi chỗ 6 và 7 xem</span>
+            <p>
+              Để <code>simulatedLatency</code> lên trước <code>faultInjection</code>: mỗi test
+              scenario tự nhiên cộng thêm 120–200 ms. Với vài trăm test, đó là vài chục giây CI
+              mỗi lần chạy — đổi lấy không gì cả. Còn nếu bỏ luôn cái
+              <code>if (scenarioOf(req)) return next()</code> trong <code>latency.ts</code>, thì
+              test <code>slow</code> sẽ mất 3 s <em>cộng</em> latency nền, và con số 2900 ms mà
+              test đang khẳng định trở thành một con số mơ hồ.
+            </p>
+          </div>
+
+          <h3>3.5 Hai loại cấu hình: cố định lúc chạy, và sửa được lúc đang chạy</h3>
+
+          <p>
+            <code>config.ts</code> cố tình chia thành hai interface, và chỗ chia là
+            <strong>cái này có cần sửa mà không khởi động lại không</strong>.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th><code>MockApiConfig</code></th>
+                  <th><code>MockControls</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Khi nào xác định</td>
+                  <td>Lúc khởi động, từ biến môi trường</td>
+                  <td>Lúc khởi động, rồi <strong>sửa được qua HTTP</strong></td>
+                </tr>
+                <tr>
+                  <td>Kiểu</td>
+                  <td>Mọi trường <code>readonly</code></td>
+                  <td>Trường ghi được — và đó là chủ ý</td>
+                </tr>
+                <tr>
+                  <td>Gồm</td>
+                  <td>
+                    <code>port</code>, <code>seed</code>, <code>customerCount</code>,
+                    <code>corsOrigins</code>, TTL của access/refresh,
+                    <code>rateLimitPerMinute</code>, <code>secureCookies</code>,
+                    <code>logLevel</code>
+                  </td>
+                  <td>
+                    <code>latencyMs</code>, <code>jitterMs</code>,
+                    <code>errorRatePercent</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lý do</td>
+                  <td>Một cái cổng không cần sửa nóng</td>
+                  <td>
+                    Độ trễ và tỷ lệ lỗi cần điều chỉnh <em>trong lúc đang biểu diễn</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Toàn bộ control surface:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Đường</th>
+                  <th>Làm gì · và vì sao nó tồn tại</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>GET /api/_mock/scenarios</code></td>
+                  <td>
+                    Danh mục 14 scenario kèm mô tả. <em>Phục vụ</em> chứ không chỉ chép vào tài
+                    liệu — xem mục 3.6.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>GET · PATCH /api/_mock/controls</code></td>
+                  <td>
+                    Đọc và sửa latency, jitter, error rate. Schema Zod
+                    <code>strictObject</code> nên một tên trường lạ bị trả 422, không bị bỏ qua.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>POST /api/_mock/reseed</code></td>
+                  <td>
+                    Dựng lại dataset với seed/số lượng khác, không cần khởi động lại. Dùng để
+                    chuyển giữa "50 bản ghi cho test" và "50 000 cho đo hiệu năng".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>POST /api/_mock/notice</code></td>
+                  <td>
+                    Đẩy một <code>system.notice</code> vào luồng SSE. Nhờ nó, test realtime không
+                    phải chờ một sự kiện tự nhiên xảy ra (brief 25).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>POST /api/_mock/events/disconnect</code></td>
+                  <td>
+                    Đóng luồng SSE <em>từ phía server</em> — đúng cái một proxy timeout hay một
+                    lần deploy làm. Có session thì chỉ đóng luồng của session đó, để test song
+                    song không ngắt kết nối của nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>POST /api/_mock/events/duplicate</code></td>
+                  <td>
+                    Gửi lại sự kiện mới nhất về một khách hàng, <strong>cùng id</strong> — mô
+                    phỏng replay sau reconnect, để test việc chống trùng mà không phụ thuộc vào
+                    thời điểm reconnect thật.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>GET /api/_mock/logs</code></td>
+                  <td>
+                    5 000 dòng log gần nhất, lọc được theo <code>correlationId</code> — chỗ đứng
+                    thay một log aggregator. Đã qua redaction, vì buffer dùng chung chính sách
+                    với stdout (brief 33).
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>GET /api/health</code></td>
+                  <td>
+                    Không thuộc <code>_mock</code>: backend thật cũng có. Trả về
+                    <code>status</code>, số khách hàng, seed.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Những đường này KHÔNG xác thực, và đó là chủ ý — kèm giá của nó</span>
+            <p>
+              Test cần dùng chúng để dàn dựng state <em>trước khi</em> đăng nhập, nên bắt xác
+              thực sẽ thành vòng tròn. Nhưng điều đó biến câu
+              <strong>"process này không bao giờ được deploy"</strong> thành một tuyên bố
+              <em>chịu lực</em> — nếu nó sai thì có một backend cho phép người lạ reseed toàn bộ
+              dữ liệu.
+            </p>
+            <p>
+              Repo chống đỡ câu đó bằng ba thứ, không phải một:
+              dấu <strong><code>_</code></strong> trong mọi URL để nhìn là thấy;
+              <strong>vắng mặt khỏi <code>@ecm/contracts</code></strong> nên app không có cách
+              nào gọi chúng <em>có type</em>; và một
+              <strong>khối cảnh báo ở đầu <code>docs/mock-backend.md</code></strong> nói thẳng ra.
+              Mục 7.6 nói chuyện gì xảy ra khi thiếu lớp thứ hai.
+            </p>
+          </div>
+
+          <h3>3.6 Danh mục được <em>phục vụ</em>, nên tài liệu không trôi được</h3>
+
+          <p>
+            Thường thì một con mock có danh sách scenario nằm trong README, và sáu tháng sau
+            README nói về ba scenario đã bị xoá. Ở đây
+            <code>GET /api/_mock/scenarios</code> trả về <em>chính cái mảng mà middleware
+            dispatch trên đó</em>, và một test khẳng định hai bên khớp nhau:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/fault-injection.spec.ts</div>
+            <pre><code>expect(body.scenarios.map((scenario) =&gt; scenario.name).sort()).toEqual(
+  MOCK_SCENARIOS.map((scenario) =&gt; scenario.name).sort(),
+);</code></pre>
+          </div>
+
+          <p>
+            Cộng thêm một test nữa bắt mỗi scenario phải có mô tả dài hơn 10 ký tự — nghĩa là
+            thêm một scenario mà quên viết mô tả thì test đỏ. Đây là một kiểu
+            <strong>tài liệu không trôi được vì nó là code</strong>, và nó rẻ: một mảng
+            <code>readonly</code>, một route ba dòng, hai test.
+          </p>
+
+          <h3>3.7 Một scenario lạ là 400, không phải "bỏ qua"</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/fault-injection.ts — rút gọn</div>
+            <pre><code>const scenario = BY_NAME.get(requested);
+if (!scenario) {
+  next(new ApiError('BAD_REQUEST', `Unknown mock scenario "${requested}".`));
+  return;
+}</code></pre>
+          </div>
+
+          <p>
+            Hãy nghĩ kỹ chỗ này, vì nó là một bài học thiết kế tổng quát. Giả sử bạn viết một
+            test cho 409 và gõ sai header thành <code>x-mock-scenario: conflit</code>. Nếu
+            middleware <em>bỏ qua</em> cái tên lạ, request đi vào đường happy path, trả 200, và
+            test của bạn… vẫn xanh. Bạn có một test
+            <strong>xanh mà không chứng minh gì</strong>, và nó sẽ xanh mãi, kể cả khi chức năng
+            xử lý 409 bị xoá hẳn.
+          </p>
+
+          <p>
+            Nguyên tắc: <strong>một lỗi cấu hình phải hỏng ồn ào</strong>. Im lặng ở đây không
+            phải sự khoan dung, nó là một cái bẫy.
+          </p>
+
+          <h3>3.8 Dữ liệu tiền định, và cố tình không sạch sẽ</h3>
+
+          <p>
+            Cùng seed thì sinh ra cùng 50 000 khách hàng, byte này qua byte khác — có test chứng
+            minh. Ba tính chất và lý do của từng cái:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Tiền định.</strong> "Khách hàng C-000042" có cùng nghĩa trên máy bạn và máy
+              tôi. Một test đỏ chạy lại được <em>với đúng dữ liệu đã làm nó đỏ</em>.
+              <code>Math.random()</code> chỉ được dùng cho jitter của latency, không chỗ nào khác.
+            </li>
+            <li>
+              <strong>Prefix-stable.</strong> Dataset 300 bản ghi có 300 bản ghi đầu
+              <em>y hệt</em> dataset 50 000. Nên test chạy nhanh với dataset nhỏ, mà bug tìm được
+              vẫn tái hiện với dataset lớn.
+            </li>
+            <li>
+              <strong>Cố tình không sạch.</strong> Tên có dấu (<code>Nguyễn</code>,
+              <code>Đức</code>, <code>Kraków</code>, <code>O'Brien</code>), trường
+              <code>phone</code>/<code>address</code>/<code>dateOfBirth</code> rỗng ở một số bản
+              ghi, tên trùng nhau, phân bố trạng thái lệch. Dữ liệu sạch
+              <em>che bug</em>: sort, collation, layout, và cả chỗ hiển thị "—" cho trường rỗng
+              đều chỉ vỡ trên dữ liệu thật.
+            </li>
+          </ul>
+
+          <p>
+            Email và mã khách hàng thì <em>duy nhất theo thiết kế</em> — để đường
+            "email trùng → 409" vẫn đến được và test được.
+          </p>
+
+          <h3>3.9 Những gì cố tình không làm thật</h3>
+
+          <p>
+            Đây là mục mà một con mock trung thực phải có, và lý do nó quan trọng: một mock làm
+            nửa vời rồi im lặng sẽ khiến người đọc tin là đã có thứ chưa có.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Không làm thật</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Không kiểm tra mật khẩu</td>
+                  <td>
+                    Một username đã biết với mật khẩu khác rỗng bất kỳ là đăng nhập được. Lý do:
+                    nhét một credential vào fixture <em>chính là</em> cách credential thật bị rò,
+                    và "mật khẩu demo thôi mà" là câu nói trước mỗi lần đó. Cái giá: đường
+                    "sai mật khẩu" không tự nhiên đến được — nên mới có scenario
+                    <code>invalid-credentials</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Token đục, không phải JWT</td>
+                  <td>
+                    Ký và parse claim không đổi gì ở phía frontend, mà lại mời gọi đúng cái
+                    pattern repo này tránh: "để JWT trong localStorage".
+                  </td>
+                </tr>
+                <tr>
+                  <td>Chỉ kiểm chữ ký file, không giải mã lại ảnh</td>
+                  <td>
+                    Backend thật sẽ decode rồi encode lại, quét virus, phục vụ từ origin riêng.
+                    Cái này không — và nói ra thì tốt hơn là ngụ ý ngược lại (ADR-0019).
+                  </td>
+                </tr>
+                <tr>
+                  <td>Rate limit cửa sổ cố định</td>
+                  <td>
+                    Vắt qua ranh giới cửa sổ thì gửi được gấp đôi hạn mức. Gọi tên khuyết điểm
+                    hữu ích hơn là giấu nó sau một sliding window không ai đọc.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Session trong RAM</td>
+                  <td>
+                    Khởi động lại là đăng xuất tất cả — hoá ra tiện: đường "session hết hạn" thử
+                    bằng tay rất dễ.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <p>
+            Toàn bộ cơ chế fault injection nằm trong <strong>một file 150 dòng</strong> cộng
+            năm dòng <code>if</code> rải ở ba route. Đó là một tỷ lệ đáng để ý: khả năng
+            "bắt backend hỏng theo ý mình" rẻ hơn nhiều so với cảm giác của nó.
+          </p>
+
+          <h3>4.1 <code>fault-injection.ts</code> — trái tim của brief này</h3>
+
+          <p>Rút gọn trước. Hình dạng của cả file là ba thứ:</p>
+
+          <div class="code">
+            <div class="code__file">hình dạng — không phải code thật</div>
+            <pre><code>MOCK_SCENARIOS      một mảng readonly: tên + nơi phát tác + mô tả
+scenarioOf / hasScenario   hai hàm cho route hỏi "đang xin scenario nào?"
+faultInjection      middleware: một switch trên chín scenario transport</code></pre>
+          </div>
+
+          <p>Giờ đọc thật. Phần khai báo một scenario:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/fault-injection.ts</div>
+            <pre><code>export interface ScenarioDefinition {
+  readonly name: string;
+  readonly appliedBy: 'transport' | 'handler';
+  readonly description: string;
+}</code></pre>
+          </div>
+
+          <p>
+            Ba trường, và cả ba đều có việc. <code>name</code> là giá trị header.
+            <code>appliedBy</code> là thứ middleware đọc để biết
+            <em>có phải việc của mình không</em> — nó không hardcode danh sách, nó hỏi dữ liệu.
+            <code>description</code> là thứ được phục vụ ra <code>/api/_mock/scenarios</code>,
+            và là thứ có test kiểm tra độ dài, nên nó không thể là chuỗi rỗng cho xong.
+          </p>
+
+          <p>Hai hàm tra cứu:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/fault-injection.ts</div>
+            <pre><code>const BY_NAME = new Map(MOCK_SCENARIOS.map((scenario) =&gt; [scenario.name, scenario]));
+
+/** The scenario requested for this request, if any. Used by route handlers. */
+export function scenarioOf(req: Request): string | null {
+  const requested = req.get(MOCK_SCENARIO_HEADER);
+  return requested &amp;&amp; BY_NAME.has(requested) ? requested : null;
+}
+
+export function hasScenario(req: Request, name: string): boolean {
+  return scenarioOf(req) === name;
+}</code></pre>
+          </div>
+
+          <p>Đọc từng dòng:</p>
+
+          <ul>
+            <li>
+              <code>BY_NAME</code> — một <code>Map</code> dựng một lần ở tầng module, không dựng
+              lại mỗi request. Nhỏ, nhưng đây là một middleware chạy trên mọi request.
+            </li>
+            <li>
+              <code>scenarioOf</code> trả về <code>string | null</code> và
+              <strong>chỉ trả về tên nào nó biết</strong>. Một tên lạ cho ra
+              <code>null</code> ở đây — không phải vì nó được tha, mà vì middleware đã chặn tên
+              lạ từ trước bằng 400. Hai chỗ nhìn cùng một <code>Map</code>, nên không lệch nhau
+              được.
+            </li>
+            <li>
+              <code>hasScenario</code> chỉ là <code>scenarioOf(req) === name</code>. Tồn tại vì
+              nó làm chỗ gọi <em>đọc được</em>:
+              <code>hasScenario(req, 'conflict')</code> nói ra ý định, còn
+              <code>req.get('x-mock-scenario') === 'conflict'</code> thì rải tên header khắp nơi.
+              Đúng nguyên tắc 8 của repo — có người gọi thứ hai, thứ ba, thứ tư rồi mới trừu
+              tượng.
+            </li>
+          </ul>
+
+          <p>Và phần thân, chỗ chín scenario transport phát tác:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/fault-injection.ts</div>
+            <pre><code>export const faultInjection: RequestHandler = (req, res, next) =&gt; {
+  const requested = req.get(MOCK_SCENARIO_HEADER);
+  if (!requested) {
+    next();
+    return;
+  }
+
+  const scenario = BY_NAME.get(requested);
+  if (!scenario) {
+    // An unknown scenario is a typo in a test. Failing loudly beats silently
+    // running the happy path and reporting a pass.
+    next(new ApiError('BAD_REQUEST', `Unknown mock scenario "${requested}".`));
+    return;
+  }
+
+  if (scenario.appliedBy === 'handler') {
+    next();
+    return;
+  }
+
+  switch (scenario.name) {</code></pre>
+          </div>
+
+          <p>
+            Ba cửa thoát sớm, xếp theo đúng thứ tự xác suất và theo đúng thứ tự nghiêm ngặt:
+            <strong>không xin gì</strong> → đi tiếp (đây là 99,9% request);
+            <strong>xin cái không có</strong> → 400;
+            <strong>xin cái thuộc handler</strong> → đi tiếp, để route lo. Chỉ còn lại transport
+            mới vào <code>switch</code>.
+          </p>
+
+          <p>Trong <code>switch</code>, có một nhánh khác hẳn các nhánh còn lại:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/fault-injection.ts</div>
+            <pre><code>case 'network-drop':
+  // No status, no body: this is what being offline looks like to a client,
+  // and it is the case a try/catch around fetch has to cover.
+  req.socket.destroy();
+  return;</code></pre>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao nhánh này quan trọng hơn vẻ ngoài của nó</span>
+            <p>
+              Tám nhánh kia trả về một <em>status code</em>. Nhánh này
+              <strong>không trả về gì</strong> — nó phá socket. Với client, đó không phải một lỗi
+              HTTP, đó là một lỗi <em>transport</em>: <code>fetch</code> reject,
+              <code>HttpClient</code> phát ra một <code>HttpErrorResponse</code> có
+              <code>status: 0</code>.
+            </p>
+            <p>
+              Và đây chính là lý do taxonomy lỗi ở bài 10 có một nhánh
+              <code>network</code> <em>riêng</em> với nhánh <code>server</code>. Không có
+              scenario này thì nhánh đó là một nhánh chưa ai chạy qua — và một nhánh chưa ai
+              chạy qua thì không biết nó đúng hay sai.
+            </p>
+          </div>
+
+          <h3>4.2 <code>latency.ts</code> — hai cần gạt trong mười dòng</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/latency.ts</div>
+            <pre><code>export function simulatedLatency(controls: MockControls): RequestHandler {
+  return (req, _res, next) =&gt; {
+    if (scenarioOf(req)) {
+      next();
+      return;
+    }
+
+    if (controls.errorRatePercent &gt; 0 &amp;&amp; Math.random() * 100 &lt; controls.errorRatePercent) {
+      next(
+        new ApiError(
+          'INTERNAL_ERROR',
+          'Randomly injected failure (MockControls.errorRatePercent).',
+        ),
+      );
+      return;
+    }
+
+    const delay = controls.latencyMs + Math.random() * controls.jitterMs;
+    if (delay &lt;= 0) {
+      next();
+      return;
+    }
+    setTimeout(next, delay);
+  };
+}</code></pre>
+          </div>
+
+          <p>Bốn điều đáng chỉ ra trong hàm này:</p>
+
+          <ol>
+            <li>
+              Nó là một <strong>factory</strong>: nhận <code>controls</code> rồi trả về
+              middleware. Nhờ đó nó đọc <code>controls.latencyMs</code>
+              <em>tại thời điểm mỗi request</em> — một <code>PATCH /api/_mock/controls</code> có
+              hiệu lực ngay, không cần dựng lại middleware.
+            </li>
+            <li>
+              Cửa đầu tiên là <code>scenarioOf(req)</code> — tức là
+              <strong>mọi</strong> scenario, cả transport lẫn handler, đều được miễn chờ. Một
+              test xin <code>conflict</code> cũng không phải chờ 120 ms vô ích.
+            </li>
+            <li>
+              <code>errorRatePercent &gt; 0</code> được kiểm <em>trước</em> khi gọi
+              <code>Math.random()</code>. Mặc định là 0, nên ở trạng thái bình thường hàm này
+              không hề gọi random.
+            </li>
+            <li>
+              <code>delay &lt;= 0</code> thì gọi <code>next()</code> <em>đồng bộ</em> thay vì
+              <code>setTimeout(next, 0)</code>. Đây là chỗ test đặt
+              <code>latencyMs: 0</code> và không phải trả giá một lần nhảy qua event loop cho
+              mỗi request trong hàng trăm test.
+            </li>
+          </ol>
+
+          <h3>4.3 Năm scenario handler, tại đúng chỗ chúng cần ngữ cảnh</h3>
+
+          <p>
+            Cả năm đều là <em>một dòng</em> đặt tại nơi có đủ thông tin. Đọc cả năm để thấy
+            "ngữ cảnh miền" nghĩa là gì:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/auth.ts — expired-session</div>
+            <pre><code>if (hasScenario(req, 'expired-session')) {
+  // Deterministically reproduces "the access token died mid-session", so
+  // the refresh flow can be tested without waiting fifteen minutes.
+  sessions.expireAccess(accessToken);
+}</code></pre>
+          </div>
+
+          <p>
+            Ngữ cảnh nó cần: <strong>chính cái access token trong cookie của request này</strong>.
+            Middleware fault injection không đọc cookie (nó chạy sau
+            <code>cookieParser</code> nhưng trước <code>authenticate</code>) và cũng không giữ
+            <code>SessionRegistry</code>. Để ý: nó làm <em>hết hạn session</em> chứ không phải
+            trả về 401 — nghĩa là refresh token vẫn còn tốt, nên đây là một bài test
+            <strong>đúng</strong> cho luồng refresh single-flight ở bài 19, không phải một cú
+            401 cụt.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/customers.routes.ts — conflict</div>
+            <pre><code>const updated = store.update(
+  pathParam(req, 'id'),
+  input,
+  currentUser(req).id,
+  // Reproduces "someone else saved while this form was open" without
+  // needing a second client to actually do it.
+  hasScenario(req, 'conflict'),
+);</code></pre>
+          </div>
+
+          <p>
+            Ngữ cảnh: <strong>bản ghi nào</strong>, và cờ được truyền <em>vào store</em> để store
+            quyết định — vì logic version nằm ở store, không nằm ở route. Nếu bơm 409 từ
+            middleware, bạn sẽ có một 409 <em>không đi qua</em> code so sánh version, tức là test
+            của bạn không chạm vào cái bạn tưởng.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/customers.routes.ts — partial-bulk-failure</div>
+            <pre><code>const injectFailures = hasScenario(req, 'partial-bulk-failure');
+const results: BulkItemResult[] = request.ids.map((id, position) =&gt; {
+  if (injectFailures &amp;&amp; position % 2 === 1) {
+    return { id, outcome: 'FAILED', errorCode: 'CONFLICT' };
+  }
+  try {
+    applyBulkAction(store, request.action, id, user.id);
+    return { id, outcome: 'SUCCEEDED' };
+  } catch (error) {</code></pre>
+          </div>
+
+          <p>
+            Ngữ cảnh: <strong>vị trí trong mảng</strong>. <code>position % 2 === 1</code> làm hỏng
+            id thứ hai, thứ tư, thứ sáu — tiền định, nên gửi 4 id thì luôn được
+            "2 thành công, 2 thất bại", và test khẳng định đúng ba con số đó. Đây là hình dạng
+            của một <em>thành công một phần</em>, thứ mà bài 18 nói là một
+            <strong>kết quả</strong> chứ không phải một lỗi.
+          </p>
+
+          <p>
+            Hai cái còn lại cùng kiểu: <code>invalid-credentials</code> ở
+            <code>auth.routes.ts</code> ném 401 <em>trước</em> khi tra fixture user, và
+            <code>import-partial-failure</code> ở <code>files.routes.ts</code> làm mỗi dòng CSV
+            thứ ba sai validation bất kể nội dung.
+          </p>
+
+          <h3>4.4 <code>admin.routes.ts</code> — hai route đáng đọc kỹ</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/admin.routes.ts</div>
+            <pre><code>router.get('/scenarios', (_req, res) =&gt; {
+  // Served rather than only documented, so the list cannot drift from the
+  // code: this is the same array the middleware dispatches on.
+  res.status(200).json({ header: 'x-mock-scenario', scenarios: MOCK_SCENARIOS });
+});</code></pre>
+          </div>
+
+          <p>
+            Để ý response trả về <em>cả tên header</em>, không chỉ danh sách. Một người mới vào
+            chỉ cần <code>curl</code> một đường là biết đủ: gửi header nào, giá trị nào có, mỗi
+            giá trị làm gì.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/admin.routes.ts</div>
+            <pre><code>router.post('/events/duplicate', (req, res) =&gt; {
+  const { customerId } = parseOrThrow(duplicateSchema, req.body, 'duplicate request');
+  const event = store.lastEventAbout(customerId);
+  if (!event) {
+    res.status(404).end();
+    return;
+  }
+  store.publish(event);
+  res.status(202).json({ id: event.id });
+});</code></pre>
+          </div>
+
+          <p>
+            Chú thích của nó giải thích một quyết định về <em>phạm vi</em> mà cả hai route
+            <code>events/*</code> đều theo: nó chỉ phát lại sự kiện về
+            <strong>một khách hàng</strong>, không phát lại tất cả. Cũng như
+            <code>events/disconnect</code> chỉ đóng luồng của <em>session gọi nó</em>. Lý do là
+            một lý do rất thật: <strong>test chạy song song trên cùng một process</strong>, nên
+            một cần gạt có phạm vi toàn cục sẽ làm test khác đổ. Đây là cùng một bài học với mục
+            3.2 nhưng ở một chỗ khác — và mục 7.5 là cái giá khi bỏ qua nó.
+          </p>
+
+          <h3>4.5 <code>test/helpers.ts</code> — vì sao gửi scenario lại dễ đến thế</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/helpers.ts</div>
+            <pre><code>export interface CallOptions {
+  method?: string;
+  body?: unknown;
+  headers?: Record&lt;string, string&gt;;
+  scenario?: string;
+  /** Send the CSRF header. Default true for unsafe methods. */
+  csrf?: boolean;
+}</code></pre>
+          </div>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/helpers.ts</div>
+            <pre><code>if (options.scenario) {
+  headers['x-mock-scenario'] = options.scenario;
+}</code></pre>
+          </div>
+
+          <p>
+            Nhờ hai đoạn này, một test đọc như một câu tiếng Anh:
+            <code>admin.call('/api/customers?size=1', { scenario: 'rate-limit' })</code>. Và
+            <code>TestClient</code> còn giữ cookie giữa các lần gọi như một trình duyệt, nên
+            <code>login()</code> rồi gọi tiếp là được — cùng với
+            <code>csrf: false</code> cho những chỗ cố tình không gửi token.
+          </p>
+
+          <p>
+            Phía E2E thì không có helper đó, vì request do chính ứng dụng gửi. Playwright chèn
+            header vào giữa đường:
+          </p>
+
+          <div class="code">
+            <div class="code__file">e2e/customer-crud.spec.ts</div>
+            <pre><code>// The scenario header makes every second item fail, which is the shape a
+// real partial failure has and is otherwise not reproducible on demand.
+await page.route('**/api/customers/bulk', async (route) =&gt; {
+  await route.continue({
+    headers: { ...route.request().headers(), 'x-mock-scenario': 'partial-bulk-failure' },
+  });
+});</code></pre>
+          </div>
+
+          <p>
+            Đáng chú ý là nó chỉ chặn <strong>một endpoint</strong>
+            (<code>**/api/customers/bulk</code>), không chặn mọi request. Nếu gắn header cho mọi
+            request thì cả việc đăng nhập và tải danh sách cũng bị bơm lỗi, và test sẽ đổ ở chỗ
+            chẳng liên quan.
+          </p>
+
+          <h3>4.6 <code>rate-limit.ts</code> — và vì sao nó xuất hiện trong brief này</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/middleware/rate-limit.ts</div>
+            <pre><code>export function rateLimit(limitPerMinute: number): RequestHandler {
+  const windows = new Map&lt;string, { count: number; resetAt: number }&gt;();
+
+  return (req, res, next) =&gt; {
+    const key = req.ip ?? 'unknown';
+    const now = Date.now();
+    const current = windows.get(key);
+
+    if (!current || now &gt;= current.resetAt) {
+      windows.set(key, { count: 1, resetAt: now + 60_000 });
+      next();
+      return;
+    }
+
+    current.count += 1;
+    if (current.count &gt; limitPerMinute) {
+      const retryAfterSeconds = Math.ceil((current.resetAt - now) / 1000);
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      next(rateLimited(retryAfterSeconds));
+      return;
+    }
+
+    next();
+  };
+}</code></pre>
+          </div>
+
+          <p>
+            Nó ở đây vì ba lý do. Thứ nhất, nó là ví dụ sạch nhất trong repo về việc
+            <strong>một đường code chỉ tồn tại khi có người đi qua nó</strong>: 429 với
+            <code>Retry-After</code> thật, chứ không phải một nhánh <code>if</code> chưa ai chạy.
+          </p>
+
+          <p>
+            Thứ hai, khoá là <code>req.ip</code>, và trong <code>app.ts</code> có
+            <code>app.set('trust proxy', true)</code> ở ngay trên — vì dev setup có proxy, nên
+            không lấy IP từ header forwarded thì limiter sẽ thấy
+            <em>toàn bộ thế giới là một client</em>.
+          </p>
+
+          <p>
+            Thứ ba, và đây là phần đắt: <strong>600 req/phút cho mỗi IP, áp cho mọi route</strong>.
+            Mục 7.7 kể chuyện gì xảy ra khi sáu worker Playwright cùng chạy từ
+            <code>127.0.0.1</code>.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một request đi qua chuỗi, với bốn kết cục</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as Client (test hoặc app)
+    participant M as Middleware 1–5
+    participant F as faultInjection
+    participant L as simulatedLatency
+    participant R as Route + Store
+    participant E as errorHandler
+
+    C-&gt;&gt;M: request, có thể kèm x-mock-scenario
+    M-&gt;&gt;M: correlationId → requestLog → CORS → security header → parse body, cookie
+    M-&gt;&gt;F: next()
+
+    alt không gửi header — 99,9% request
+        F-&gt;&gt;L: next()
+        L-&gt;&gt;L: chờ latencyMs + jitter, để loading state nhìn thấy được
+        L-&gt;&gt;R: next()
+        R--&gt;&gt;C: 200
+    else gửi một tên KHÔNG có trong danh mục
+        F-&gt;&gt;E: ApiError BAD_REQUEST
+        E--&gt;&gt;C: 400 — một lỗi gõ sai phải hỏng ồn ào
+        Note over F: nếu chỗ này im lặng đi tiếp,<br/>test của bạn xanh mà không chứng minh gì
+    else scenario TRANSPORT — 9 cái
+        F-&gt;&gt;E: ApiError tương ứng
+        E--&gt;&gt;C: 500 · 401 · 403 · 404 · 413 · 422 · 429 kèm Retry-After
+        Note over F: network-drop KHÔNG đi đường này<br/>nó destroy socket — không status, không body
+    else scenario HANDLER — 5 cái
+        F-&gt;&gt;L: next() — không phải việc của tôi
+        L-&gt;&gt;R: BỎ QUA phần chờ, vì scenarioOf() khác null
+        R-&gt;&gt;R: hasScenario(req, 409 hay dòng CSV thứ ba hay id thứ chẵn)
+        R--&gt;&gt;C: 409 · 401 · thành công một phần
+        Note over R: đi qua ĐÚNG code thật —<br/>409 vẫn chạy qua logic so sánh version
+    end
+            </pre>
+            <figcaption>
+              Bốn nhánh <code>alt</code> là toàn bộ cơ chế. Điều đáng nhớ nhất:
+              nhánh cuối <em>không</em> bơm lỗi — nó chỉ đi tiếp và để route tự quyết, nên lỗi
+              dựng ra vẫn đi qua code thật thay vì đi vòng qua nó.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Tôi cần dựng một tình huống hỏng — gạt cần nào?</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    A["Tôi cần dựng một tình huống không-happy-path"] --&gt; Q0{"Nó là một REQUEST hỏng,<br/>hay một TRẠNG THÁI của server?"}
+
+    Q0 --&gt;|"một request hỏng"| Q1{"Nó đúng với MỌI endpoint?"}
+    Q1 --&gt;|"phải: 500, 401, 403, 404, 413, 422, 429, chậm, rụng mạng"| T["Scenario TRANSPORT<br/>thêm một case trong switch<br/>không chạm vào route nào"]
+    Q1 --&gt;|"không: cần biết bản ghi nào, dòng nào, ai"| H["Scenario HANDLER<br/>một dòng hasScenario<br/>tại chỗ có ngữ cảnh miền"]
+
+    Q0 --&gt;|"trạng thái của server"| Q2{"Trạng thái gì?"}
+    Q2 --&gt;|"dữ liệu"| R1["POST /api/_mock/reseed<br/>seed khác, số lượng khác"]
+    Q2 --&gt;|"luồng SSE"| R2["notice: đẩy một sự kiện<br/>disconnect: đóng luồng từ phía server<br/>duplicate: phát lại cùng một id"]
+    Q2 --&gt;|"độ trễ"| R3["PATCH /api/_mock/controls<br/>latencyMs, jitterMs"]
+
+    T --&gt; D["Tiền định: cùng header, cùng kết quả, mọi lần"]
+    H --&gt; D
+    R2 --&gt; S["Có phạm vi: chỉ session hoặc chỉ khách hàng đó<br/>để test song song không ngắt nhau"]
+
+    A --&gt; Q3{"Tôi chỉ muốn nó hỏng ngẫu nhiên để xem cho vui?"}
+    Q3 --&gt;|"đúng"| X["MOCK_API_ERROR_RATE — có, nhưng:<br/>phạm vi CẢ PROCESS, dùng Math.random()<br/>KHÔNG một test nào được dùng"]
+    X --&gt; Y["Vì một test flaky dạy người ta chạy lại thay vì đọc —<br/>rồi lỗi thật cũng bị chạy lại cho qua"]
+            </pre>
+            <figcaption>
+              Câu hỏi đầu tiên là câu quan trọng nhất, và nó cũng là câu người ta bỏ qua:
+              <em>đây là một request hỏng, hay một trạng thái của server?</em> Trả lời sai thì
+              bạn sẽ đi tìm một scenario cho việc "làm dataset nhỏ lại", vốn là việc của
+              <code>reseed</code>.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Một server Express thật, không phải interceptor (§5.4, ADR-0007)</h4>
+
+          <p>
+            <strong>Bị loại:</strong> một interceptor Angular trả JSON đóng hộp.
+            <strong>Giá phải trả:</strong> thêm một process, một cổng, một proxy dev, và
+            <code>npm run e2e</code> phải khởi động cả hai.
+            <strong>Được lại:</strong> toàn bộ bảng ở mục 3.1 — cookie HttpOnly, CSRF, CORS,
+            security header, upload progress, SSE, authorization như một biên thật, status code
+            thật. Không có cái nào trong số đó mô phỏng được từ bên trong trình duyệt.
+          </p>
+
+          <p>
+            Đáng nói thêm: đây cũng là lý do con mock
+            <strong>không chạy qua một bước build</strong>. Node 24 chạy TypeScript trực tiếp,
+            đổi lấy ba ràng buộc được chú thích ngay chỗ chúng cắn: không
+            <code>constructor(private readonly x)</code>, không <code>enum</code> và
+            <code>namespace</code>, và import tương đối phải ghi rõ đuôi <code>.ts</code>.
+          </p>
+
+          <h4>Lỗi theo đặt hàng, không theo xác suất</h4>
+
+          <p>
+            <strong>Bị loại:</strong> chỉ có <code>errorRatePercent</code>.
+            <strong>Giá:</strong> phải viết và nuôi một danh mục 14 scenario, và mỗi scenario mới
+            là một dòng trong mảng cộng có thể một dòng <code>if</code> trong route.
+            <strong>Được lại:</strong> test không flaky, và lỗi tái hiện được bằng một câu
+            <code>curl</code> để dán vào bug report. Tỷ lệ ngẫu nhiên vẫn giữ lại, nhưng bị hạ
+            xuống đúng công dụng của nó: biểu diễn bằng tay.
+          </p>
+
+          <h4>Header theo từng request, không phải cần gạt toàn cục</h4>
+
+          <p>
+            <strong>Bị loại:</strong> <code>POST /api/_mock/fail-next-request</code> hay một cờ
+            trong <code>MockControls</code>. <strong>Giá:</strong> client phải gắn header, nên E2E
+            cần <code>page.route()</code> chặn giữa đường thay vì gọi một endpoint.
+            <strong>Được lại:</strong> phạm vi đúng bằng một request. Test chạy song song không
+            giẫm lên nhau — và đây là tính chất mà bạn chỉ phát hiện là mình cần <em>sau khi</em>
+            đã mất một buổi chiều với một bộ test song song.
+          </p>
+
+          <h4>Control endpoint không xác thực</h4>
+
+          <p>
+            <strong>Bị loại:</strong> bắt đăng nhập với quyền admin.
+            <strong>Giá:</strong> một process không bao giờ được deploy — và câu đó phải đúng.
+            <strong>Được lại:</strong> test dàn dựng được state trước khi đăng nhập, không bị
+            vòng tròn. Ba lớp chống đỡ ở mục 3.5 là thứ trả giá cho quyết định này.
+          </p>
+
+          <h4>Rate limit cửa sổ cố định, với khuyết điểm được gọi tên</h4>
+
+          <p>
+            <strong>Bị loại:</strong> sliding window hay token bucket.
+            <strong>Giá:</strong> vắt qua ranh giới cửa sổ thì client gửi được gấp đôi hạn mức.
+            <strong>Được lại:</strong> 25 dòng đọc hết trong một phút, và một khuyết điểm được
+            viết ra trong chú thích. Lập luận của repo: ở một repo để học, một thuật toán đơn
+            giản có khuyết điểm <em>được nêu tên</em> dạy nhiều hơn một thuật toán đúng mà không
+            ai đọc.
+          </p>
+
+          <h4>Không kiểm tra mật khẩu</h4>
+
+          <p>
+            <strong>Bị loại:</strong> một mật khẩu trong fixture.
+            <strong>Giá:</strong> đường "sai mật khẩu" không tự nhiên đến được, nên phải có
+            scenario <code>invalid-credentials</code> bù vào.
+            <strong>Được lại:</strong> không có credential nào trong repo — nguyên tắc 7. Và lý do
+            thật nằm ở chú thích: "mật khẩu demo thôi mà" là câu người ta nói ngay trước mỗi lần
+            một credential thật bị commit.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <h4>7.1 Bật <code>errorRatePercent</code> trong CI</h4>
+          <p>
+            Nghe rất hợp lý: "để bộ test gặp lỗi ngẫu nhiên cho giống thật". Kết quả: mỗi lần
+            chạy một nhóm test khác nhau đổ. Người ta nhấn "re-run" — và sau ba tuần, nhấn
+            "re-run" là phản xạ. Lần một lỗi thật xuất hiện, nó cũng bị nhấn re-run. Bộ test vẫn
+            còn đó, nhưng nó không còn là một cổng.
+          </p>
+
+          <h4>7.2 Đặt fault injection <em>sau</em> route</h4>
+          <p>
+            Tức là: để route làm việc, rồi mới quyết định trả lỗi. Hai thứ vỡ. Thứ nhất, một lỗi
+            bơm vào tốn nguyên một lần truy vấn 50 000 bản ghi — nhân với số test. Thứ hai, và
+            tệ hơn nhiều: với một <code>POST</code> hay <code>PATCH</code>, <em>state đã thay
+            đổi rồi</em> mới báo 500. Test tiếp theo chạy trên dữ liệu đã bị sửa, và bạn có một
+            test đổ ở chỗ hoàn toàn không liên quan.
+          </p>
+
+          <h4>7.3 Quên cho latency tự bỏ qua mình khi có scenario</h4>
+          <p>
+            Mỗi test scenario cộng 120–200 ms. Vài trăm test là vài chục giây mỗi lần chạy CI,
+            đổi lấy không gì. Và test <code>slow</code> thì mất 3 s <em>cộng</em> latency nền,
+            nên con số khẳng định <code>&gt;= 2900</code> trở thành một ngưỡng mơ hồ phụ thuộc
+            cấu hình — đúng kiểu test sẽ đỏ trên máy của người khác.
+          </p>
+
+          <h4>7.4 Bỏ qua một tên scenario lạ</h4>
+          <p>
+            Đã nói ở mục 3.7, nhắc lại ở đây vì nó là cái bẫy dễ bước vào nhất: gõ sai một chữ
+            trong header, test đi vào happy path, trả 200, và test xanh. Một test xanh chứng minh
+            sai còn tệ hơn không có test — vì nó <em>chiếm chỗ</em> của một test thật.
+          </p>
+
+          <h4>7.5 Dùng cần gạt toàn cục khi test chạy song song</h4>
+          <p>
+            Đây là cái vỡ đau nhất và khó chẩn đoán nhất. Giả sử bạn làm
+            <code>POST /api/_mock/fail-next-request</code>. Test A gọi nó, rồi gọi API của mình.
+            Nhưng test B — chạy song song, cùng process — vừa kịp gửi request trước. B nhận lỗi
+            mà nó không hề đặt hàng, A thì nhận 200. Cả hai đổ, và cả hai đổ
+            <em>không lặp lại được</em>, vì thứ tự phụ thuộc thời điểm.
+          </p>
+          <p>
+            Cùng lý do này là vì sao <code>events/disconnect</code> chỉ đóng luồng của session
+            gọi nó, và <code>events/duplicate</code> chỉ phát lại sự kiện của một khách hàng.
+            <strong>Nguyên tắc rút ra: phạm vi của một cần gạt phải nhỏ bằng phạm vi của thứ nó
+            ảnh hưởng.</strong> Header theo request là nhỏ nhất có thể.
+          </p>
+
+          <h4>7.6 Để control endpoint trông như API thường</h4>
+          <p>
+            Đặt chúng ở <code>/api/admin/reseed</code> và khai báo trong contract. Bây giờ ứng
+            dụng <em>có cách</em> gọi chúng có type, nên sẽ có người gọi — "chỉ để tiện lúc dev
+            thôi". Rồi code đó đi vào bundle, và production có một endpoint reseed không xác
+            thực. Dấu <code>_</code> cộng với việc <strong>vắng mặt khỏi contract</strong> không
+            phải thẩm mỹ: nó là thứ làm cho việc gọi sai trở nên bất tiện và nhìn là thấy.
+          </p>
+
+          <h4>7.7 Một ca thật: 429 trong CI mà không ai sửa gì</h4>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Chuyện vừa xảy ra trong repo này</span>
+            <p>
+              <code>npm run e2e</code> trên máy local: <strong>208 qua, 7 đổ</strong>. Cả bảy
+              đổ cùng một chỗ, cùng một thông điệp: <code>sign-in failed with 429</code> tại
+              <code>e2e/fixtures.ts</code>. Bảy test không liên quan gì nhau về mặt chức năng.
+            </p>
+            <p>
+              Phản xạ tự nhiên: "có bug trong luồng đăng nhập". Sai. Ghép ba con số lại:
+            </p>
+            <ul>
+              <li>
+                <code>MOCK_API_RATE_LIMIT</code> mặc định <strong>600 req/phút cho mỗi IP</strong>,
+                và <code>app.use(rateLimit(...))</code> áp cho <strong>mọi</strong> route;
+              </li>
+              <li>
+                <code>playwright.config.ts</code> đặt
+                <code>workers: process.env['CI'] ? 2 : undefined</code> — <code>undefined</code>
+                nghĩa là Playwright lấy <em>một nửa số nhân</em>, tức
+                <strong>6 worker</strong> trên máy 12 nhân;
+              </li>
+              <li>cả 6 worker đều đi từ <code>127.0.0.1</code>, nên <strong>dùng chung một bucket</strong>.</li>
+            </ul>
+            <p>
+              Chạy lại đúng điều kiện CI — <code>npx playwright test --workers=2</code> —
+              <strong>215/215 xanh</strong>. Không sửa một dòng code nào.
+            </p>
+            <p>
+              Ba bài học, và bài thứ ba là bài đắt nhất:
+            </p>
+            <ol>
+              <li>
+                Một 429 <em>trông y hệt</em> một lỗi thật. Nó có status code, có message, có
+                stack trace trỏ vào code của bạn.
+              </li>
+              <li>
+                <code>workers: undefined</code> làm bộ test <strong>đỏ khác nhau tuỳ phần
+                cứng</strong>. Máy 4 nhân thì không bao giờ gặp; máy 12 nhân thì gặp hoài.
+              </li>
+              <li>
+                Một giới hạn hợp lý ở tầng <em>một client</em> trở thành vô lý ở tầng
+                <em>N client cùng IP</em>. Đây đúng là chuyện xảy ra ở production sau một NAT hay
+                một API gateway — rate limit theo IP phạt cả một toà nhà vì một người.
+              </li>
+            </ol>
+          </div>
+
+          <h4>7.8 Dùng <code>Math.random()</code> để sinh dữ liệu</h4>
+          <p>
+            Dataset khác nhau mỗi lần khởi động. Hệ quả: một test đỏ không chạy lại được với dữ
+            liệu đã làm nó đỏ, và câu "khách hàng C-000042" không có nghĩa gì khi bạn nhắn cho
+            đồng nghiệp. Ở repo này <code>Math.random()</code> chỉ xuất hiện đúng một chỗ —
+            jitter của latency — và điều đó được ghi ra trong <code>docs/mock-backend.md</code>
+            như một tính chất, không phải một chi tiết cài đặt.
+          </p>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            <code>npm run test --workspace @ecm/mock-api</code> —
+            <strong>133 test trên 9 file</strong>. Và điều quan trọng nhất về chúng không phải
+            con số, mà là <em>cách</em> chúng chạy:
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/app.ts — chú thích của createApp</div>
+            <pre><code>Exported separately from `main.ts` so tests can start it on an ephemeral port
+with their own configuration - a small dataset, no latency - and still
+exercise the real HTTP stack: real cookies, real headers, real status codes.
+Testing an Express app in-process without a socket would skip exactly the
+parts this server exists to provide.</code></pre>
+          </div>
+
+          <p>
+            Đọc câu cuối hai lần. Gọi thẳng một Express handler trong process thì nhanh hơn, và
+            nó sẽ <strong>bỏ qua đúng những phần mà server này tồn tại để cung cấp</strong>:
+            cookie, CORS, status code, streaming. Một test nhanh mà không chạm vào thứ cần chạm
+            thì không phải một test nhanh, nó là một test khác.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Khẳng định điều gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>fault-injection.spec.ts</code></td>
+                  <td>
+                    Mọi scenario được công bố làm đúng điều nó nói. Gồm cả ba test về
+                    <em>danh mục</em>: danh mục khớp với mảng, mọi mô tả dài hơn 10 ký tự, và một
+                    tên lạ trả 400.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>status-codes.spec.ts</code></td>
+                  <td>
+                    Mọi status được ghi trong tài liệu đều <em>đến được</em>, và mọi thân lỗi
+                    validate được theo envelope. Đây là test làm cho bài 10 có nghĩa: taxonomy lỗi
+                    của client ánh xạ từ những status này.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>seed.spec.ts</code></td>
+                  <td>Tiền định, prefix-stable, và dữ liệu đủ không sạch.</td>
+                </tr>
+                <tr>
+                  <td><code>authorization.spec.ts</code></td>
+                  <td>
+                    Ma trận vai trò, thực thi ở phía server, <strong>không có UI nào tham
+                    gia</strong>. Đây là bằng chứng cho nguyên tắc 10.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>auth.spec.ts</code></td>
+                  <td>Cờ cookie, CSRF, luân chuyển refresh và chống phát lại, hết hạn.</td>
+                </tr>
+                <tr>
+                  <td><code>customers.spec.ts</code> · <code>files.spec.ts</code> · <code>events.spec.ts</code></td>
+                  <td>Phân trang, sắp xếp, tìm kiếm, version, audit, bulk; upload và CSV; wire format của SSE.</td>
+                </tr>
+                <tr>
+                  <td><code>observability.spec.ts</code></td>
+                  <td>
+                    Request log, redaction, và <code>GET /api/_mock/logs</code> trả lời được câu
+                    "anh đã ghi gì cho id này" qua HTTP (brief 33).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Ba khẳng định trong <code>fault-injection.spec.ts</code> đáng đọc nguyên văn:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/fault-injection.spec.ts</div>
+            <pre><code>it('slow still succeeds, just later', async () =&gt; {
+  const started = Date.now();
+  const response = await admin.call('/api/customers?size=1', { scenario: 'slow' });
+
+  expect(response.status).toBe(200);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(2900);
+}, 20_000);</code></pre>
+          </div>
+
+          <p>
+            Khẳng định <em>vẫn thành công</em>, chỉ muộn — đây không phải một lỗi, nó là một độ
+            trễ. Ngưỡng 2900 thay vì 3000 là biên an toàn cho đồng hồ, và
+            <code>20_000</code> là timeout riêng cho test này vì mặc định ngắn hơn 3 giây chờ.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/fault-injection.spec.ts</div>
+            <pre><code>it('network-drop produces a transport failure, not an HTTP status', async () =&gt; {
+  // This is the case a `catch` around fetch must handle, and the reason the
+  // client's error taxonomy has a `network` kind separate from `server`.
+  await expect(
+    admin.call('/api/customers?size=1', { scenario: 'network-drop' }),
+  ).rejects.toThrow();
+});</code></pre>
+          </div>
+
+          <p>
+            <code>rejects.toThrow()</code> — không phải <code>expect(status).toBe(...)</code>.
+            Đây là test duy nhất trong file không có status code, và đó chính là nội dung nó
+            khẳng định.
+          </p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/test/fault-injection.spec.ts</div>
+            <pre><code>expect(body.requested).toBe(4);
+expect(body.succeeded).toBe(2);
+expect(body.failed).toBe(2);</code></pre>
+          </div>
+
+          <p>
+            Ba con số chính xác, không phải "có ít nhất một cái hỏng". Chỉ tiền định mới cho phép
+            viết như vậy — và chỉ cách viết như vậy mới bắt được lỗi nếu
+            <code>position % 2</code> bị đổi thành <code>position % 3</code>.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Một chi tiết nhỏ dễ bỏ qua: <code>writeLogs = false</code></span>
+            <p>
+              <code>createApp(overrides, writeLogs = true)</code> — unit test truyền
+              <code>false</code>. Lý do nằm trong chú thích: một bộ test
+              <em>cố tình gây lỗi</em> sẽ in ra mọi lỗi đó, và báo cáo test bị chôn dưới hàng
+              trăm dòng stack trace. Buffer cho <code>/api/_mock/logs</code> vẫn ghi đủ, nên test
+              observability vẫn đọc được. Cùng lý do, E2E đặt
+              <code>MOCK_API_LOG_LEVEL=warn</code>.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TB
+    subgraph CT["packages/contracts — thứ chống trôi, KHÔNG phải con mock"]
+        Z["Schema Zod + type suy ra + fixture dùng chung<br/>CẢ HAI phía import: web parse response, mock validate request"]
+    end
+
+    subgraph WEB["apps/web"]
+        W1["HttpClient + chuỗi interceptor<br/>sinh correlationId, gắn CSRF"]
+        W2["Taxonomy lỗi — bài 10<br/>network tách riêng server, nhờ network-drop"]
+    end
+
+    subgraph API["apps/mock-api — một process Express THẬT"]
+        M1["1 correlationId · 2 requestLog<br/>DÙNG LẠI id của client"]
+        M2["3 CORS · 4 security header<br/>5 parse body, cookie"]
+        M3["6 faultInjection<br/>9 scenario transport, switch một chỗ"]
+        M4["7 latency — tự bỏ qua khi có scenario<br/>8 rateLimit · 9 authenticate"]
+        M5["Route: 5 scenario handler<br/>một dòng hasScenario tại chỗ có ngữ cảnh"]
+        M6["errorHandler — một cửa ra duy nhất<br/>mọi thất bại cùng một envelope"]
+        M7["_mock: scenarios · controls · reseed<br/>notice · disconnect · duplicate · logs"]
+    end
+
+    Z --&gt; W1
+    Z --&gt; M5
+    W1 --&gt; M1
+    M1 --&gt; M2 --&gt; M3
+    M3 --&gt;|"không có header"| M4
+    M3 --&gt;|"tên lạ → 400"| M6
+    M3 --&gt;|"transport"| M6
+    M4 --&gt; M5
+    M5 --&gt; M6
+    M6 --&gt; W2
+
+    M7 -.-&gt;|"điều khiển, KHÔNG có trong contract"| M4
+
+    subgraph GUARD["Ba lớp giữ câu 'process này không bao giờ được deploy'"]
+        G1["Dấu _ trong mọi URL — nhìn là thấy"]
+        G2["Vắng mặt khỏi contracts — app không có cách gọi CÓ TYPE"]
+        G3["Cảnh báo ở đầu docs/mock-backend.md — nói thẳng"]
+    end
+    M7 --&gt; GUARD
+
+    subgraph DET["Tiền định, ở cả hai mặt"]
+        D1["DỮ LIỆU: cùng seed, cùng 50 000 bản ghi<br/>prefix-stable · Math.random() chỉ dùng cho jitter"]
+        D2["LỖI: cùng header, cùng kết quả<br/>errorRatePercent mặc định 0, không test nào dùng"]
+        D3["Vì một test flaky dạy người ta chạy lại thay vì đọc"]
+    end
+    D1 --&gt; D3
+    D2 --&gt; D3
+            </pre>
+            <figcaption>
+              Ba điều cả sơ đồ này nói: <strong>contracts</strong> — không phải con mock — là thứ
+              giữ hai phía không trôi; <strong>fault injection</strong> chỉ là một middleware cộng
+              năm dòng <code>if</code>, rẻ hơn cảm giác của nó; và
+              <strong>tiền định</strong> là tính chất phải có ở cả dữ liệu lẫn lỗi, vì thiếu một
+              trong hai thì bộ test mất giá trị theo cùng một cách.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi hết danh mục bằng <code>curl</code></h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                Chạy <code>npm run start:api</code>. Gọi
+                <code>GET /api/_mock/scenarios</code> và đọc cả 14 mô tả. Bao nhiêu cái
+                <code>transport</code>, bao nhiêu cái <code>handler</code>?
+              </li>
+              <li>
+                Gọi <code>GET /api/customers?size=1</code> với
+                <code>-H "x-mock-scenario: rate-limit"</code>. Response có header
+                <code>Retry-After</code> không? Thân lỗi có <code>correlationId</code> không?
+              </li>
+              <li>
+                Giờ gõ sai: <code>x-mock-scenario: rate-limitt</code>. Bạn nhận gì? Giải thích vì
+                sao đây là thiết kế đúng chứ không phải khắt khe.
+              </li>
+              <li>
+                Thử <code>network-drop</code>. <code>curl</code> nói gì? So với
+                <code>server-error</code>: khác nhau ở chỗ nào, và vì sao client cần phân biệt?
+              </li>
+              <li>
+                Đo <code>slow</code> bằng <code>curl -w "%{time_total}"</code>. Rồi đo lại một
+                request <em>không</em> có scenario. Con số thứ hai nói gì về
+                <code>MOCK_API_LATENCY_MS</code>?
+              </li>
+              <li>
+                <code>PATCH /api/_mock/controls</code> với <code>{"latencyMs": 3000}</code>, rồi
+                mở ứng dụng. Giao diện vẫn dùng được không? Chỗ nào hiện ra là nó đang chờ?
+                Nhớ đặt lại về 120.
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 6 là bài tập quan trọng nhất ở đây</summary>
+              <p>
+                Vì nó là cách rẻ nhất để tìm ra những chỗ bạn <em>quên</em> loading state. Ở 120
+                ms không ai thấy gì; ở 3000 ms thì mọi chỗ thiếu một spinner, một nút bị khoá, hay
+                một lần huỷ request đều tự hiện ra.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Thêm một scenario mới, đúng quy trình</h3>
+            <p class="task__meta">~45 phút · sửa code</p>
+            <p>
+              Mục tiêu: <code>email-taken</code> — một <code>POST /api/customers</code> trả 409
+              như thể email đã có người dùng, bất kể email là gì.
+            </p>
+            <ol>
+              <li>
+                Trước khi gõ gì: nó là <strong>transport</strong> hay <strong>handler</strong>?
+                Trả lời bằng câu hỏi ở mục 5.2 — nó có đúng với mọi endpoint không?
+              </li>
+              <li>
+                Thêm vào <code>MOCK_SCENARIOS</code> nhưng <strong>để
+                <code>description</code> là chuỗi rỗng</strong>, rồi chạy test. Test nào đỏ? Đọc
+                thông điệp của nó.
+              </li>
+              <li>Viết mô tả cho đúng, rồi cài đặt chỗ phát tác.</li>
+              <li>
+                Viết test. Khẳng định status, <em>và</em> khẳng định một
+                <code>POST</code> không gửi header vẫn tạo được khách hàng — nếu không, bạn không
+                biết mình có bơm lỗi cho cả những request không đặt hàng hay không.
+              </li>
+              <li>
+                Gọi <code>GET /api/_mock/scenarios</code>. Nó xuất hiện mà bạn không phải sửa
+                route nào. Vì sao?
+              </li>
+              <li>
+                Cuối cùng: thêm một dòng vào bảng trong <code>docs/mock-backend.md</code>. Rồi tự
+                hỏi — nếu bạn <em>quên</em> bước này, có gì bắt được không? Câu trả lời cho bạn
+                biết tài liệu nào trong repo là tài liệu <em>được kiểm</em> và tài liệu nào không.
+              </li>
+            </ol>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Tái hiện và chẩn đoán ca 429 ở mục 7.7</h3>
+            <p class="task__meta">~30 phút · không sửa code ứng dụng</p>
+            <p>
+              Đây là bài tập về <em>chẩn đoán</em>, không phải về sửa. Mục tiêu là tự đi tới kết
+              luận bằng bằng chứng, chứ không phải tin mục 7.7.
+            </p>
+            <ol>
+              <li>
+                Chạy <code>npm run e2e</code> để mặc định. Bao nhiêu test đổ? Chúng đổ ở cùng một
+                dòng không?
+              </li>
+              <li>
+                Đọc <code>playwright.config.ts</code>, tìm <code>workers</code>. Máy bạn mấy nhân?
+                Playwright đang chạy mấy worker?
+              </li>
+              <li>
+                Chạy lại với <code>npx playwright test --workers=2</code>. Đổi kết quả không?
+              </li>
+              <li>
+                Giờ kiểm chứng giả thuyết theo đường khác: giữ nguyên số worker nhưng đặt
+                <code>MOCK_API_RATE_LIMIT=100000</code>. Nếu giả thuyết đúng thì phải xanh.
+              </li>
+              <li>
+                Hai cách ở bước 3 và 4 đều làm test xanh. Chúng
+                <em>không</em> tương đương về ý nghĩa. Giải thích khác nhau ở đâu, và cách nào
+                bạn muốn đưa vào repo thật — rồi đọc mục "Open question" của
+                <code>docs/PROGRESS.md</code> xem repo này đã chốt chưa.
+              </li>
+            </ol>
+            <details>
+              <summary>Thói quen đáng mang đi</summary>
+              <p>
+                Một lỗi mà <em>nhiều test không liên quan cùng đổ ở một dòng</em> gần như không
+                bao giờ là lỗi của chức năng đó. Hãy tìm thứ dùng chung: một cái bucket, một cái
+                port, một file, một dataset, một đồng hồ.
+              </p>
+            </details>
+          </div>
+
+          <!-- =========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao không thể mô phỏng cookie <code>HttpOnly</code> bằng một interceptor?</summary>
+            <p>
+              Vì thứ làm nó an toàn chính là <strong>JavaScript không đọc được nó</strong>. Một
+              interceptor viết bằng JavaScript không thể mô phỏng một tính chất mà định nghĩa của
+              nó là "JavaScript không thấy". Cùng lý do với CSRF: cần một phía
+              <em>khác</em> so và từ chối.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao lỗi tiền định thắng lỗi ngẫu nhiên, nói bằng một câu?</summary>
+            <p>
+              Vì một test flaky dạy người ta chạy lại thay vì đọc — và rồi một lỗi thật cũng bị
+              chạy lại cho qua. Lý do thứ hai, kỹ thuật hơn: header có phạm vi
+              <em>một request</em>, còn tỷ lệ lỗi có phạm vi <em>cả process</em>, nên nó không
+              sống nổi với test chạy song song.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Chia transport / handler theo tiêu chí gì?</summary>
+            <p>
+              Lỗi đó có cần ngữ cảnh miền hay không. "Request này không bao giờ thành công" đúng
+              với mọi endpoint → transport, một <code>switch</code> duy nhất. "Bản ghi nào / dòng
+              CSV thứ mấy / id thứ mấy trong batch" → handler, một dòng
+              <code>hasScenario</code> tại chỗ có thông tin đó.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao <code>conflict</code> phải bơm ở store chứ không ở middleware?</summary>
+            <p>
+              Vì bơm ở middleware cho ra một 409 <strong>không đi qua</strong> code so sánh
+              version. Test của bạn sẽ xanh mà không chạm vào logic bạn muốn kiểm. Cờ được truyền
+              vào <code>store.update(...)</code> để chính store quyết định.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. <code>network-drop</code> khác tám scenario transport kia ở chỗ nào, và vì sao điều đó quan trọng?</summary>
+            <p>
+              Nó không trả về status nào — nó <code>req.socket.destroy()</code>. Với client đó là
+              lỗi <em>transport</em>, không phải lỗi HTTP. Quan trọng vì đó là lý do taxonomy lỗi
+              có nhánh <code>network</code> riêng với <code>server</code>; không có scenario này
+              thì nhánh đó không có ai chạy qua.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao <code>simulatedLatency</code> tự bỏ qua mình khi có scenario?</summary>
+            <p>
+              Vì một test xin <code>conflict</code> muốn cái 409, không muốn chờ. Nếu không bỏ
+              qua: mọi test scenario cộng 120–200 ms, và test <code>slow</code> mất 3 s cộng
+              latency nền nên ngưỡng 2900 ms mất ý nghĩa.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Ba lớp nào giữ cho các đường <code>/api/_mock/*</code> không bị gọi từ code ứng dụng?</summary>
+            <p>
+              Dấu <code>_</code> trong mọi URL để nhìn là thấy; <strong>vắng mặt khỏi
+              <code>@ecm/contracts</code></strong> nên app không có cách gọi chúng có type; và một
+              khối cảnh báo ở đầu <code>docs/mock-backend.md</code>. Lớp thứ hai là lớp chịu lực
+              nhất, vì nó làm việc sai trở nên <em>bất tiện</em> chứ không chỉ bị khuyên là sai.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao danh mục scenario được phục vụ qua HTTP chứ không chỉ viết vào tài liệu?</summary>
+            <p>
+              Để nó không trôi được: route trả về <em>chính cái mảng mà middleware dispatch trên
+              đó</em>, và một test khẳng định hai bên khớp. Cộng một test nữa bắt mọi mô tả phải
+              dài hơn 10 ký tự. Đây là tài liệu <em>là code</em>, nên nó không thể cũ đi trong im
+              lặng.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Bảy test đổ với <code>429</code> ở cùng một dòng. Bạn kiểm tra gì đầu tiên?</summary>
+            <p>
+              Thứ <strong>dùng chung</strong>. Ở đây là một bucket rate limit theo IP: 600
+              req/phút, sáu worker Playwright, cùng <code>127.0.0.1</code>. Chạy lại với
+              <code>--workers=2</code> cho 215/215 xanh mà không sửa dòng code nào. Dấu hiệu nhận
+              dạng: <em>nhiều test không liên quan cùng đổ ở một chỗ</em> hầu như không bao giờ là
+              lỗi của chức năng đó.
+            </p>
+          </details>
+
+          <details>
+            <summary>10. Con mock này chứng minh được gì về backend thật? </summary>
+            <p>
+              <strong>Không gì cả.</strong> Nó là một bản cài đặt thứ hai của contract, do phía
+              frontend viết, và nó hoàn toàn có thể trôi khỏi backend thật. Thứ chống trôi là
+              <code>packages/contracts</code> — schema mà cả hai phía đều import, nên đổi contract
+              là cả hai vỡ lúc biên dịch.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 33</strong> là nửa còn lại của <code>/api/_mock/logs</code>:
+              correlation id đi suốt hai phía và bốn lớp chặn dữ liệu cá nhân.
+              <strong>Brief 25</strong> dùng <code>events/disconnect</code> và
+              <code>events/duplicate</code> để test reconnect và chống trùng.
+              <strong>Brief 27, 28</strong> dùng <code>import-partial-failure</code>. Và
+              <strong>bài 10</strong> (taxonomy lỗi), <strong>bài 18</strong> (409, bulk theo từng
+              item) là hai bài mà hầu hết scenario ở đây tồn tại để phục vụ.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="33-observability.html">← Brief 33</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
