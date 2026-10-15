@@ -1,0 +1,1493 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 33 — Observability</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 33
+        </p>
+        <h1>Observability</h1>
+        <p class="lede">
+          Một người dùng gọi điện: <em>"lúc nãy tôi bấm lưu thì nó báo lỗi"</em>. Brief này về
+          việc dựng một hệ thống trả lời được câu đó trong hai phút — và về điều khó hơn
+          nhiều: làm sao ghi đủ để chẩn đoán mà <strong>không bao giờ</strong> ghi tên, email,
+          mật khẩu hay nội dung người dùng tìm kiếm.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Trước khi lên production lần đầu, và khi bạn phải trả lời "chuyện gì đã xảy ra
+              với người dùng này". Mục 3.3 (redaction) nên đọc
+              <strong>trước</strong> khi viết dòng <code>console.log</code> đầu tiên có dữ
+              liệu người dùng trong đó.
+            </p>
+            <p>
+              Nền cần có: bài 09 (chuỗi interceptor, correlation id), bài 10 (taxonomy lỗi),
+              brief 31 (ngân sách hiệu năng).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Observability</strong></td>
+                  <td>
+                    Khả năng trả lời câu hỏi "chuyện gì đã xảy ra bên trong" bằng những gì hệ
+                    thống phát ra. Ba trụ: log, metric, trace — brief này chủ yếu về trụ thứ
+                    nhất và một phần trụ thứ ba.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Structured logging</strong></td>
+                  <td>
+                    Mỗi dòng log là <strong>một đối tượng JSON</strong>, không phải một câu
+                    văn. Nhờ vậy truy vấn được: <em>lọc theo <code>status</code>, nhóm theo
+                    <code>route</code></em> — thay vì grep.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Log sink</strong></td>
+                  <td>
+                    Nơi log đi tới: console, bộ nhớ, một dịch vụ bên ngoài. Thêm một sink phải
+                    là việc <em>thêm một provider</em>, không phải sửa logger.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Correlation id</strong></td>
+                  <td>
+                    Một id duy nhất cho <em>một request</em>, đi từ trình duyệt sang server và
+                    xuất hiện trên dòng log của cả hai bên — để nối chúng lại mà không cần
+                    bảng ánh xạ.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Page view id</strong></td>
+                  <td>
+                    Một id cho <em>một lần tải trang</em>. Nhóm được mọi dòng log của một tab
+                    lại với nhau <strong>mà không định danh con người</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Redaction</strong></td>
+                  <td>
+                    Bôi đen dữ liệu nhạy cảm trước khi ghi. Ở đây làm theo
+                    <em>hai</em> cách: theo <strong>khoá</strong> và theo
+                    <strong>giá trị</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Route template</strong></td>
+                  <td>
+                    <code>/api/customers/:id</code> thay vì
+                    <code>/api/customers/9f3c…</code>. Nhóm được, đếm được, và
+                    <em>không chứa định danh</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Fingerprint</strong>, <strong>issue</strong></td>
+                  <td>
+                    Chữ ký để gom các lần lỗi giống nhau thành <em>một</em> vấn đề. Không có
+                    nó, một lỗi xảy ra 10 000 lần là 10 000 mục cần đọc.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Breadcrumb</strong></td>
+                  <td>
+                    Vết bánh mì: danh sách những việc người dùng vừa làm trước khi lỗi xảy ra.
+                    Thứ biến "có lỗi" thành "có lỗi, và đây là đường họ đã đi".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Seam</strong> (đường nối)</td>
+                  <td>
+                    Một interface đặt sẵn để sau này cắm một nhà cung cấp vào (Sentry,
+                    Bugsnag) mà không phải sửa chỗ gọi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Interaction event</strong> / telemetry</td>
+                  <td>
+                    Sự kiện có tên, có kiểu, mô tả việc người dùng làm —
+                    <code>customers.imported</code> với số lượng, chứ không phải nội dung.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Dựng một dòng log có cấu trúc mà <em>cả hai phía</em> cùng dùng tên trường như
+              nhau — để một truy vấn trả về cả hai.
+            </li>
+            <li>
+              Đi theo một hành động của người dùng từ trình duyệt vào log của server bằng một
+              id duy nhất.
+            </li>
+            <li>
+              Đặt redaction ở đúng chỗ: <strong>bên trong logger, trước mọi sink</strong>, để
+              không chỗ gọi nào và không sink tương lai nào bỏ qua được.
+            </li>
+            <li>
+              Phân biệt <em>lỗi đã được xử lý</em> với <em>lỗi thoát ra ngoài</em> — và hiểu
+              vì sao phân biệt đó quyết định việc cảnh báo có ý nghĩa hay không.
+            </li>
+            <li>
+              Để sẵn một đường nối cho nhà cung cấp error tracking mà không khoá mình vào ai.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>
+            Đây là brief mà nền backend của bạn gần như <em>chuyển thẳng</em>: structured
+            logging, correlation id, log level, sink, redaction — mọi khái niệm đều giống.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>SLF4J / Serilog + một appender</td>
+                  <td><code>Logger</code> (trừu tượng) + <code>LOG_SINKS</code></td>
+                </tr>
+                <tr>
+                  <td>MDC / trace id qua các service</td>
+                  <td><code>correlationId</code>, sinh ở interceptor đầu chuỗi</td>
+                </tr>
+                <tr>
+                  <td>JSON lines lên stdout cho log collector</td>
+                  <td>Y hệt — mock API ghi stdout, web ghi console</td>
+                </tr>
+                <tr>
+                  <td>Masking trong layout của logger</td>
+                  <td><code>redactLogFields</code>, chạy <em>trong</em> logger</td>
+                </tr>
+                <tr>
+                  <td>Sentry/APM agent</td>
+                  <td><code>ErrorTracker</code> — một interface, chưa cắm nhà cung cấp nào</td>
+                </tr>
+                <tr>
+                  <td>Metric latency theo endpoint</td>
+                  <td>
+                    <code>PerformanceMonitor.recordApiCall</code> theo route template, p50/p95
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "log ở client cũng như log ở server"</span>
+            <p>
+              Ba khác biệt lớn. <strong>Một</strong>: log của client chạy
+              <em>trên máy người dùng</em> — bất cứ ai mở DevTools đều đọc được, kể cả người
+              ngồi cạnh. <strong>Hai</strong>: nó không tự đi đâu cả; muốn thu thập thì phải
+              gửi, và gửi là một request nữa. <strong>Ba</strong>: cùng một file component
+              chạy ở <em>cả</em> trình duyệt lẫn server (SSR), nên dòng log phải nói rõ mình
+              ở đâu — đó là lý do có trường <code>platform</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "cứ log nhiều vào cho dễ debug"</span>
+            <p>
+              Ở backend, log một entity để debug là chuyện thường. Ở đây, entity đó là
+              <strong>một con người</strong>: họ tên, email, ngày sinh, địa chỉ. Và một chi
+              tiết ít ai nghĩ tới — <em>chuỗi người dùng gõ vào ô tìm kiếm cũng là dữ liệu cá
+              nhân</em>, vì người ta tìm tên người.
+            </p>
+            <p>
+              Nguyên tắc của repo gọn hơn mọi danh sách:
+              <strong>"log định danh, đừng log bản ghi"</strong>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "mọi thứ hỏng đều là error"</span>
+            <p>
+              Một 404 khi người dùng mở một khách hàng đã bị xoá
+              <em>không phải</em> một lỗi hệ thống — nó là một tình huống mà ứng dụng xử lý
+              được và đã xử lý. Nếu nó ghi mức <code>error</code>, thì mức
+              <code>error</code> không còn nghĩa gì, và cảnh báo dựa trên nó sẽ bị tắt trong
+              một tuần.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Kiến trúc: một API, một chỗ xử lý, nhiều đích</h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code> call site ─▶ Logger ─▶ StructuredLogger ──────────────┬─▶ ConsoleLogSink    (always)
+             (abstract)  1. level threshold (config)    └─▶ MemoryLogSink     (dev builds only)
+                         2. redaction (@ecm/contracts)       └─ read by the observability lab
+                         3. common fields
+
+ Angular ErrorHandler ─▶ ErrorTracker ─▶ Logger         breadcrumbs, grouping, repeat suppression
+ Telemetry.track()    ─▶ Logger + ErrorTracker.breadcrumb
+ HTTP interceptors    ─▶ Logger + PerformanceMonitor.recordApiCall
+ PerformanceMonitor   ─▶ Logger (debug within budget, warn over it)</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Chỗ gọi chỉ biết <code>Logger</code> (một lớp trừu tượng)
+                  </td>
+                  <td>
+                    Đổi cách ghi, thêm sink, đổi ngưỡng — không chỗ gọi nào phải sửa. Và trong
+                    test, thay <code>Logger</code> bằng <code>SilentLogger</code> là một dòng
+                    (bài 23).
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Ba bước <strong>theo đúng thứ tự</strong>: ngưỡng → redaction → trường
+                    chung
+                  </td>
+                  <td>
+                    Ngưỡng trước để không tốn công bôi đen thứ sẽ bị bỏ. Redaction
+                    <em>trước</em> trường chung để không ai thêm được một trường nhạy cảm vào
+                    sau lưng nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>LOG_SINKS</code> là một <strong>multi-provider</strong>
+                  </td>
+                  <td>
+                    <em>"adding a sink is a provider, not an edit"</em> — thêm một đích ghi là
+                    thêm một dòng provider, không sửa logger. Bài 05.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Redaction nằm trong <code>@ecm/contracts</code>
+                  </td>
+                  <td>
+                    Để <strong>cả hai phía</strong> dùng chung một chính sách (ADR-0038) —
+                    cùng lý do với <code>checkFile</code> ở brief 27.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 Một dòng log, hai phía, cùng tên trường</h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md — hai dòng thật</div>
+            <pre><code>{"timestamp":"2026-09-30T12:24:14.101Z","level":"debug","message":"HTTP request completed",
+ "service":"web","platform":"browser","pageViewId":"90abbd8b-…",
+ "method":"GET","url":"/api/customers","durationMs":38,"status":200,
+ "correlationId":"6f0c2b1e-…"}
+
+{"timestamp":"2026-09-30T12:24:14.080Z","level":"info","message":"HTTP request completed",
+ "service":"mock-api","correlationId":"6f0c2b1e-…",
+ "method":"GET","route":"/api/customers","status":200,"durationMs":21,
+ "userId":"11111111-…","role":"ADMIN"}</code></pre>
+          </div>
+
+          <p>
+            Câu lập luận đứng sau:
+            <em
+              >"Both sides write one JSON object per line, with the same names for the same
+              things - so one query over a log store returns the browser's line and the
+              server's line for one request, without a mapping table."</em
+            >
+          </p>
+
+          <p>Bốn chi tiết đáng chú ý trong hai dòng trên:</p>
+
+          <ul>
+            <li>
+              <strong><code>correlationId</code> giống hệt nhau.</strong> Đó là cái móc nối hai
+              dòng.
+            </li>
+            <li>
+              <strong><code>durationMs</code> khác nhau</strong> (38 so với 21) — và đó là
+              <em>đúng</em>: trình duyệt đo cả thời gian đi về trên dây, server chỉ đo phần của
+              nó. Chênh lệch chính là độ trễ mạng.
+            </li>
+            <li>
+              <strong>Mức log khác nhau</strong> (<code>debug</code> so với
+              <code>info</code>) — mỗi bên tự quyết độ ồn của mình.
+            </li>
+            <li>
+              <strong>Không có query string.</strong> Trường <code>url</code> là
+              <code>/api/customers</code>, không phải
+              <code>/api/customers?search=Nguyễn</code> — mục 3.3.
+            </li>
+          </ul>
+
+          <h3>3.3 Bốn lớp bảo vệ dữ liệu cá nhân</h3>
+
+          <p>
+            Đây là phần đáng học nhất của brief. Repo không chỉ "bôi đen trước khi ghi" — nó
+            có <strong>bốn</strong> lớp, và ba lớp đầu hoạt động <em>trước khi</em> redaction
+            cần tới:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lớp</th>
+                  <th>Cách làm</th>
+                  <th>Chặn được gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1 — <strong>Không ghi từ đầu</strong></td>
+                  <td>
+                    Body và header của request <em>không bao giờ</em> được log; URL log không
+                    kèm query string
+                  </td>
+                  <td>
+                    Toàn bộ nội dung người dùng gửi lên, và mọi thứ họ gõ vào ô tìm kiếm
+                  </td>
+                </tr>
+                <tr>
+                  <td>2 — <strong>Kiểu dữ liệu cấm</strong></td>
+                  <td>
+                    Union <code>InteractionEvent</code> làm cho việc đưa một cái tên hay một
+                    email vào sự kiện trở thành <strong>lỗi biên dịch</strong>
+                  </td>
+                  <td>
+                    Telemetry — nơi người ta hay "tiện tay" gắn thêm dữ liệu để phân tích
+                  </td>
+                </tr>
+                <tr>
+                  <td>3 — <strong>Định danh thay vì bản ghi</strong></td>
+                  <td>
+                    Route template (<code>/api/customers/:id</code>), <code>pageViewId</code>,
+                    <code>userId</code> — chứ không phải tên, email
+                  </td>
+                  <td>Nhóm và đếm được mà không cần biết ai</td>
+                </tr>
+                <tr>
+                  <td>4 — <strong>Redaction</strong>, lưới an toàn</td>
+                  <td>Theo khoá và theo giá trị, trong logger, trước mọi sink</td>
+                  <td>Những gì lọt qua ba lớp trên</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Redaction làm hai việc rất khác nhau:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Theo <strong>khoá</strong></th>
+                  <th>Theo <strong>giá trị</strong></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Credential: <code>password</code>, <code>*token*</code>,
+                    <code>secret</code>, <code>authorization</code>, <code>cookie</code>,
+                    <code>csrf</code>, <code>session</code>, <code>apiKey</code>,
+                    <code>credential</code>
+                  </td>
+                  <td>
+                    Địa chỉ email <em>ở bất cứ đâu trong bất cứ chuỗi nào</em> →
+                    <code>[email]</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Dữ liệu cá nhân của miền này: <code>fullName</code>,
+                    <code>displayName</code>, <code>email</code>, <code>phone</code>,
+                    <code>dateOfBirth</code>, <code>address</code>, <code>line1</code>,
+                    <code>postalCode</code>, <strong><code>search</code></strong>,
+                    <strong><code>query</code></strong>
+                  </td>
+                  <td>
+                    Chuỗi có dạng JWT và <code>Bearer …</code> → <code>[redacted]</code>; đối
+                    tượng <code>Error</code> bị rút gọn còn tên và thông điệp đã che
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Lọc theo giá trị quét <strong>cả thông điệp và cả nội dung lỗi</strong>, không chỉ
+            các trường — vì một email rất hay nằm lọt trong câu
+            <em>"không tìm thấy người dùng nguyen@example.com"</em>.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Và giới hạn được nói ra</span>
+            <p>
+              <em
+                >"What redaction cannot do: recognise a secret with no recognisable key or
+                shape. It is a net under the rule 'log identifiers, not records', not a
+                replacement for it."</em
+              >
+            </p>
+            <p>
+              Redaction là <strong>lưới an toàn</strong>, không phải quy tắc. Quy tắc là ba lớp
+              trên. Một hệ thống chỉ dựa vào redaction sẽ rò ngay khi ai đó log một trường có
+              tên mà danh sách chưa biết.
+            </p>
+          </div>
+
+          <h3>3.4 Error tracking: bốn việc mà "log cái lỗi ra" không làm</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Việc</th>
+                  <th>Làm gì</th>
+                  <th>Không có nó thì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Phân loại</strong></td>
+                  <td>
+                    <code>AppError</code> giữ taxonomy của nó (<code>kind</code>,
+                    <code>messageKey</code>, <code>status</code>,
+                    <code>correlationId</code>); <code>Error</code> giữ tên và stack; thứ khác
+                    được ghi là "một giá trị không phải lỗi"
+                  </td>
+                  <td>
+                    Một <code>throw 'oops'</code> (ném một chuỗi) làm hỏng cả báo cáo
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Vân tay</strong></td>
+                  <td>
+                    <code>kind</code> + message key, hoặc tên lỗi + khung stack đầu tiên
+                  </td>
+                  <td>10 000 lần cùng một lỗi là 10 000 mục phải đọc</td>
+                </tr>
+                <tr>
+                  <td><strong>Chặn lặp</strong></td>
+                  <td>Cùng vân tay trong 10 giây thì <em>đếm</em>, không ghi lại</td>
+                  <td>
+                    Một lỗi trong vòng lặp change detection bắn
+                    <strong>sáu mươi lần mỗi giây</strong> và nhấn chìm mọi thứ khác
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Breadcrumb</strong></td>
+                  <td>20 lần điều hướng và sự kiện tương tác gần nhất</td>
+                  <td>
+                    Bạn biết có lỗi, không biết người dùng đã đi đường nào tới đó — và thường
+                    không tái hiện được
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.5 Ranh giới quan trọng nhất: lỗi <em>đã xử lý</em> và lỗi <em>thoát ra</em></h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code>Expected failures are **not** errors here: a 404, a 409 or a validation failure is handled
+by the feature that asked, and logged once by the request log - at `warn`. The request
+log keeps `error` for a server failure, a lost connection, a timeout or an unclassified
+failure, so that alerting on `error` means something. Only what escapes reaches
+the tracker.</code></pre>
+          </div>
+
+          <p>
+            Câu chốt: <strong><em>"so that alerting on `error` means something"</em></strong>.
+            Đây là lý do của toàn bộ sự phân biệt — không phải vì sạch sẽ, mà vì một mức log
+            chỉ có giá trị nếu nó <em>hiếm</em> và <em>đáng xem</em>.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tình huống</th>
+                  <th>Mức</th>
+                  <th>Tới error tracker?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>404 — mở một khách hàng đã bị xoá</td>
+                  <td><code>warn</code></td>
+                  <td>Không — feature đã xử lý</td>
+                </tr>
+                <tr>
+                  <td>409 — xung đột phiên bản (bài 18)</td>
+                  <td><code>warn</code></td>
+                  <td>Không — có cả một giao diện hợp nhất cho nó</td>
+                </tr>
+                <tr>
+                  <td>422 — validation thất bại</td>
+                  <td><code>warn</code></td>
+                  <td>Không — người dùng sửa và gửi lại</td>
+                </tr>
+                <tr>
+                  <td>500, mất kết nối, timeout, lỗi không phân loại được</td>
+                  <td><code>error</code></td>
+                  <td>Không, nếu feature xử lý được</td>
+                </tr>
+                <tr>
+                  <td>
+                    Một exception <strong>thoát ra</strong> tới
+                    <code>GlobalErrorHandler</code>
+                  </td>
+                  <td><code>error</code></td>
+                  <td><strong>Có</strong> — <em>"only what escapes"</em></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.6 Sự kiện tương tác: ghi ở nơi biết kết quả</h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code>Emitted where the outcome is known (after the server said yes), not where the button is:
+a click that failed is not a "created".</code></pre>
+          </div>
+
+          <p>
+            Một dòng, và nó quyết định tất cả. Nếu bắn <code>customer.created</code> ở chỗ
+            <em>bấm nút</em>, bạn sẽ có một bộ đếm "đã tạo" bao gồm cả những lần tạo thất bại —
+            và sẽ không ai phát hiện ra trong nhiều tháng, vì con số <em>trông</em> hợp lý.
+          </p>
+
+          <p>
+            Hệ quả kiến trúc: telemetry được bắn từ <code>CustomerStore</code> (sau khi server
+            trả lời), không phải từ component. Cùng lý do mà bài 11 đặt
+            <code>ownChanges$</code> ở store.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Mười một mảnh, mỗi mảnh một trách nhiệm</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mảnh</th>
+                  <th>Trách nhiệm</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Logger</code></td>
+                  <td>
+                    <strong>API duy nhất mà chỗ gọi biết tới.</strong> Trừu tượng, nên thay
+                    được trong test và đổi được cài đặt.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>StructuredLogger</code></td>
+                  <td>Ngưỡng → redaction → trường chung → mọi sink</td>
+                </tr>
+                <tr>
+                  <td><code>LOG_SINKS</code></td>
+                  <td>Multi-provider: thêm đích ghi là thêm provider</td>
+                </tr>
+                <tr>
+                  <td><code>redactLogFields</code> (trong contracts)</td>
+                  <td>
+                    <strong>Danh sách duy nhất</strong> những gì không bao giờ được ghi, dùng
+                    bởi cả hai phía
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>endpointTemplate</code> (trong contracts)</td>
+                  <td>
+                    URL → route template. Cũng <em>dùng chung</em>, nên hai bên nhóm theo cùng
+                    một cách
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>ErrorTracker</code></td>
+                  <td>Báo cáo lỗi thoát ra, kèm ngữ cảnh — và là đường nối cho nhà cung cấp</td>
+                </tr>
+                <tr>
+                  <td><code>Telemetry</code></td>
+                  <td>Sự kiện tương tác có tên, <strong>có kiểu</strong></td>
+                </tr>
+                <tr>
+                  <td><code>PerformanceMonitor</code></td>
+                  <td>Tải đầu, điều hướng route, độ trễ API, long task (brief 31)</td>
+                </tr>
+                <tr>
+                  <td><code>PERFORMANCE_BUDGETS</code></td>
+                  <td>
+                    Các ngưỡng, <strong>dùng chung bởi monitor và CI</strong> — một nguồn, hai
+                    người đọc
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>MockApiLogger</code></td>
+                  <td>
+                    JSON lines lên stdout, <em>cùng tên trường, cùng redaction</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>requestLog</code> (mock API)</td>
+                  <td>Một dòng mỗi request, theo route template</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba mảnh nằm trong <code>packages/contracts</code> chứ không nằm ở một trong hai
+            app: chính sách redaction, hàm sinh route template, và (gián tiếp) các ngưỡng. Đó
+            là ba thứ mà <strong>hai phía phải đồng ý với nhau</strong>, nên chúng ở đúng chỗ
+            mà bài 08 nói — và không có cách nào để chúng trôi khỏi nhau.
+          </p>
+
+          <h3>4.2 Correlation id: bốn bước, và một chi tiết sống còn</h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code>1. `correlationIdInterceptor` (first in the chain) generates a UUID per request, sends it
+   as `x-correlation-id` and puts it on the request context.
+2. `requestLoggingInterceptor` logs the outcome under that id; an error mapped into the
+   taxonomy carries it too (`AppError.correlationId`), so an error report names the
+   request that failed.
+3. The mock API's `correlationId` middleware **reuses** the incoming id (inventing a
+   second one would break the join), echoes it on the response, and `requestLog` writes it
+   on the server's line. A request with no id gets a fresh one: nothing is untraceable.
+4. Every API error body carries it (`error.correlationId`) - what a user would read out
+   to support.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao quan trọng</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Interceptor sinh id là <strong>cái đầu tiên</strong> trong chuỗi</td>
+                  <td>
+                    Bài 09: thứ tự là một hợp đồng. Đặt nó đầu tiên để mọi interceptor phía
+                    dưới đọc được id — kể cả interceptor log và interceptor map lỗi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Server <strong>dùng lại</strong> id tới, không sinh id mới
+                  </td>
+                  <td>
+                    Câu trong ngoặc là lý do:
+                    <em>"inventing a second one would break the join"</em>. Đây là lỗi mà
+                    người ta rất dễ phạm khi viết middleware độc lập.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Request không có id thì được cấp một id mới</td>
+                  <td>
+                    <em>"nothing is untraceable"</em> — một request từ curl, từ một client cũ,
+                    hay từ một health check vẫn có dòng log nối được.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Id nằm trong <strong>thân phản hồi lỗi</strong>
+                  </td>
+                  <td>
+                    Đây là chỗ nó chạm tới con người: người dùng đọc id đó cho bộ phận hỗ trợ,
+                    và hỗ trợ tìm ra đúng hai dòng log. Bài 10 đã đặt
+                    <code>correlationId</code> vào <code>AppError</code> chính vì việc này.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và nó được <strong>chứng minh</strong>, không chỉ được mô tả:</p>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code>**Proven** by `e2e/observability.spec.ts`: it takes the id from the browser's console
+line for the list request and finds exactly one server line with it, via
+`GET /api/_mock/logs?correlationId=` - the mock's stand-in for a log aggregator's search.</code></pre>
+          </div>
+
+          <p>
+            Test này làm đúng việc mà một người trực sự cố sẽ làm: lấy id từ phía trình duyệt,
+            tìm trong log của server, và khẳng định tìm thấy
+            <strong>đúng một</strong> dòng. Và <code>GET /api/_mock/logs</code> là mock API
+            đóng thế cho ô tìm kiếm của một hệ thống gom log — một cần gạt dựng sẵn để test
+            được thứ bình thường không test được (brief 34).
+          </p>
+
+          <h3>4.3 Redaction được chứng minh ở ba tầng</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>packages/contracts/test/log-redaction.spec.ts</code></td>
+                  <td>
+                    <strong>Chính sách</strong>: khoá nào bị bôi, dạng giá trị nào bị bôi, và
+                    cái gì <em>không</em> bị bôi
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>core/logging/logger.spec.ts</code> và
+                    <code>apps/mock-api/test/observability.spec.ts</code>
+                  </td>
+                  <td>
+                    <strong>Sink của mỗi bên nhận được gì</strong> — tức là redaction thật sự
+                    chạy trước khi tới sink, không chỉ tồn tại
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/observability.spec.ts</code></td>
+                  <td>
+                    <strong>Một lần đăng nhập thật</strong>: mật khẩu và mọi giá trị cookie
+                    <em>vắng mặt</em> trong log của cả hai phía
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba tầng này là một mẫu đáng chép cho bất kỳ quy tắc an toàn nào:
+            <strong>luật đúng</strong> (unit), <strong>luật được áp dụng</strong> (integration),
+            <strong>và kết quả cuối không chứa thứ cấm</strong> (end-to-end). Tầng thứ ba là
+            tầng duy nhất bắt được trường hợp "có ai đó thêm một sink mới và quên gọi
+            redaction".
+          </p>
+
+          <h3>4.4 Đường nối cho nhà cung cấp</h3>
+
+          <div class="code">
+            <div class="code__file">docs/observability.md</div>
+            <pre><code>**Adopting a vendor** (Sentry, Bugsnag, Application Insights): implement `ErrorTracker`
+with its SDK and provide it in `provideObservability()`. No call site changes. Its
+`beforeSend` hook should run `redactLogValue` from `@ecm/contracts` - the vendor is a
+sink like any other.</code></pre>
+          </div>
+
+          <p>
+            Ba câu, và câu thứ ba là câu quan trọng nhất:
+            <strong>nhà cung cấp cũng là một sink như mọi sink khác</strong> — nên nó cũng phải
+            đi qua redaction. Rất nhiều hệ thống cài Sentry và vô tình gửi thẳng dữ liệu cá
+            nhân sang một bên thứ ba, vì SDK của họ tự gom ngữ cảnh.
+          </p>
+
+          <p>
+            Và <em>"No call site changes"</em> là thước đo xem đường nối có đúng chỗ không: nếu
+            cắm một nhà cung cấp mà phải sửa hàng trăm chỗ gọi thì đó không phải một đường nối,
+            đó là một cuộc tái cấu trúc.
+          </p>
+
+          <h3>4.5 Tám sự kiện tương tác, và cái không có trong đó</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sự kiện</th>
+                  <th>Dữ liệu kèm theo</th>
+                  <th>Bắn từ đâu</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>session.signed_in</code> / <code>…out</code></td>
+                  <td>vai trò</td>
+                  <td><code>SessionService</code></td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>customer.created</code> / <code>updated</code> /
+                    <code>deleted</code>
+                  </td>
+                  <td><strong>không gì cả</strong></td>
+                  <td><code>CustomerStore</code></td>
+                </tr>
+                <tr>
+                  <td><code>customer.status_changed</code></td>
+                  <td>trạng thái</td>
+                  <td><code>CustomerStore</code> (optimistic)</td>
+                </tr>
+                <tr>
+                  <td><code>customers.bulk_action</code></td>
+                  <td>hành động, <em>số lượng</em></td>
+                  <td><code>CustomerStore</code></td>
+                </tr>
+                <tr>
+                  <td><code>customers.imported</code></td>
+                  <td><em>số</em> thành công, <em>số</em> bị bỏ qua</td>
+                  <td><code>CustomerStore</code></td>
+                </tr>
+                <tr>
+                  <td><code>preferences.language_changed</code> / <code>theme_changed</code></td>
+                  <td>ngôn ngữ / theme</td>
+                  <td><code>LanguageService</code>, <code>ThemeService</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đọc cột giữa: <strong>toàn là số đếm và từ khoá cố định</strong>. Không một tên
+            người, không một email, không một mã khách hàng. Và điều đó
+            <em>không</em> được giữ bằng kỷ luật — nó được giữ bằng kiểu dữ liệu:
+            <em>"the `InteractionEvent` union makes a name or an email a type error."</em>
+          </p>
+
+          <p>
+            Đây là bậc cao nhất trong thang ở bài 24 mục 9: khi diễn đạt được bằng
+            <strong>kiểu</strong>, vi phạm không biên dịch được — và không ai phải nhớ gì.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một cú bấm "Lưu" đi vào log như thế nào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant C as Component
+    participant S as CustomerStore
+    participant I as Chuỗi interceptor
+    participant API as mock API
+    participant L as Log
+
+    U-&gt;&gt;C: bấm Lưu
+    C-&gt;&gt;S: update(...)
+    S-&gt;&gt;I: PATCH /api/customers/9f3c...
+    I-&gt;&gt;I: correlationId — SINH một UUID, gắn header x-correlation-id
+    I-&gt;&gt;API: request kèm id
+
+    API-&gt;&gt;API: middleware DÙNG LẠI id tới — sinh id mới sẽ phá mối nối
+    API-&gt;&gt;L: {service mock-api, correlationId 6f0c, route /api/customers/:id, status 200}
+    Note over L: route TEMPLATE, không phải id thật<br/>không body, không header
+
+    API--&gt;&gt;I: 200, echo id trên response
+    I-&gt;&gt;L: {service web, platform browser, correlationId 6f0c, url không query, durationMs 38}
+    I-&gt;&gt;I: PerformanceMonitor.recordApiCall — trong ngân sách thì debug, quá thì warn
+
+    S-&gt;&gt;L: Telemetry: customer.updated — KHÔNG kèm dữ liệu khách hàng
+    Note over S: bắn ở đây, SAU khi server đồng ý<br/>không bắn ở chỗ bấm nút
+
+    alt lỗi thoát ra ngoài
+        S-&gt;&gt;L: GlobalErrorHandler → ErrorTracker
+        Note over L: phân loại · vân tay · chặn lặp 10s<br/>+ 20 breadcrumb gần nhất
+    else lỗi đã được xử lý — 404, 409, 422
+        Note over S: chỉ một dòng warn từ request log<br/>KHÔNG tới error tracker
+    end
+            </pre>
+            <figcaption>
+              Bước 6 là chi tiết sống còn: server <em>dùng lại</em> id. Và nhánh
+              <code>alt</code> cuối là ranh giới làm cho việc cảnh báo trên mức
+              <code>error</code> còn có ý nghĩa.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Dữ liệu cá nhân bị chặn ở bốn chỗ</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    A["Tôi muốn ghi một thứ gì đó vào log"] --> L1{"Lớp 1 — có cần ghi không?"}
+    L1 -->|"body, header, query string"| X1["KHÔNG GHI TỪ ĐẦU<br/>một chuỗi tìm kiếm là tên một con người"]
+    L1 -->|"cần"| L2{"Lớp 2 — nó là sự kiện tương tác?"}
+
+    L2 -->|"phải"| X2["Union InteractionEvent có KIỂU<br/>đưa tên hay email vào là LỖI BIÊN DỊCH"]
+    L2 -->|"không"| L3{"Lớp 3 — định danh hay bản ghi?"}
+
+    L3 -->|"bản ghi"| X3["đổi thành ĐỊNH DANH<br/>route template · userId · pageViewId"]
+    L3 -->|"định danh"| L4["Lớp 4 — redaction, LƯỚI AN TOÀN"]
+
+    X3 --> L4
+    L4 --> R1["theo KHOÁ: password, token, cookie, csrf<br/>fullName, email, phone, dateOfBirth, address, search"]
+    L4 --> R2["theo GIÁ TRỊ, ở MỌI chuỗi kể cả message và nội dung lỗi:<br/>email · chuỗi dạng JWT · Bearer"]
+
+    R1 --> S["MỌI sink — console, bộ nhớ, và cả nhà cung cấp sau này"]
+    R2 --> S
+    S --> N["Redaction nằm TRONG logger, TRƯỚC mọi sink<br/>nên không chỗ gọi nào và không sink tương lai nào bỏ qua được"]
+    N --> W["Nhưng nó không nhận ra được một bí mật KHÔNG CÓ HÌNH DẠNG<br/>— nó là lưới, không phải quy tắc"]
+            </pre>
+            <figcaption>
+              Ba lớp đầu là <em>quy tắc</em>; lớp thứ tư là <em>lưới</em>. Một hệ thống chỉ có
+              lớp bốn sẽ rò ngay khi có người log một trường mà danh sách chưa biết tên.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Một chính sách redaction, nằm trong contracts (ADR-0038)</h4>
+          <p>
+            Phương án bị loại: mỗi phía có danh sách riêng. Nó sẽ lệch nhau trong vài tháng, và
+            lệch theo hướng tệ nhất — một trường được bôi ở client và lọt ở server, nên không
+            ai thấy vấn đề khi test ở client. Giá phải trả: <code>packages/contracts</code>
+            phải biết tên các trường của <em>miền nghiệp vụ</em> (<code>fullName</code>,
+            <code>dateOfBirth</code>) — mà đó vốn là nơi định nghĩa chúng, nên không có gì rò
+            rỉ về mặt kiến trúc.
+          </p>
+
+          <h4>Logger là lớp trừu tượng, không phải <code>console</code></h4>
+          <p>
+            Giá: thêm một lớp, và <code>no-console</code> là một luật lint phải cưỡng chế (bài
+            24). Đổi lại ba thứ: redaction không bỏ qua được, test thay được logger bằng một
+            dòng, và thêm sink là thêm provider. <code>core/logging/logger.ts</code> là file
+            duy nhất được phép tự tắt luật đó.
+          </p>
+
+          <h4><code>MemoryLogSink</code> chỉ có trong bản dev</h4>
+          <p>
+            Lab observability đọc sink này để hiện log ngay trên trang. Trong production thì
+            nó <em>không tồn tại</em> — vì giữ log trong bộ nhớ của tab người dùng là giữ dữ
+            liệu không ai quyết định giữ. Cùng một lập luận với việc không cache API ở brief
+            29.
+          </p>
+
+          <h4>Chặn lặp 10 giây thay vì ghi hết</h4>
+          <p>
+            Đánh đổi: nếu cùng một lỗi xảy ra vì hai nguyên nhân khác nhau trong 10 giây, lần
+            thứ hai chỉ được đếm. Chấp nhận được, vì phương án kia là một lỗi trong vòng lặp
+            change detection ghi sáu mươi dòng mỗi giây và làm trôi mất mọi thứ khác —
+            kể cả chính nguyên nhân.
+          </p>
+
+          <h4>Chưa cắm nhà cung cấp nào</h4>
+          <p>
+            Repo có <code>ErrorTracker</code> như một interface và một cài đặt ghi log. Không
+            có Sentry. Đó là một lựa chọn hợp lý cho một repo học — và đường nối được để sẵn
+            kèm hướng dẫn hai câu, trong đó có câu nhắc chạy
+            <code>redactLogValue</code> trong <code>beforeSend</code>.
+          </p>
+
+          <h4>LCP và long task chỉ đo được trên Chromium</h4>
+          <p>
+            Và tài liệu nói rõ cách xử lý:
+            <em>"elsewhere they are not measured, and the lab says so rather than showing
+            zero."</em> Hiện số 0 cho một thứ không đo được là nói dối bằng dữ liệu — một dạng
+            sai lầm mà bảng điều khiển nào cũng dễ mắc.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. <code>console.log(customer)</code></span>
+            <p>
+              Họ tên, email, ngày sinh, số điện thoại, địa chỉ — tất cả vào log. Nếu log được
+              gom về một hệ thống tập trung thì bạn vừa sao chép cơ sở dữ liệu khách hàng sang
+              một nơi có chính sách lưu trữ khác, kiểm soát truy cập khác, và thời gian xoá
+              khác.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Log URL kèm query string</span>
+            <p>
+              Cái bẫy tinh vi nhất trong danh sách. <code>/api/customers?search=Nguyễn Văn
+              A</code> trông như một URL kỹ thuật vô hại — nhưng chuỗi tìm kiếm
+              <em>là</em> dữ liệu cá nhân, vì người ta tìm tên người. Repo log path, bỏ query,
+              và đưa cả <code>search</code> lẫn <code>query</code> vào danh sách bôi đen theo
+              khoá.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Redaction ở chỗ gọi</span>
+            <p>
+              <code>logger.info('saved', { name: redact(c.fullName) })</code> — hoạt động, tới
+              khi có người quên. Và sẽ có người quên. Đặt nó <em>trong</em> logger, trước mọi
+              sink, là cách duy nhất làm cho việc quên trở nên không thể.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Server sinh correlation id mới</span>
+            <p>
+              Mỗi bên có một id, và hai dòng log không nối được với nhau. Bạn vẫn có log —
+              nhưng câu hỏi "request nào ở client ứng với dòng này ở server" không trả lời
+              được, và đó chính là câu hỏi duy nhất bạn cần khi sự cố xảy ra.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Ghi mọi thất bại ở mức <code>error</code></span>
+            <p>
+              Một 404 bình thường, một 422 do người dùng gõ sai email — tất cả thành
+              <code>error</code>. Sau một tuần, bảng cảnh báo có hàng nghìn mục và không ai
+              nhìn nữa. Lúc đó một lỗi 500 thật xuất hiện và nằm im giữa đám đông.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Không gom lỗi theo vân tay</span>
+            <p>
+              Một lỗi trong vòng lặp change detection bắn sáu mươi lần mỗi giây. Trong mười
+              phút là 36 000 mục. Hệ thống error tracking của bạn vừa biến thành một máy tạo
+              tiếng ồn — và hoá đơn của nó tính theo số sự kiện.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Bắn telemetry ở chỗ bấm nút</span>
+            <p>
+              Bộ đếm "đã tạo khách hàng" bao gồm cả những lần tạo thất bại. Không ai phát hiện
+              ra, vì con số <em>trông</em> hợp lý — chỉ hơi cao hơn thực tế. Và mọi quyết định
+              sản phẩm dựa trên nó đều lệch.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Cắm Sentry và để nó tự gom ngữ cảnh</span>
+            <p>
+              SDK của nhà cung cấp thường tự đính kèm trạng thái, body, breadcrumb DOM. Nếu
+              không chạy redaction trong <code>beforeSend</code>, bạn vừa gửi dữ liệu cá nhân
+              sang một bên thứ ba — và với nhiều quy định pháp lý, đó là một chuyện phải khai
+              báo.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. Hiện số 0 cho thứ không đo được</span>
+            <p>
+              LCP trên Firefox không tồn tại. Hiện "0 ms" làm người đọc kết luận rằng nó
+              <em>rất nhanh</em>. Và nhớ chuyện ở brief 31: <code>Number(null)</code> là 0, nên
+              lỗi này còn len được vào cả một cổng CI.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ở đâu</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>packages/contracts/test/log-redaction.spec.ts</code></td>
+                  <td>
+                    Chính sách: khoá nào bị bôi, dạng giá trị nào bị bôi — và quan trọng không
+                    kém, cái gì <em>không</em> bị bôi (một luật bôi đen tất cả thì vô dụng)
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>core/logging/logger.spec.ts</code>,
+                    <code>apps/mock-api/test/observability.spec.ts</code>
+                  </td>
+                  <td>
+                    Sink <em>thật sự</em> nhận được bản đã bôi — tức là bước redaction nằm
+                    đúng chỗ trong chuỗi
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/observability.spec.ts</code> — hai khẳng định</td>
+                  <td>
+                    <strong>(a)</strong> Lấy correlation id từ dòng console của trình duyệt,
+                    tìm trong log server qua
+                    <code>GET /api/_mock/logs?correlationId=</code>, và thấy
+                    <em>đúng một</em> dòng. <strong>(b)</strong> Một lần đăng nhập thật: mật
+                    khẩu và mọi giá trị cookie <em>vắng mặt</em> trong log của cả hai phía.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>e2e-production/performance-budgets.spec.ts</code>
+                  </td>
+                  <td>
+                    Đọc số <em>từ chính <code>PerformanceMonitor</code></em>, nên nó đồng thời
+                    chứng minh monitor hoạt động (brief 31)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Khẳng định phủ định, và vì sao nó khó</span>
+            <p>
+              <em>"the password and every cookie value are absent from both logs"</em> là một
+              khẳng định <strong>phủ định</strong>: không phải "có X" mà "không có X ở bất cứ
+              đâu". Loại khẳng định này khó viết đúng và rất ít người viết.
+            </p>
+            <p>
+              Cách repo làm cho nó khả thi: chạy một kịch bản thật (đăng nhập), thu toàn bộ
+              log của cả hai phía, rồi tìm chuỗi mật khẩu đã dùng. Nếu một ngày ai đó thêm một
+              sink mới và quên redaction, đây là test duy nhất bắt được.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    Q{"Dựng observability cho một ứng dụng web"}
+
+    Q --> A["1. MỘT API ghi log mà chỗ gọi biết tới<br/>trừu tượng, không phải console"]
+    A --> A1["ngưỡng → redaction → trường chung → MỌI sink"]
+    A --> A2["thêm sink là thêm provider, không sửa logger"]
+
+    Q --> B["2. CÙNG tên trường ở cả hai phía<br/>một truy vấn trả về cả hai dòng, không cần bảng ánh xạ"]
+    B --> B1["service · platform · correlationId · pageViewId<br/>route template · durationMs · status"]
+
+    Q --> C["3. MỘT id đi suốt một request"]
+    C --> C1["sinh ở interceptor ĐẦU chuỗi"]
+    C --> C2["server DÙNG LẠI id tới — sinh mới là phá mối nối"]
+    C --> C3["không có id thì cấp mới — không gì không truy được"]
+    C --> C4["và id nằm trong THÂN LỖI, để người dùng đọc cho hỗ trợ"]
+
+    Q --> D["4. Dữ liệu cá nhân: BỐN lớp, không phải một"]
+    D --> D1["không ghi body, header, query string"]
+    D --> D2["kiểu dữ liệu cấm — tên hay email là lỗi biên dịch"]
+    D --> D3["log ĐỊNH DANH, đừng log BẢN GHI"]
+    D --> D4["redaction trong logger là LƯỚI, không phải quy tắc"]
+
+    Q --> E["5. Lỗi: phân biệt ĐÃ XỬ LÝ với THOÁT RA"]
+    E --> E1["404 · 409 · 422 → warn, một dòng, hết"]
+    E --> E2["chỉ thứ THOÁT RA mới tới error tracker"]
+    E --> E3["để cảnh báo trên mức error còn có nghĩa"]
+    E2 --> E4["và ở đó: phân loại · vân tay · chặn lặp · breadcrumb"]
+
+    Q --> F["6. Sự kiện tương tác bắn ở nơi BIẾT KẾT QUẢ<br/>một cú bấm thất bại không phải một lần tạo"]
+
+    Q --> G["7. Để sẵn ĐƯỜNG NỐI cho nhà cung cấp<br/>— và nhớ: nhà cung cấp cũng là một sink, cũng phải qua redaction"]
+            </pre>
+            <figcaption>
+              Bảy mục, và mục 4 là mục mà hầu hết hệ thống chỉ làm một phần tư. Ba lớp đầu là
+              quy tắc; lớp thứ tư chỉ là lưới hứng những gì lọt qua.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi theo một id, từ trình duyệt vào server</h3>
+            <p class="task__meta">~35 phút · không sửa code</p>
+            <ol>
+              <li>
+                Chạy ứng dụng và mock API. Mở Console của trình duyệt, đặt mức log về
+                <code>debug</code> (xem <code>config.json</code>, <code>logLevel</code>).
+              </li>
+              <li>
+                Mở danh sách khách hàng. Tìm dòng log <code>HTTP request completed</code> và
+                chép lấy <code>correlationId</code>.
+              </li>
+              <li>
+                Gọi <code>GET /api/_mock/logs?correlationId=&lt;id đó&gt;</code>. Bạn nhận được
+                bao nhiêu dòng? Chúng nói gì mà dòng ở client không nói?
+              </li>
+              <li>
+                So <code>durationMs</code> của hai dòng. Chênh lệch là gì?
+              </li>
+              <li>
+                Giờ làm cho một request <strong>hỏng</strong> (dừng mock API giữa chừng, hoặc
+                mở một khách hàng không tồn tại). Thân phản hồi lỗi có
+                <code>correlationId</code> không? Giao diện có hiện nó cho người dùng không?
+              </li>
+              <li>
+                Mở <code>/technical-labs/observability</code> và xem cùng những dòng đó trong
+                giao diện.
+              </li>
+            </ol>
+            <details>
+              <summary>Đây chính là quy trình xử lý sự cố</summary>
+              <p>
+                Người dùng đọc cho bạn một id (bước 5), bạn tìm trong log (bước 3), và bạn có
+                cả hai phía của một request. Nếu thiết lập của bạn không cho làm việc đó trong
+                hai phút, nó chưa xong.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Thử làm rò dữ liệu cá nhân</h3>
+            <p class="task__meta">~40 phút · sửa code rồi hoàn nguyên</p>
+            <p>
+              Mục tiêu: xem bốn lớp ở mục 3.3 chặn được tới đâu, và chỗ nào chúng không chặn
+              được.
+            </p>
+            <ol>
+              <li>
+                Trong <code>CustomerStore</code>, thêm
+                <code>logger.info('saved', { fullName: customer.fullName })</code>. Chạy, lưu
+                một khách hàng, xem log. Nó hiện gì?
+              </li>
+              <li>
+                Giờ thử một tên khoá <strong>không</strong> có trong danh sách, ví dụ
+                <code>{ customerName: customer.fullName }</code>. Lần này sao?
+              </li>
+              <li>
+                Thử nhét email vào <em>thông điệp</em>:
+                <code>logger.info(`saved ${customer.email}`)</code>. Lọc theo giá trị có bắt
+                được không?
+              </li>
+              <li>
+                Thử thêm tên người vào một sự kiện telemetry:
+                <code>telemetry.track({ name: 'customer.updated', who: customer.fullName })</code>.
+                Chuyện gì xảy ra — lúc chạy hay lúc biên dịch?
+              </li>
+              <li>
+                Với mỗi bước, ghi lại: <em>lớp nào đã chặn</em>, hay <em>không lớp nào chặn</em>.
+              </li>
+              <li>Hoàn nguyên tất cả.</li>
+            </ol>
+            <details>
+              <summary>Bước 2 là bài học thật</summary>
+              <p>
+                <code>customerName</code> không có trong danh sách khoá, nên redaction theo
+                khoá không bắt. Giá trị cũng không có hình dạng nhận ra được (không phải email,
+                không phải JWT), nên lọc theo giá trị cũng không bắt.
+                <strong>Nó lọt.</strong>
+              </p>
+              <p>
+                Đó chính xác là điều tài liệu cảnh báo:
+                <em>"redaction ... is a net under the rule 'log identifiers, not records', not a
+                replacement for it."</em> Lưới có lỗ. Quy tắc mới là thứ giữ bạn an toàn.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Làm ồn error tracker, rồi làm nó im</h3>
+            <p class="task__meta">~35 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Đọc <code>core/observability/error-tracker.ts</code>, tìm phần chặn lặp 10
+                giây và phần tính vân tay.
+              </li>
+              <li>
+                Tạo một lỗi lặp: ném một exception trong một <code>computed</code> hoặc một
+                effect chạy thường xuyên. Quan sát số dòng log.
+              </li>
+              <li>Tắt phần chặn lặp. Chạy lại. Bao nhiêu dòng trong mười giây?</li>
+              <li>
+                Khôi phục. Giờ đổi cách tính vân tay để nó bao gồm cả một thứ luôn thay đổi
+                (ví dụ timestamp). Chạy lại — chặn lặp còn hoạt động không? Vì sao?
+              </li>
+              <li>
+                Cuối cùng: tạo một lỗi <em>đã được xử lý</em> (mở một khách hàng không tồn tại
+                → 404). Nó có tới error tracker không? Nó được ghi ở mức nào?
+              </li>
+              <li>Hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Bước 4 là lỗi mà người ta thật sự mắc</summary>
+              <p>
+                Một vân tay chứa thứ luôn thay đổi (timestamp, id request, một số ngẫu nhiên)
+                thì <strong>mọi lần lỗi đều là một vấn đề mới</strong> — chặn lặp không bao giờ
+                kích hoạt, và việc gom nhóm trở nên vô nghĩa. Vân tay phải chỉ chứa những gì
+                <em>định danh loại lỗi</em>: ở đây là <code>kind</code> + message key, hoặc tên
+                lỗi + khung stack đầu tiên.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao redaction phải nằm trong logger chứ không ở chỗ gọi?</summary>
+            <p>
+              Vì ở chỗ gọi thì sẽ có người quên — và sẽ có một sink mới trong tương lai không
+              biết tới quy ước đó. Đặt nó trong logger, <em>trước mọi sink</em>, làm cho việc
+              bỏ qua trở nên không thể.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao hai phía phải dùng cùng tên trường?</summary>
+            <p>
+              Để <strong>một</strong> truy vấn trên hệ thống gom log trả về cả dòng của trình
+              duyệt lẫn dòng của server cho cùng một request — không cần bảng ánh xạ. Đó cũng
+              là lý do <code>endpointTemplate</code> nằm trong contracts.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao server phải dùng lại correlation id thay vì sinh mới?</summary>
+            <p>
+              Vì sinh một id thứ hai <em>phá mối nối</em>: bạn vẫn có log ở cả hai phía nhưng
+              không nối được chúng. Và request không mang id thì được cấp một id mới — để
+              không có gì không truy vết được.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Bốn lớp bảo vệ dữ liệu cá nhân là gì?</summary>
+            <p>
+              (1) Không ghi từ đầu — body, header, query string. (2) Kiểu dữ liệu cấm — union
+              <code>InteractionEvent</code> làm cho tên/email thành lỗi biên dịch. (3) Log định
+              danh, không log bản ghi. (4) Redaction trong logger — <em>lưới an toàn</em>, theo
+              khoá và theo giá trị.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Redaction <em>không</em> làm được gì?</summary>
+            <p>
+              Nhận ra một bí mật không có khoá quen thuộc và không có hình dạng nhận biết được.
+              Một trường tên <code>customerName</code> chứa tên người sẽ lọt qua cả hai cách
+              lọc. Vì thế nó là lưới, không phải quy tắc.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Vì sao 404 và 409 không được ghi mức <code>error</code>?</summary>
+            <p>
+              Vì chúng đã được feature xử lý — chúng là tình huống dự kiến, không phải hỏng
+              hóc. Giữ mức <code>error</code> cho lỗi server, mất kết nối, timeout và lỗi không
+              phân loại được, <em>"so that alerting on error means something"</em>.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Error tracker làm bốn việc gì mà "log cái lỗi ra" không làm?</summary>
+            <p>
+              Phân loại (giữ taxonomy của <code>AppError</code>, tên và stack của
+              <code>Error</code>); vân tay để gom nhóm; chặn lặp trong 10 giây; và đính kèm 20
+              breadcrumb gần nhất để biết người dùng đã đi đường nào tới đó.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao telemetry bắn từ store chứ không từ component?</summary>
+            <p>
+              Vì nó phải bắn ở nơi <em>biết kết quả</em> — sau khi server đã đồng ý. Bắn ở chỗ
+              bấm nút thì một cú bấm thất bại cũng được đếm là "đã tạo", và con số sai một cách
+              trông rất hợp lý.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Cắm Sentry thì phải nhớ điều gì?</summary>
+            <p>
+              Rằng <strong>nhà cung cấp cũng là một sink như mọi sink khác</strong>, nên
+              <code>beforeSend</code> của nó phải chạy <code>redactLogValue</code>. SDK thường
+              tự gom ngữ cảnh, body và breadcrumb DOM — và đó là đường rò dữ liệu cá nhân sang
+              bên thứ ba.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 31</strong> là nửa còn lại của <code>PerformanceMonitor</code>.
+              <strong>Brief 34</strong> nói về <code>GET /api/_mock/logs</code> và những cần
+              gạt khác mà một backend giả nên có. Và bài 09, 10 là nền: chuỗi interceptor sinh
+              ra correlation id, taxonomy lỗi mang nó theo.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="32-browser-api-va-web-worker.html">← Brief 32</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

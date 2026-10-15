@@ -1,0 +1,1506 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 31 — Performance &amp; bundle budget</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 31
+        </p>
+        <h1>Performance &amp; bundle budget</h1>
+        <p class="lede">
+          Câu mở đầu của <code>docs/performance.md</code> là một lời thề:
+          <em>"Mọi khẳng định ở đây đều có trước và sau, đo được, kèm script đã đo. Không gì
+          được gọi là nhanh hơn mà không có một con số."</em> Brief này về kỷ luật đó — và về
+          ba phát hiện mà trực giác không cho bạn, trong đó có một phát hiện làm thay đổi cách
+          bạn nghĩ về lazy loading.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1,5 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi có người nói "app chậm quá", hoặc khi bạn sắp bắt tay tối ưu một thứ. Mục
+              3.1 (đo thế nào mới dùng được) nên đọc <strong>trước</strong> khi sửa dòng code
+              đầu tiên.
+            </p>
+            <p>
+              Nền cần có: bài 15 (lazy route, <code>@defer</code>), bài 24 (ngân sách kiểu
+              bánh cóc), brief 30 (các chế độ render — đo riêng ở đó).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>raw</strong> vs <strong>transferred</strong></td>
+                  <td>
+                    Số byte của file sau khi build, và số byte thật sự đi qua dây (sau nén
+                    gzip/brotli). Chênh nhau 3–4 lần. So nhầm hai con số này là lỗi phổ biến
+                    nhất khi bàn về kích thước bundle.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Initial bundle</strong> / <strong>lazy chunk</strong></td>
+                  <td>
+                    Phần JavaScript tải ngay khi mở trang, và phần chỉ tải khi vào một route
+                    (bài 15). Hai thứ cần hai ngân sách khác nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Tree-shaking</strong></td>
+                  <td>
+                    Bỏ code không được dùng tới. Phụ thuộc vào <em>cách viết câu import</em> —
+                    mục 3.4.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>esbuild metafile</strong></td>
+                  <td>
+                    File JSON bộ đóng gói ghi ra: output nào gồm input nào, mỗi input bao
+                    nhiêu byte. Đây là <em>số đo</em>, không phải ước lượng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Core Web Vitals</strong>: TTFB · FCP · LCP · INP</td>
+                  <td>
+                    Byte đầu tiên · lần vẽ nội dung đầu · lần vẽ khối lớn nhất · độ trễ phản
+                    hồi tương tác. Google đặt ngưỡng "good" cho từng cái, và repo lấy đúng
+                    những ngưỡng đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>RAIL</strong></td>
+                  <td>
+                    Khung ngân sách theo <em>loại</em> tương tác: Response (&lt;100 ms),
+                    Animation (16 ms/khung), Idle, Load. Repo dùng nó cho hai ngưỡng: điều
+                    hướng route và long task.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Long task</strong></td>
+                  <td>
+                    Một khối công việc chiếm main thread quá lâu (ở đây: &gt; 200 ms). Trong
+                    lúc đó trang <em>đóng băng</em> — không cuộn, không gõ, không bấm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Debounce</strong> vs <strong>throttle</strong></td>
+                  <td>
+                    Chờ im lặng rồi mới chạy một lần (debounce), hay cho qua tối đa một sự
+                    kiện trong mỗi khoảng thời gian (throttle). Hai bài toán khác nhau — mục
+                    3.6.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Memoization</strong></td>
+                  <td>
+                    Nhớ kết quả để khỏi tính lại. Trong Angular hiện đại đó là
+                    <code>computed()</code> (bài 03).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Virtual scrolling</strong></td>
+                  <td>
+                    Chỉ vẽ những dòng đang nằm trong tầm nhìn. 100 000 dòng dữ liệu nhưng chỉ
+                    ~21 phần tử trong DOM.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>srcset</code> / <code>sizes</code></td>
+                  <td>
+                    Cách khai nhiều bản ảnh ở nhiều bề rộng và để trình duyệt chọn — theo kích
+                    thước hiển thị thật và mật độ điểm ảnh của màn hình.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>Save-Data</code></td>
+                  <td>
+                    Header trình duyệt gửi khi người dùng bật chế độ tiết kiệm dữ liệu. Tôn
+                    trọng nó là một quyết định, không phải một tuỳ chọn.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Trung vị</strong> (median)</td>
+                  <td>
+                    Giá trị giữa của n lần đo. Dùng thay trung bình vì một lần chạy chậm bất
+                    thường không kéo lệch nó.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Thiết lập một phép đo <em>dùng được</em>: dữ liệu tất định, context mới mỗi lần,
+              bóp CPU và mạng, lấy trung vị của n lần.
+            </li>
+            <li>
+              Đọc một metafile và trả lời được câu "cái gì đang chiếm chỗ trong bundle của
+              tôi".
+            </li>
+            <li>
+              Biết vì sao code của một route lazy <strong>vẫn có thể</strong> tốn byte của mọi
+              người — và đo được điều đó.
+            </li>
+            <li>
+              Chọn đúng giữa <code>debounceTime</code>, <code>throttleTime</code> và
+              <code>switchMap</code> cho ba bài toán khác nhau.
+            </li>
+            <li>
+              Dựng ngân sách hiệu năng chạy trong CI, và nhận ra khi một ngân sách
+              <em>không có răng</em>.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Profiler, flame graph</td>
+                  <td>DevTools → Performance, và <code>performance.mark()</code> tự đặt</td>
+                </tr>
+                <tr>
+                  <td>p50 / p95 của latency</td>
+                  <td>Trung vị của 5–7 lần chạy, bỏ lần khởi động</td>
+                </tr>
+                <tr>
+                  <td>Truy vấn N+1</td>
+                  <td>
+                    Quét 100 000 dòng <em>mỗi lần gõ một ký tự</em> — cùng một hình dạng lãng
+                    phí
+                  </td>
+                </tr>
+                <tr>
+                  <td>Index để tra nhanh</td>
+                  <td>
+                    <code>computed()</code> — nhớ kết quả, chỉ tính lại khi phụ thuộc đổi
+                  </td>
+                </tr>
+                <tr>
+                  <td>Phân trang ở DB thay vì load hết</td>
+                  <td>
+                    Virtual scrolling (DOM) hoặc phân trang ở API — danh sách khách hàng dùng
+                    cái sau
+                  </td>
+                </tr>
+                <tr>
+                  <td>Giới hạn kích thước artifact trong CI</td>
+                  <td><code>perf/budgets.json</code> + ngân sách của Angular</td>
+                </tr>
+                <tr>
+                  <td>SLO và alert</td>
+                  <td>
+                    Ngân sách runtime: log <code>warn</code> ngoài thực địa, và
+                    <em>assert</em> trên bản production trong CI
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "tối ưu chỗ nào trông chậm"</span>
+            <p>
+              Ở backend bạn đã quen đo trước. Ở frontend, cám dỗ đoán mạnh hơn nhiều, vì mọi
+              thứ <em>nhìn thấy được</em>: bạn thấy danh sách giật, bạn nghĩ "chắc do render",
+              và bạn đi tối ưu render. Repo có một ví dụ ngược hoàn toàn: lazy loading ảnh
+              <strong>không thay đổi gì cả</strong> trong tình huống của nó — và chỉ phép đo
+              nói ra điều đó (mục 4.6).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "bundle 500 kB là to"</span>
+            <p>
+              500 kB <em>raw</em> là khoảng 130 kB <em>transferred</em>. Hai con số lệch nhau
+              gần bốn lần, và người ta thường trích con số raw khi muốn làm vấn đề nghe to, rồi
+              trích con số transferred khi muốn khoe. Repo luôn ghi
+              <strong>cả hai</strong>: <em>"808,2 kB raw / 183,5 kB transferred"</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "cho vào lazy route là hết tốn"</span>
+            <p>
+              Đây là phát hiện đáng giá nhất của brief này, và nó phản trực giác.
+              <code>NgOptimizedImage</code> chỉ được dùng bởi <em>một trang lab lazy</em> — mà
+              nó vẫn tốn <strong>5,4 kB trong bundle ban đầu của mọi người</strong>.
+            </p>
+            <p>
+              Lý do nằm ở ngữ nghĩa ES module: file FESM của Angular có code cấp cao nhất mang
+              tác dụng phụ (<code>new InjectionToken(...)</code> chẳng hạn), và chuẩn ES bắt
+              code đó <em>phải chạy</em> khi file được import lần đầu — mà lần đầu đó nằm
+              trong chunk chính. Câu kết luận của tài liệu đáng in ra dán lên tường:
+              <em>"Code used only by a lazy route can still cost every user."</em>
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Một phép đo dùng được cần năm điều</h3>
+
+          <div class="code">
+            <div class="code__file">docs/performance.md</div>
+            <pre><code>| `node perf/bundle-report.ts`      | `ng build --stats-json`               | the esbuild metafile: the initial chunk closure, bytes per package |
+| `node perf/measure-production.ts` | production build + mock API, Chromium | fresh context per run, **median of 5 runs**; preloading on a throttled profile (4x CPU, 150 ms RTT, 1.6 Mbps) |
+
+Results: `perf/results/bundle.txt`, `perf/results/production.json`,
+2026-09-25, one machine. Absolute numbers depend on it; the ratios are the
+point.
+
+The dataset: 100,000 rows generated in the browser, deterministically
+(`performance-dataset.ts`) - no network variance in the numbers.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Điều kiện</th>
+                  <th>Nếu thiếu thì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Bản production</strong></td>
+                  <td>
+                    Bản dev không minify, không tree-shake, có HMR — mọi con số đều sai theo
+                    một hướng không đoán được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Context mới mỗi lần chạy</strong></td>
+                  <td>
+                    Lần thứ hai dùng cache, lần thứ ba có service worker. Bạn sẽ đo "lần thứ
+                    n" chứ không đo "lần đầu".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Trung vị của 5–7 lần, bỏ lần khởi động</strong></td>
+                  <td>
+                    Một lần đo là một con số nhiễu. Và lần đầu luôn chậm (JIT, cache hệ điều
+                    hành).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Bóp CPU và mạng</strong></td>
+                  <td>
+                    Trên máy dev, mọi phương án đều "đủ nhanh" và khác biệt chìm trong nhiễu.
+                    Brief 30 là ví dụ: không bóp thì năm chế độ render trông như nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Dữ liệu tất định</strong></td>
+                  <td>
+                    100 000 dòng <em>sinh trong trình duyệt</em>, không qua mạng. Nếu dữ liệu
+                    đến từ API thì bạn đang đo cả độ trễ mạng mà không biết phần nào là phần
+                    nào.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và một câu rất thành thật:
+            <em>"Absolute numbers depend on it; the ratios are the point."</em> Con số tuyệt
+            đối phụ thuộc máy đo; cái đáng tin là <strong>tỉ lệ</strong> trước/sau. Đó cũng là
+            lý do mọi dòng trong bảng kết quả đều có cột "Change" tính bằng phần trăm.
+          </p>
+
+          <h3>3.2 Hai nhóm ngân sách, hai nơi cưỡng chế</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Ngân sách bundle</th>
+                  <th>Ngân sách runtime</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Đo cái gì</td>
+                  <td>Số byte sau khi build</td>
+                  <td>
+                    Thời gian trong ứng dụng đang chạy: TTFB, FCP, LCP, điều hướng, gọi API,
+                    long task
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cưỡng chế ở đâu</td>
+                  <td>
+                    Job <code>build</code> của CI (<code>angular.json</code> +
+                    <code>perf/budgets.json</code>)
+                  </td>
+                  <td>
+                    <code>PerformanceMonitor</code> log <code>warn</code> ngoài thực địa, và
+                    <code>e2e-production/performance-budgets.spec.ts</code> assert trên bản
+                    production
+                  </td>
+                </tr>
+                <tr>
+                  <td>Hỏng thì biết khi nào</td>
+                  <td>Ngay khi mở pull request</td>
+                  <td>Khi chạy bộ E2E production — và từ log của người dùng thật</td>
+                </tr>
+                <tr>
+                  <td>Ngưỡng lấy từ đâu</td>
+                  <td>Chính số đo hiện tại + một ít (bánh cóc)</td>
+                  <td>
+                    Core Web Vitals "good" và RAIL — <em>tiêu chuẩn bên ngoài</em>, không phải
+                    số đo của mình
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý hàng cuối: hai nhóm ngân sách lấy ngưỡng từ hai nguồn
+            <em>khác hẳn nhau</em>. Ngân sách bundle là bánh cóc — "đừng làm tệ hơn hôm nay".
+            Ngân sách runtime là tiêu chuẩn tuyệt đối — "phải ở trong mức mà người dùng chịu
+            được", bất kể hôm nay đang ở đâu.
+          </p>
+
+          <h3>3.3 Tree-shaking phụ thuộc vào cách bạn viết câu import</h3>
+
+          <p>
+            Câu chuyện zod ở bài 24 nhìn từ góc hiệu năng. Phép đo đầu tiên của
+            <code>perf/bundle-report.ts</code> chỉ ra <strong>zod chiếm 500,7 kB trên tổng
+            799 kB</strong> — toàn bộ locale (~250 kB) và các bộ chuyển JSON-schema, không cái
+            nào được dùng.
+          </p>
+
+          <div class="code">
+            <div class="code__file">hai câu import, 327 kB khác nhau</div>
+            <pre><code>import { z } from 'zod';      // z là một ĐỐI TƯỢNG namespace được re-export
+                              // → esbuild không tỉa được bên trong một đối tượng
+
+import * as z from 'zod';     // z là một namespace thật
+                              // → esbuild theo dõi được từng tham chiếu, bỏ phần không ai gọi</code></pre>
+          </div>
+
+          <p>
+            Kết quả: <strong>808,2 → 481,5 kB raw</strong> (183,5 → 131,5 kB transferred), một
+            dòng mỗi file contract, <em>không đổi hành vi</em> — cả 155 test của contracts và
+            mock API giữ nguyên.
+          </p>
+
+          <p>
+            Bài học chung: bộ đóng gói chỉ bỏ được thứ nó <em>chứng minh</em> được là không ai
+            dùng. Một đối tượng được truy cập bằng thuộc tính động thì không chứng minh được
+            gì, nên nó giữ tất cả.
+          </p>
+
+          <h3>3.4 Ba công cụ cho ba bài toán hay bị nhầm</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Công cụ</th>
+                  <th>Hợp khi</th>
+                  <th>Trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>debounceTime</code></td>
+                  <td>
+                    <strong>Chỉ giá trị cuối cùng mới quan trọng</strong> — ô tìm kiếm
+                  </td>
+                  <td>
+                    Gõ "anbel cor": <strong>9 lần quét 100 000 dòng, 52 ms → 1 lần, 6 ms</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>throttleTime</code></td>
+                  <td>
+                    <strong>Cần thấy tiến trình trong lúc nó diễn ra</strong> — theo dõi con
+                    trỏ, cuộn
+                  </td>
+                  <td>Tối đa một sự kiện mỗi 100 ms; lab đếm số thô so với số được xử lý</td>
+                </tr>
+                <tr>
+                  <td><code>switchMap</code></td>
+                  <td>
+                    <strong>Việc cũ phải bị huỷ</strong> — request đang bay
+                  </td>
+                  <td>Store làm điều này cho mọi lệnh đọc (bài 12)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và một chi tiết kiến trúc đáng chú ý:
+            <em>"The customer list's search is debounced in the field, not the store."</em>
+            Debounce nằm ở <strong>ô nhập liệu</strong>, không nằm trong store. Lý do: store
+            không nên biết dữ liệu tới từ bàn phím hay từ một nút bấm; độ trễ là chuyện của
+            giao diện.
+          </p>
+
+          <h3>3.5 <code>computed()</code> và thứ mà một method trong template không biết</h3>
+
+          <p>
+            Một giá trị dẫn xuất từ 100 000 dòng, tính bằng một method gọi từ template, được
+            tính lại <strong>mỗi lần render</strong> — bất kể thứ gì gây ra lần render đó.
+          </p>
+
+          <p>
+            Số đo: năm mươi lần render do một bộ đếm <em>không liên quan</em> gây ra →
+            <strong>50 lần tính lại trong 167 ms, so với 0 lần trong 2 ms</strong>.
+          </p>
+
+          <p>
+            Lý do một câu: <em>"signals know their dependencies; a template method cannot."</em>
+            Angular không có cách nào biết method đó đọc những gì, nên nó phải giả định tệ
+            nhất. Một <code>computed()</code> thì ghi lại chính xác những signal nó đã đọc.
+          </p>
+
+          <h3>3.6 Chi phí là kích thước DOM, không phải kích thước dữ liệu</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Danh sách thường</th>
+                  <th>Virtual scroll</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Số dòng</td>
+                  <td>10 000</td>
+                  <td><strong>100 000</strong></td>
+                </tr>
+                <tr>
+                  <td>Thời gian</td>
+                  <td>124 ms</td>
+                  <td><strong>29 ms</strong></td>
+                </tr>
+                <tr>
+                  <td>Phần tử trong DOM</td>
+                  <td>10 019</td>
+                  <td><strong>21</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Mười lần dữ liệu, <strong>ít hơn 77% thời gian</strong> và
+            <strong>ít hơn 99,8% DOM</strong>. Nhưng phần đáng học nằm ở danh sách đánh đổi:
+            chiều cao dòng phải cố định, Ctrl+F của trình duyệt không tìm được dòng chưa vẽ,
+            in ra chỉ có phần đang nhìn, và <strong>screen reader chỉ thấy những dòng đã
+            vẽ</strong> (bài 22).
+          </p>
+
+          <p>
+            Và ngưỡng để <em>không</em> dùng: dưới khoảng một nghìn dòng — 1 000 dòng thường
+            mất 34 ms, <em>"no problem to solve"</em>. Hoặc khi danh sách vốn đã phân trang,
+            như danh sách khách hàng thật (nó phân trang ở API nên không bao giờ giữ quá 100
+            dòng).
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Bảng kết quả: tám kỹ thuật, tám cặp số</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kỹ thuật</th>
+                  <th>Trước</th>
+                  <th>Sau</th>
+                  <th>Đổi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>JavaScript ban đầu (câu import zod)</td>
+                  <td>808,2 kB raw / 183,5 kB truyền</td>
+                  <td>481,5 kB raw / 131,5 kB truyền</td>
+                  <td><strong>−40% raw</strong></td>
+                </tr>
+                <tr>
+                  <td>Preload route, đăng nhập → danh sách (bị bóp)</td>
+                  <td>1 916 ms</td>
+                  <td>531 ms</td>
+                  <td><strong>−72%</strong></td>
+                </tr>
+                <tr>
+                  <td>Debounce ô tìm kiếm, gõ 9 ký tự</td>
+                  <td>9 lần quét 100 000 dòng, 52 ms</td>
+                  <td>1 lần quét, 6 ms</td>
+                  <td><strong>−89%</strong> công</td>
+                </tr>
+                <tr>
+                  <td><code>computed()</code> thay method, 50 lần render không liên quan</td>
+                  <td>50 lần tính lại, 167 ms</td>
+                  <td>0 lần, 2 ms</td>
+                  <td><strong>−99%</strong></td>
+                </tr>
+                <tr>
+                  <td>Virtual scrolling</td>
+                  <td>10 000 dòng: 124 ms, 10 019 phần tử</td>
+                  <td>100 000 dòng: 29 ms, 21 phần tử</td>
+                  <td>10× dữ liệu, <strong>−77%</strong> thời gian</td>
+                </tr>
+                <tr>
+                  <td>Tối ưu ảnh, 12 thẻ</td>
+                  <td>16 378 KB (PNG gốc)</td>
+                  <td>53 KB (WebP đúng kích thước hiển thị)</td>
+                  <td><strong>−99,7%</strong> byte</td>
+                </tr>
+                <tr>
+                  <td>Web Worker, sàng nguyên tố 20 triệu</td>
+                  <td>khung hình dài nhất 178 ms (trang đóng băng)</td>
+                  <td>khung hình dài nhất 17 ms</td>
+                  <td>giữ 60 fps, tổng <strong>+22 ms</strong></td>
+                </tr>
+                <tr>
+                  <td>Code splitting (<code>@defer on viewport</code>)</td>
+                  <td>CDK scrolling nằm trong chunk của trang</td>
+                  <td>4,1 kB + 26,3 kB chỉ tải khi cuộn tới</td>
+                  <td>30 kB rời khỏi lần tải đầu</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Hai dòng đáng dừng lại. <strong>Web Worker</strong> là dòng duy nhất mà
+            <em>tổng thời gian tăng lên</em> (+22 ms) — và nó vẫn là một thắng lợi rõ ràng, vì
+            thứ được cải thiện là <em>trang không đóng băng</em>. Một ví dụ hoàn hảo cho việc
+            "nhanh hơn" là một câu hỏi phải nói rõ <em>cái gì</em> nhanh hơn.
+            <strong>Code splitting</strong> thì cho thấy <code>@defer</code> làm được điều mà
+            lazy route không làm được: cắt nhỏ <em>bên trong</em> một trang.
+          </p>
+
+          <h3>4.2 Cái gì đang chiếm chỗ trong bundle</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Package</th>
+                  <th>kB raw</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@angular/core</code></td>
+                  <td>242,0</td>
+                </tr>
+                <tr>
+                  <td><code>zod</code></td>
+                  <td>129,6</td>
+                </tr>
+                <tr>
+                  <td><code>@angular/router</code></td>
+                  <td>102,2</td>
+                </tr>
+                <tr>
+                  <td><code>@angular/common</code></td>
+                  <td>64,1</td>
+                </tr>
+                <tr>
+                  <td><code>rxjs</code></td>
+                  <td>34,0</td>
+                </tr>
+                <tr>
+                  <td><code>@jsverse/transloco</code></td>
+                  <td>21,0</td>
+                </tr>
+                <tr>
+                  <td><code>core/</code> của ứng dụng</td>
+                  <td><strong>16,4</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Một con số làm người ta im lặng: <strong>code của chính ứng dụng chiếm 16,4
+            kB</strong> trong bundle ban đầu, còn thư viện chiếm phần còn lại. Nghĩa là mọi
+            giờ bạn bỏ ra tối ưu code của mình gần như không ảnh hưởng gì tới kích thước tải
+            về; thứ ảnh hưởng là <em>bạn import những gì</em>.
+          </p>
+
+          <p>
+            Và zod vẫn còn 129,6 kB sau khi sửa. Tài liệu gọi đó là
+            <em>"the price of validating the session, errors and realtime events before any
+            route loads"</em> — một cái giá được nêu tên và chấp nhận, chứ không phải một con
+            số bị bỏ quên.
+          </p>
+
+          <h3>4.3 Phát hiện phản trực giác: code lazy vẫn tốn của mọi người</h3>
+
+          <div class="code">
+            <div class="code__file">docs/performance.md</div>
+            <pre><code>**What Phase 5 added to it, measured by removing each and rebuilding**: the
+`@defer` runtime (first `@defer` in the application) **9.6 kB**,
+`provideServiceWorker` **6.1 kB**, `NgOptimizedImage` **5.4 kB** - although
+only a lazy lab page uses it. Angular's FESM files keep top-level code with
+side effects (`new InjectionToken(...)` and the like), and ES module semantics
+require it to run when the file is first imported, which is by the main
+chunk. _Code used only by a lazy route can still cost every user._ Disabling
+the Angular CLI's chunk optimizer (`NG_BUILD_OPTIMIZE_CHUNKS=0`) did not
+change this (521.3 vs 524.7 kB) - it is esbuild's placement, not the merge.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao đáng chú ý</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <em>"measured by removing each and rebuilding"</em>
+                  </td>
+                  <td>
+                    Phương pháp quy cho từng thứ một con số: gỡ ra, build lại, so. Không đoán
+                    từ metafile, không ước lượng — <strong>thí nghiệm</strong>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>NgOptimizedImage</code> 5,4 kB cho một trang lab lazy
+                  </td>
+                  <td>
+                    Đây là bằng chứng. Thư viện chỉ được <em>dùng</em> ở một route lazy, nhưng
+                    code cấp cao nhất của nó có tác dụng phụ, và ES module bắt chạy ngay khi
+                    import lần đầu — mà lần đầu đó nằm ở chunk chính.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Thử tắt chunk optimizer rồi đo lại</td>
+                  <td>
+                    521,3 so với 524,7 kB — gần như không đổi. Tức là họ
+                    <strong>kiểm tra giả thuyết cạnh tranh</strong> ("chắc do CLI gộp chunk")
+                    và loại nó bằng số đo, chứ không chỉ đưa ra lời giải thích đầu tiên nghe
+                    hợp lý.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.4 Preloading: có cờ, và tôn trọng <code>Save-Data</code></h3>
+
+          <p>
+            Vấn đề: sau khi đăng nhập, gần như mọi phiên đều mở danh sách khách hàng — mà code
+            của nó chỉ được xin <em>vào lúc đó</em>: <strong>1 916 ms</strong> từ cú bấm tới
+            dòng đầu tiên, khi bị bóp băng thông.
+          </p>
+
+          <p>
+            Lời giải: <code>FlaggedPreloading</code> tải trước những route có đánh dấu
+            <code>preload: true</code>, <em>sau khi</em> lần điều hướng đầu tiên đã ổn định.
+            Kết quả: <strong>531 ms</strong> — code được tải trong lúc người dùng đang gõ mật
+            khẩu.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Chỉ preload route có đánh dấu, không <code>PreloadAllModules</code></td>
+                  <td>
+                    Cách sau sẽ tải cả chín trang lab cho <em>mọi</em> người. Đánh dấu có chủ
+                    đích là tốn công bảo trì hơn, và đó là đánh đổi được nêu tên.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bỏ qua khi trình duyệt gửi <code>Save-Data</code></td>
+                  <td>
+                    Người dùng đã nói họ muốn tiết kiệm dữ liệu. Preload là tiêu byte cho một
+                    thứ <em>có thể</em> dùng tới — đúng loại việc phải dừng lại khi có tín hiệu
+                    đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Có một feature flag để tắt</td>
+                  <td>
+                    Và nó phục vụ luôn việc đo:
+                    <em>"the measurement toggles the runtime flag, so both runs used one
+                    build"</em> — hai lần đo trên <strong>cùng một bản build</strong>, nên khác
+                    biệt chắc chắn đến từ preloading chứ không từ thứ gì khác.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.5 Ngân sách runtime, và lần đầu nó <em>không có răng</em></h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ngân sách</th>
+                  <th>Ngưỡng</th>
+                  <th>Vì sao con số đó</th>
+                  <th>Đo được</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Time to first byte</td>
+                  <td>800 ms</td>
+                  <td>Core Web Vitals "good"</td>
+                  <td>8–15 ms</td>
+                </tr>
+                <tr>
+                  <td>First contentful paint</td>
+                  <td>1 800 ms</td>
+                  <td>Lighthouse "good", desktop</td>
+                  <td>80–144 ms</td>
+                </tr>
+                <tr>
+                  <td>Largest contentful paint</td>
+                  <td>2 500 ms</td>
+                  <td>Core Web Vitals "good"</td>
+                  <td>80–144 ms</td>
+                </tr>
+                <tr>
+                  <td>Điều hướng route</td>
+                  <td>1 000 ms</td>
+                  <td>RAIL: một tác vụ, không phải một cú chạm</td>
+                  <td>4–91 ms</td>
+                </tr>
+                <tr>
+                  <td>Gọi API</td>
+                  <td>1 000 ms</td>
+                  <td><em>chỗ mà chờ đợi biến thành nghi ngờ</em></td>
+                  <td>15–201 ms</td>
+                </tr>
+                <tr>
+                  <td>Long task</td>
+                  <td>200 ms</td>
+                  <td>RAIL: độ trễ người dùng cảm nhận được</td>
+                  <td>không có cái nào quá 200 ms</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Khoảng cách giữa ngưỡng và số đo rất rộng — và đó là
+            <strong>có chủ ý</strong>:
+            <em>"the gate catches a regression - a route that suddenly ships a megabyte, a
+            render that blocks a second - not a slow network, and a margin this size does not
+            flake on a shared runner."</em> Một cổng hiệu năng đặt sát số đo sẽ đỏ ngẫu nhiên
+            trên CI, và rồi bị tắt.
+          </p>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Và lần đầu nó không canh gì cả</span>
+            <p>
+              Đây là đoạn thành thật nhất của cả tài liệu:
+            </p>
+            <div class="code">
+              <div class="code__file">docs/performance.md</div>
+              <pre><code>The test first failed to have teeth: the monitor reported at `load`, which on a fast
+production page comes **before the first paint**, so FCP and LCP were `null` - and
+`Number(null)` is 0, under every budget. The monitor now waits for the first paint, and
+the test requires every metric to be a number.</code></pre>
+            </div>
+            <p>
+              Chuỗi sự kiện: monitor báo cáo ở <code>load</code>; trên một trang production
+              nhanh, <code>load</code> đến <em>trước</em> lần vẽ đầu tiên; nên FCP và LCP là
+              <code>null</code>; và <code>Number(null)</code> là <strong>0</strong> — dưới mọi
+              ngưỡng. Test xanh rực rỡ và không khẳng định gì cả.
+            </p>
+            <p>
+              Hai bản sửa, và cả hai đều cần: monitor <em>chờ lần vẽ đầu tiên</em>, và test
+              <em>đòi mọi chỉ số phải là một con số</em>. Bản sửa thứ hai là bài học chung —
+              khi so một giá trị với ngưỡng, hãy khẳng định luôn rằng
+              <strong>giá trị đó tồn tại</strong>.
+            </p>
+          </div>
+
+          <h3>4.6 Khi phép đo nói "kỹ thuật này chẳng làm gì cả"</h3>
+
+          <div class="code">
+            <div class="code__file">docs/performance.md</div>
+            <pre><code>- **Measured, not assumed - lazy loading did nothing here**: both variants
+  requested all 12 images. Chromium starts lazy images within about 1,250 px
+  of the viewport, and the whole grid is that close. Lazy loading helps long
+  pages, not a grid below the fold of a short one.</code></pre>
+          </div>
+
+          <p>
+            <code>loading="lazy"</code> là lời khuyên xuất hiện trong mọi bài viết về hiệu năng
+            ảnh. Ở đây nó <strong>không thay đổi gì</strong>: cả hai phương án đều xin đủ 12
+            ảnh, vì Chromium bắt đầu tải ảnh lazy khi còn cách tầm nhìn khoảng 1 250 px, và cả
+            lưới ảnh nằm trong khoảng đó.
+          </p>
+
+          <p>
+            Thứ <em>thật sự</em> mang lại −99,7% byte là định dạng và kích thước: WebP ở bề
+            rộng đúng với lúc hiển thị (400 px cho một thẻ 16 rem trên màn hình 1×), chọn bằng
+            <code>srcset</code> + <code>sizes</code>. Hai kỹ thuật thường được nhắc chung một
+            câu, mà một cái làm tất cả và một cái không làm gì.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Vòng lặp: đo → quy trách nhiệm → sửa → khoá lại</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    A["Có người nói: chỗ này chậm"] --> B{"Đã có SỐ chưa?"}
+    B -->|"chưa"| C["ĐO TRƯỚC<br/>bản production · context mới mỗi lần<br/>bóp CPU và mạng · dữ liệu tất định · trung vị n lần"]
+    B -->|"rồi, nhưng đo trên máy dev không bóp"| C
+
+    C --> D["QUY TRÁCH NHIỆM: cái gì chiếm chỗ?<br/>metafile theo package, không phải cảm giác"]
+    D --> E{"Thủ phạm là gì?"}
+
+    E -->|"một thư viện quá to"| F1["xem CÁCH IMPORT trước khi xem thư viện<br/>— 327 kB chỉ từ một dòng"]
+    E -->|"làm quá nhiều lần"| F2["debounce nếu chỉ giá trị cuối quan trọng<br/>throttle nếu cần thấy tiến trình<br/>switchMap nếu việc cũ phải bị huỷ"]
+    E -->|"tính lại mỗi lần render"| F3["computed — signal biết phụ thuộc của nó<br/>method trong template thì không"]
+    E -->|"DOM quá lớn"| F4["virtual scroll, hoặc phân trang ở API"]
+    E -->|"chặn main thread"| F5["Web Worker — tổng thời gian có thể TĂNG<br/>và vẫn là thắng lợi"]
+    E -->|"byte ảnh"| F6["định dạng và kích thước làm tất cả<br/>loading lazy có thể không làm gì"]
+
+    F1 --> G["ĐO LẠI. Tỉ lệ trước/sau mới là thứ đáng tin"]
+    F2 --> G
+    F3 --> G
+    F4 --> G
+    F5 --> G
+    F6 --> G
+
+    G --> H["KHOÁ bằng một ngân sách"]
+    H --> H1["Ngân sách BUNDLE = bánh cóc<br/>đặt ngay dưới số đo · nâng thì phải kèm phép đo"]
+    H --> H2["Ngân sách RUNTIME = tiêu chuẩn ngoài<br/>Core Web Vitals và RAIL · biên rộng để không flake"]
+    H2 --> H3["và khẳng định chỉ số LÀ MỘT CON SỐ<br/>— Number null là 0, dưới mọi ngưỡng"]
+            </pre>
+            <figcaption>
+              Ô <strong>D</strong> là bước mà người ta hay bỏ: biết "chậm" chưa đủ, phải biết
+              <em>cái gì</em> chiếm chỗ. Và ô <strong>H3</strong> là bài học từ một cổng từng
+              xanh suốt mà chẳng canh gì.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Một byte đi vào bundle ban đầu bằng những đường nào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart LR
+    M["main chunk — mọi người đều tải"]
+
+    A1["app.config · core/<br/>16,4 kB code của chính ứng dụng"] --> M
+    A2["@angular/core · router · common<br/>408 kB"] --> M
+    A3["zod 129,6 kB<br/>giá của việc kiểm contract TRƯỚC khi route nào nạp"] --> M
+    A4["transloco 21 kB"] --> M
+
+    B1["Một route LAZY"] -.->|"KHÔNG vào main"| L["chunk riêng, tải khi điều hướng tới"]
+    B2["@defer trong một trang"] -.->|"KHÔNG vào main"| L2["chunk riêng, tải khi cuộn tới<br/>— 30 kB rời khỏi lần tải đầu"]
+
+    B3["NgOptimizedImage<br/>chỉ một trang lab lazy dùng"] -->|"VẪN vào main — 5,4 kB"| M
+    B4["provideServiceWorker 6,1 kB"] --> M
+    B5["runtime của @defer 9,6 kB"] --> M
+
+    M --> N["Vì sao B3 lọt vào: file FESM có code cấp cao nhất CÓ TÁC DỤNG PHỤ<br/>chuẩn ES bắt nó chạy khi file được import lần đầu<br/>— và lần đầu đó là từ chunk chính"]
+            </pre>
+            <figcaption>
+              Ba mũi tên nét liền từ <code>B3</code>, <code>B4</code>, <code>B5</code> là phần
+              bất ngờ: đặt một thứ sau biên lazy
+              <strong>không bảo đảm</strong> nó rời khỏi bundle ban đầu. Cách duy nhất biết
+              chắc là gỡ ra, build lại, và so.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <p>
+            Tài liệu hiệu năng của repo có một hình dạng đáng chép cho <em>mỗi</em> kỹ thuật:
+            <strong>Problem / Solution / Why / Alternative / Trade-offs / When not to use
+            it</strong>. Mục cuối là mục hiếm gặp nhất và hữu ích nhất:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kỹ thuật</th>
+                  <th>Khi nào <em>không</em> dùng</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Preloading</td>
+                  <td>
+                    Kết nối tính theo dung lượng (tôn trọng <code>Save-Data</code>), hoặc
+                    route hiếm khi là bước tiếp theo
+                  </td>
+                </tr>
+                <tr>
+                  <td>Debounce / throttle</td>
+                  <td>
+                    Khi <em>mỗi</em> sự kiện đều phải được xử lý (một phím gõ làm thay đổi dữ
+                    liệu), hoặc khi việc đó vốn đã rẻ
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>computed()</code></td>
+                  <td>
+                    Cho những phép dẫn xuất tầm thường — kiểm tra cache tốn xấp xỉ bằng chính
+                    phép tính
+                  </td>
+                </tr>
+                <tr>
+                  <td>Virtual scrolling</td>
+                  <td>
+                    Dưới khoảng một nghìn dòng (1 000 dòng thường mất 34 ms — không có vấn đề
+                    nào để giải), hoặc khi danh sách vốn đã phân trang
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tối ưu ảnh</td>
+                  <td>Icon và SVG, hoặc ảnh mà bố cục không biết trước kích thước</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Những phương án bị loại, đáng đọc</h4>
+          <ul>
+            <li>
+              <strong><code>zod/mini</code></strong> — nhỏ hơn, nhưng là một API khác ở
+              <em>mọi</em> chỗ. Và chuyển validation ra khỏi đường tải ban đầu thì kiểm muộn
+              hơn biên — tức là phá một nguyên tắc ở bài 08 để lấy vài kB.
+            </li>
+            <li>
+              <strong><code>PreloadAllModules</code></strong> — một dòng, và nó tải cả chín
+              trang lab cho mọi người.
+            </li>
+            <li>
+              <strong><code>content-visibility: auto</code></strong> thay cho virtual scroll —
+              trình duyệt bỏ qua việc vẽ phần ngoài màn hình, nhưng DOM vẫn còn nguyên. Rẻ
+              hơn, yếu hơn, và không mất những thứ virtual scroll làm mất (Ctrl+F, in ấn,
+              screen reader).
+            </li>
+            <li>
+              <strong>Image CDN</strong> resize theo request — chính là thứ mà loader trong
+              repo đóng thế. Trong sản phẩm thật, đó mới là câu trả lời.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Tối ưu trước khi đo</span>
+            <p>
+              Bạn bỏ hai ngày viết lại phần render danh sách, và vấn đề thật nằm ở một thư
+              viện 500 kB mà không ai gọi tới. Hoặc tệ hơn — như chuyện
+              <code>loading="lazy"</code> ở mục 4.6 — bạn thêm một kỹ thuật
+              <em>không thay đổi gì</em> và ghi vào báo cáo là đã tối ưu.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Đo trên máy dev, không bóp gì</span>
+            <p>
+              Mọi phương án đều "đủ nhanh", chênh nhau vài chục mili-giây trong khoảng nhiễu,
+              và bạn kết luận "chẳng khác gì". Toàn bộ khác biệt có ý nghĩa chỉ hiện ra ở 4×
+              CPU và 1,6 Mbps — xem brief 30 để thấy cùng một bài học trên số đo render.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Đo một lần</span>
+            <p>
+              Lần chạy đầu luôn chậm (JIT, cache hệ điều hành chưa ấm). Lần thứ hai dùng cache
+              trình duyệt. Một con số đơn lẻ nói lên điều kiện lúc đo chứ không nói về code.
+              Trung vị của 5–7 lần, bỏ lần khởi động.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Nâng ngân sách cho vừa</span>
+            <p>
+              Bài 24 đã nói, và nó ở đây một lần nữa vì đây là nơi nó hay xảy ra nhất:
+              <em>"a budget moved to fit is a budget that will be moved again."</em> Nếu phải
+              nâng, hãy kèm phép đo biện minh trong cùng commit.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Tin rằng lazy route gỡ được mọi byte</span>
+            <p>
+              Thư viện chỉ dùng ở một route lazy vẫn có thể nằm trong bundle ban đầu, vì code
+              cấp cao nhất của nó có tác dụng phụ. Không có cách nào biết ngoài việc
+              <strong>gỡ ra và build lại</strong>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Debounce mọi thứ</span>
+            <p>
+              Debounce một ô nhập liệu thì tốt. Debounce một phím tắt, một nút bấm, hay một
+              phím gõ làm thay đổi dữ liệu thì bạn vừa làm mất sự kiện. Và debounce
+              <em>trong store</em> thay vì ở ô nhập liệu làm cho store phải biết dữ liệu tới từ
+              bàn phím — một rò rỉ trách nhiệm.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Gọi method từ template</span>
+            <p>
+              <code>{{ expensiveThing() }}</code> được tính lại ở <em>mọi</em> lần render,
+              kể cả lần render do một thứ hoàn toàn không liên quan gây ra — 50 lần tính lại
+              trong 167 ms so với 0 lần trong 2 ms. Angular không có cách nào biết method đó
+              đọc gì.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Virtual scroll cho mọi danh sách</span>
+            <p>
+              Dưới một nghìn dòng thì không có vấn đề nào để giải, và bạn vừa đánh đổi: chiều
+              cao dòng cố định, Ctrl+F không tìm được, in ra thiếu, và
+              <strong>screen reader chỉ thấy phần đã vẽ</strong>. Cái cuối là một lỗi
+              accessibility thật, đổi lấy một tối ưu không cần thiết.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. So raw với transferred</span>
+            <p>
+              "Bundle của tôi 130 kB, của anh 500 kB" — hai người đang nói về cùng một ứng
+              dụng. Luôn ghi cả hai con số, và nói rõ cái nào là cái nào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">10. Ngân sách so với một giá trị có thể là <code>null</code></span>
+            <p>
+              Lỗi đã thật sự xảy ra trong repo này: chỉ số chưa có → <code>null</code> →
+              <code>Number(null)</code> là <code>0</code> → dưới mọi ngưỡng → test xanh suốt
+              mà không canh gì. Khi so với ngưỡng, hãy khẳng định luôn rằng giá trị đó
+              <em>tồn tại</em>.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ở đâu</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Job <code>build</code> của CI: <code>angular.json</code> +
+                    <code>npm run perf:budgets</code>
+                  </td>
+                  <td>
+                    Bốn ngân sách bundle (bài 24): bundle ban đầu, lazy chunk lớn nhất, tổng
+                    JavaScript, và <code>neverInProduction</code>. Một thay đổi làm bundle
+                    phình lên là một pull request đỏ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>e2e-production/performance-budgets.spec.ts</code>
+                  </td>
+                  <td>
+                    Sáu ngân sách runtime, trên <strong>bản production</strong>, chạy
+                    <strong>một mình</strong> (không song song với test khác). Và nó đọc số
+                    <em>từ chính monitor của ứng dụng</em> — nên nó đồng thời chứng minh monitor
+                    hoạt động.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ngoài thực địa</td>
+                  <td>
+                    <code>PerformanceMonitor</code> ghi <code>warn</code> khi một ngân sách bị
+                    vượt trên máy người dùng thật — nơi mạng chậm và máy yếu thật sự tồn tại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>perf/results/*.json</code> + ngày đo
+                  </td>
+                  <td>
+                    Không phải test, mà là <em>bằng chứng</em>: số thô, ngày, và điều kiện đo
+                    được lưu lại để sau này so sánh được.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Một chi tiết nhỏ mà quan trọng: chạy một mình</span>
+            <p>
+              Bộ test ngân sách hiệu năng chạy <em>alone</em> — không song song với bộ nào
+              khác. Lý do hiển nhiên khi nghĩ tới: đo thời gian trên một runner đang chạy bốn
+              bộ test khác là đo mức tải của runner.
+            </p>
+            <p>
+              Cộng với biên rất rộng (ngưỡng 1 000 ms cho số đo 4–91 ms), đây là cách làm một
+              cổng hiệu năng <strong>không flake</strong>. Một cổng flake sẽ bị tắt, và lúc đó
+              nó canh được số không.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    R["Kỷ luật gốc: không gì được gọi là nhanh hơn mà không có một con số"]
+
+    R --> M1["ĐO cho đúng"]
+    M1 --> M1a["production · context mới · bóp CPU và mạng"]
+    M1 --> M1b["dữ liệu tất định, không qua mạng"]
+    M1 --> M1c["trung vị n lần, bỏ lần khởi động"]
+    M1 --> M1d["lưu số thô + NGÀY + điều kiện đo"]
+
+    R --> M2["QUY TRÁCH NHIỆM trước khi sửa"]
+    M2 --> M2a["metafile theo package<br/>code ứng dụng chỉ 16 kB, thư viện là phần còn lại"]
+    M2 --> M2b["muốn biết một thứ tốn bao nhiêu: GỠ RA, BUILD LẠI, SO"]
+    M2 --> M2c["và kiểm cả giả thuyết cạnh tranh của mình"]
+
+    R --> M3["SỬA đúng loại vấn đề"]
+    M3 --> M3a["byte: cách import trước, thư viện sau"]
+    M3 --> M3b["làm nhiều lần: debounce · throttle · switchMap"]
+    M3 --> M3c["tính lại: computed, vì signal biết phụ thuộc"]
+    M3 --> M3d["DOM to: virtual scroll hoặc phân trang ở API"]
+    M3 --> M3e["main thread bị chặn: worker — tổng có thể TĂNG mà vẫn thắng"]
+
+    R --> M4["KHOÁ lại bằng ngân sách"]
+    M4 --> M4a["bundle: bánh cóc, đặt ngay dưới số đo"]
+    M4 --> M4b["runtime: tiêu chuẩn ngoài, biên rộng, chạy một mình"]
+    M4 --> M4c["khẳng định chỉ số là MỘT CON SỐ, không phải null"]
+
+    R --> M5["GHI cả phần không làm"]
+    M5 --> M5a["mỗi kỹ thuật kèm: khi nào KHÔNG nên dùng"]
+    M5 --> M5b["và khi phép đo nói kỹ thuật này chẳng làm gì — hãy viết ra"]
+            </pre>
+            <figcaption>
+              Nhánh <strong>M5</strong> là nhánh phân biệt một tài liệu hiệu năng thật với một
+              danh sách mẹo: nó ghi cả những kỹ thuật <em>không</em> có tác dụng ở đây, và
+              điều kiện để từng kỹ thuật là sai lựa chọn.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đo lại bundle, và tìm thủ phạm của chính bạn</h3>
+            <p class="task__meta">~40 phút · không sửa code</p>
+            <ol>
+              <li>
+                <code>npm run build</code>, rồi <code>node perf/bundle-report.ts</code>. So với
+                bảng ở mục 4.2 — thứ tự các package có đổi không? Tổng có đổi không?
+              </li>
+              <li>
+                <code>npm run perf:budgets</code>. Hiện còn cách ngưỡng bao xa? Ngân sách nào
+                sát nhất?
+              </li>
+              <li>
+                Mở <code>perf/results/bundle.txt</code>. Nó lưu gì ngoài các con số?
+              </li>
+              <li>
+                Giờ làm thí nghiệm của mục 4.3: tìm một thứ bạn <em>nghĩ</em> là chỉ dùng ở
+                route lazy, gỡ nó ra, build lại, và so kích thước bundle ban đầu. Nó có đổi
+                không?
+              </li>
+              <li>
+                Thêm một thư viện bất kỳ vào một trang lazy (ví dụ
+                <code>import { format } from 'date-fns'</code> nếu có sẵn, hoặc bất cứ thứ gì
+                trong <code>node_modules</code>), build, đo. Nó vào chunk nào?
+              </li>
+            </ol>
+            <details>
+              <summary>Cái bạn đang luyện</summary>
+              <p>
+                Thói quen <strong>gỡ-ra-build-lại-so</strong>. Đây là phương pháp duy nhất quy
+                được một con số cho một quyết định, và nó mất năm phút — rẻ hơn nhiều so với
+                một buổi tranh luận về việc thư viện nào đáng giữ.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Ba lab, ba cặp số của chính bạn</h3>
+            <p class="task__meta">~45 phút · không sửa code</p>
+            <p>
+              Các trang lab đo <em>live</em> trên máy bạn. Chạy từng cái, ghi lại số, so với
+              bảng ở mục 4.1.
+            </p>
+            <ol>
+              <li>
+                <code>/technical-labs/performance</code>: debounce, <code>computed()</code>,
+                virtual scrolling. Tỉ lệ trước/sau của bạn có gần với tài liệu không?
+              </li>
+              <li>
+                Mở DevTools → Performance, ghi lại một lần trong lúc gõ vào ô tìm kiếm
+                <em>không</em> debounce. Bạn thấy bao nhiêu long task?
+              </li>
+              <li>
+                Bật throttling 4× CPU rồi lặp lại bước 2. Tỉ lệ có thay đổi không?
+              </li>
+              <li>
+                <code>/technical-labs/workers</code>: chạy sàng nguyên tố trên main thread, và
+                <strong>thử cuộn trang trong lúc nó chạy</strong>. Rồi chạy bằng worker và thử
+                lại.
+              </li>
+              <li>
+                Ở bước 4, tổng thời gian cái nào nhanh hơn? Vậy "nhanh hơn" nghĩa là gì ở đây?
+              </li>
+            </ol>
+            <details>
+              <summary>Bước 5 là câu hỏi thật</summary>
+              <p>
+                Worker <em>chậm hơn</em> về tổng thời gian (+22 ms) và vẫn là lựa chọn đúng,
+                vì thứ nó sửa là trang không đóng băng. Nếu bạn chỉ đo "tổng thời gian", bạn
+                sẽ kết luận worker là một bước lùi. Chọn <em>chỉ số</em> nào để đo cũng quan
+                trọng ngang với việc đo cẩn thận.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Làm cho một cổng hiệu năng mất răng, rồi gắn lại</h3>
+            <p class="task__meta">~40 phút · sửa code rồi hoàn nguyên</p>
+            <p>Tái hiện lỗi ở mục 4.5 — cổng xanh mà không canh gì.</p>
+            <ol>
+              <li>
+                Mở <code>e2e-production/performance-budgets.spec.ts</code>. Tìm phần khẳng
+                định mỗi chỉ số <em>là một con số</em>.
+              </li>
+              <li>Bỏ phép khẳng định đó đi, chỉ giữ phép so với ngưỡng.</li>
+              <li>
+                Giờ làm cho một chỉ số thành <code>null</code>: trong
+                <code>PerformanceMonitor</code>, báo cáo sớm hơn (ví dụ ngay ở sự kiện
+                <code>load</code> thay vì chờ lần vẽ đầu).
+              </li>
+              <li>
+                Chạy <code>npm run e2e:production</code>. Test có xanh không? Nó
+                <em>đang khẳng định gì</em>?
+              </li>
+              <li>
+                Khôi phục phép khẳng định ở bước 2 (giữ nguyên lỗi ở bước 3). Giờ test nói gì?
+              </li>
+              <li>Hoàn nguyên cả hai.</li>
+            </ol>
+            <details>
+              <summary>Bài học rộng hơn hiệu năng</summary>
+              <p>
+                Mọi phép so sánh với một ngưỡng đều có cái bẫy này: nếu giá trị
+                <em>vắng mặt</em> bị ép kiểu thành một số, nó gần như luôn rơi vào phía "đạt".
+                <code>Number(null)</code> là 0, <code>Number(undefined)</code> là
+                <code>NaN</code> (và mọi phép so với <code>NaN</code> đều false — có thể đạt
+                hoặc không, tuỳ bạn viết <code>&lt;</code> hay <code>&gt;</code>). Khẳng định
+                sự <em>tồn tại</em> trước, rồi mới khẳng định giá trị.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Một phép đo hiệu năng dùng được cần những gì?</summary>
+            <p>
+              Bản production; context mới mỗi lần chạy; bóp CPU và mạng; dữ liệu tất định
+              không qua mạng; trung vị của 5–7 lần sau khi bỏ lần khởi động. Và lưu số thô kèm
+              ngày cùng điều kiện đo — con số tuyệt đối phụ thuộc máy, tỉ lệ mới là thứ đáng
+              tin.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>import { z } from 'zod'</code> tốn hơn <code>import * as z</code>?</summary>
+            <p>
+              Vì <code>z</code> được export là một <em>đối tượng namespace đã re-export</em>, và
+              esbuild không tỉa được bên trong một đối tượng — nó không chứng minh được thuộc
+              tính nào sẽ được dùng. Import dạng namespace cho phép theo dõi từng tham chiếu.
+              Chênh lệch: 808,2 → 481,5 kB raw.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Code chỉ dùng ở một route lazy có luôn nằm ngoài bundle ban đầu không?</summary>
+            <p>
+              <strong>Không.</strong> File FESM của Angular có code cấp cao nhất mang tác dụng
+              phụ, và ES module bắt nó chạy khi file được import lần đầu — mà lần đầu đó có thể
+              là từ chunk chính. <code>NgOptimizedImage</code> tốn 5,4 kB cho mọi người dù chỉ
+              một trang lab lazy dùng nó.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Debounce, throttle, <code>switchMap</code> — chọn cái nào khi nào?</summary>
+            <p>
+              Debounce khi chỉ <em>giá trị cuối</em> quan trọng (ô tìm kiếm). Throttle khi cần
+              <em>thấy tiến trình trong lúc nó diễn ra</em> (con trỏ, cuộn).
+              <code>switchMap</code> khi <em>việc cũ phải bị huỷ</em> (request đang bay).
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao gọi method từ template lại đắt?</summary>
+            <p>
+              Vì nó chạy lại ở <em>mọi</em> lần render, kể cả lần render do một thứ không liên
+              quan gây ra: 50 lần tính lại trong 167 ms so với 0 lần trong 2 ms. Angular không
+              biết method đó đọc gì, nên phải giả định tệ nhất — còn
+              <code>computed()</code> ghi lại chính xác các signal nó đã đọc.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Hai nhóm ngân sách lấy ngưỡng từ đâu?</summary>
+            <p>
+              Ngân sách <em>bundle</em> lấy từ chính số đo hiện tại cộng một ít — bánh cóc,
+              nghĩa là "đừng làm tệ hơn hôm nay". Ngân sách <em>runtime</em> lấy từ tiêu chuẩn
+              bên ngoài (Core Web Vitals, RAIL) — "phải ở trong mức người dùng chịu được", bất
+              kể hôm nay đang ở đâu.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao biên của ngân sách runtime lại rộng đến thế?</summary>
+            <p>
+              Để cổng bắt được <em>hồi quy</em> — một route bỗng nhiên ship một megabyte, một
+              lần render chặn cả giây — chứ không bắt mạng chậm. Và để nó
+              <strong>không flake</strong> trên một runner dùng chung. Một cổng hay đỏ ngẫu
+              nhiên sẽ bị tắt, và lúc đó nó canh được số không.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Cổng hiệu năng của repo từng mất răng như thế nào?</summary>
+            <p>
+              Monitor báo cáo ở sự kiện <code>load</code>, mà trên trang production nhanh thì
+              <code>load</code> đến <em>trước</em> lần vẽ đầu tiên — nên FCP và LCP là
+              <code>null</code>, và <code>Number(null)</code> là 0, dưới mọi ngưỡng. Sửa bằng
+              hai việc: monitor chờ lần vẽ đầu, và test đòi mọi chỉ số phải là một con số.
+            </p>
+          </details>
+
+          <details>
+            <summary>9. Vì sao Web Worker vẫn đúng dù tổng thời gian tăng?</summary>
+            <p>
+              Vì chỉ số quan trọng không phải tổng thời gian mà là
+              <em>khung hình dài nhất</em>: 178 ms (trang đóng băng) xuống 17 ms (giữ 60 fps).
+              Tổng tăng 22 ms vì phải truyền dữ liệu qua lại. Chọn chỉ số nào để đo quan trọng
+              ngang với việc đo cẩn thận.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 30</strong> đo các chế độ render bằng đúng kỷ luật này.
+              <strong>Brief 32</strong> đi sâu vào Web Worker — dòng duy nhất trong bảng 4.1 mà
+              tổng thời gian tăng lên. <strong>Brief 33</strong> nói về
+              <code>PerformanceMonitor</code> ở mục 4.5 như một phần của observability.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="30-render-mode-va-hydration.html">← Brief 30</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

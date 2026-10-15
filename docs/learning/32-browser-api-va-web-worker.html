@@ -1,0 +1,1341 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 32 — Browser API &amp; Web Worker</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 32
+        </p>
+        <h1>Browser API &amp; Web Worker</h1>
+        <p class="lede">
+          Quy tắc 2 của repo: <strong>không chạm global của trình duyệt</strong>. Nghe như
+          một quy ước phong cách, nhưng nó là một quyết định kiến trúc có hệ quả đo được —
+          chín trang lab, một service worker, một Web Worker và giao tiếp liên tab được thêm
+          vào mà <em>không một guard <code>isPlatformBrowser</code> nào</em> phải viết.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi bạn cần một API của trình duyệt mà Angular không bọc sẵn — clipboard, vị
+              trí, quyền, IndexedDB, Web Crypto — hoặc khi một phép tính làm đóng băng trang.
+              Và khi bạn phải trả lời câu "sao không gọi thẳng <code>window</code> cho nhanh?"
+            </p>
+            <p>
+              Nền cần có: bài 05 (injection token), brief 30 (vì sao bản build server tồn
+              tại), brief 31 (số đo của Web Worker).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Global của trình duyệt</strong></td>
+                  <td>
+                    <code>window</code>, <code>document</code>, <code>navigator</code>,
+                    <code>localStorage</code>, <code>location</code>, <code>history</code> —
+                    những thứ tồn tại sẵn, không cần import. Và
+                    <strong>không tồn tại</strong> trên server.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Feature test</strong></td>
+                  <td>
+                    Hỏi xem một khả năng có tồn tại không trước khi dùng:
+                    <code>typeof Worker === 'undefined'</code>,
+                    <code>navigator.clipboard</code>. Khác với
+                    <em>dò trình duyệt</em> (đọc user agent) — luôn chọn cách đầu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Secure origin</strong></td>
+                  <td>
+                    HTTPS hoặc <code>localhost</code>. Nhiều API chỉ tồn tại ở đó — trên origin
+                    không an toàn, <code>navigator.clipboard</code> đơn giản là
+                    <code>undefined</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Web Worker</strong></td>
+                  <td>
+                    Một luồng thứ hai chạy JavaScript, có event loop riêng.
+                    <strong>Không</strong> có DOM, không có Angular, không có injector — chỉ
+                    trao đổi thông điệp.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Structured clone</strong></td>
+                  <td>
+                    Cách dữ liệu được <em>sao chép</em> qua ranh giới luồng. Không chia sẻ bộ
+                    nhớ — nên dữ liệu lớn thì chi phí sao chép có thể nuốt hết phần lợi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Main thread</strong>, <strong>frame</strong></td>
+                  <td>
+                    Luồng vẽ giao diện. Nó phải xong việc trong ~16 ms để giữ 60 fps; một khối
+                    việc 178 ms nghĩa là trang đứng hình suốt 178 ms đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>IndexedDB</strong></td>
+                  <td>
+                    Cơ sở dữ liệu trong trình duyệt: bất đồng bộ, chứa được dữ liệu có cấu
+                    trúc, dung lượng lớn hơn <code>localStorage</code> nhiều. API dựa trên sự
+                    kiện, nên thường phải bọc thành Promise.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Permissions API</strong></td>
+                  <td>
+                    Hỏi <em>trước</em> xem một khả năng sẽ nhắc, sẽ chạy, hay đã bị từ chối —
+                    chỉ đọc, không xin quyền.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>crypto.subtle</code> (Web Crypto)</td>
+                  <td>
+                    API băm và mã hoá của trình duyệt. Ở đây dùng để tính SHA-256 của một
+                    file, hoàn toàn trong máy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>isPlatformBrowser</code></td>
+                  <td>
+                    Hàm của Angular để rẽ nhánh "đang chạy ở trình duyệt hay server". Repo
+                    <strong>không dùng một lần nào</strong> — mục 3.2 nói vì sao đó là một dấu
+                    hiệu tốt.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Đưa một API trình duyệt mới vào ứng dụng mà không phá bản build server, và không
+              rải <code>if (isPlatformBrowser)</code> khắp nơi.
+            </li>
+            <li>
+              Quyết định được mức độ bọc: khi nào một token là đủ, khi nào mỗi khả năng cần
+              một token riêng (gợi ý: gần như không bao giờ).
+            </li>
+            <li>
+              Biết khi nào Web Worker là câu trả lời — và ba trường hợp nó
+              <strong>không</strong> phải.
+            </li>
+            <li>
+              Nhận ra những API chỉ sống trên secure origin, và viết code suy biến tử tế khi
+              chúng vắng mặt.
+            </li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tiêm một interface thay vì gọi thẳng <code>System.getenv</code></td>
+                  <td>Injection token thay vì chạm <code>window</code></td>
+                </tr>
+                <tr>
+                  <td>Thread pool, <code>ExecutorService</code></td>
+                  <td>
+                    Web Worker — nhưng <strong>không chia sẻ bộ nhớ</strong>, mọi thứ được sao
+                    chép
+                  </td>
+                </tr>
+                <tr>
+                  <td>Embedded DB (SQLite, H2)</td>
+                  <td>IndexedDB — bất đồng bộ, không có SQL</td>
+                </tr>
+                <tr>
+                  <td>Thư viện crypto</td>
+                  <td><code>crypto.subtle</code>, có sẵn, nhưng chỉ trên secure origin</td>
+                </tr>
+                <tr>
+                  <td>Feature toggle theo môi trường</td>
+                  <td>Feature <em>test</em> theo khả năng thật của trình duyệt đang chạy</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "global thì luôn có, như <code>System</code> trong Java"</span>
+            <p>
+              Trong một ứng dụng Angular có SSR, cùng một file component chạy ở
+              <strong>hai môi trường</strong>: trình duyệt và Node. Trên Node không có
+              <code>window</code>, không có <code>document</code>, không có
+              <code>localStorage</code>. Một tham chiếu trực tiếp làm
+              <strong>đổ bản build server ngay</strong> (brief 30).
+            </p>
+            <p>
+              Nên global ở đây không giống <code>System</code> — nó giống một dependency chỉ
+              tồn tại trong <em>một</em> profile triển khai.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "worker là một thread, nên dùng như thread"</span>
+            <p>
+              Thread ở backend chia sẻ bộ nhớ: bạn truyền một tham chiếu và cả hai cùng nhìn
+              một đối tượng. Web Worker thì <strong>sao chép</strong> mọi thứ qua lại
+              (structured clone). Hệ quả rất thực tế: với dữ liệu lớn, chi phí sao chép có thể
+              lớn hơn phần tính toán bạn vừa đẩy sang.
+            </p>
+            <p>
+              Và nó <em>không có DOM, không có Angular, không có injector</em>. Worker không
+              phải "một phần ứng dụng chạy song song" — nó là một chương trình riêng, giao tiếp
+              bằng thông điệp.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "cứ gọi API, không có thì bắt lỗi"</span>
+            <p>
+              Nhiều API của trình duyệt không <em>ném lỗi</em> khi vắng mặt — chúng đơn giản là
+              <code>undefined</code>. <code>navigator.clipboard</code> trên một origin không
+              an toàn không tồn tại; gọi <code>.writeText()</code> lên nó là một
+              <code>TypeError</code> ở một dòng chẳng liên quan gì tới nguyên nhân thật.
+            </p>
+            <p>
+              Và một số lại <em>có</em> mà hành vi khác hẳn: Firefox và Safari hiện một hộp
+              nhắc dán thay vì một quyền. Feature test trước, rồi mới gọi.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bảng token: một cách vào duy nhất</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Token</th>
+                  <th>Cho bạn</th>
+                  <th>Trên server</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>WINDOW</code></td>
+                  <td>đối tượng window</td>
+                  <td><code>null</code></td>
+                </tr>
+                <tr>
+                  <td><code>NAVIGATOR</code></td>
+                  <td>
+                    navigator: clipboard, permissions, geolocation, locks, service worker,
+                    <code>onLine</code>
+                  </td>
+                  <td><code>null</code></td>
+                </tr>
+                <tr>
+                  <td><code>LOCAL_STORAGE</code>, <code>SESSION_STORAGE</code></td>
+                  <td>
+                    <code>KeyValueStorage</code> — <strong>best-effort, không bao giờ ném</strong>
+                  </td>
+                  <td>storage không làm gì</td>
+                </tr>
+                <tr>
+                  <td><code>BROADCAST_CHANNEL_FACTORY</code></td>
+                  <td><code>(name) =&gt; BroadcastChannel | null</code></td>
+                  <td>trả <code>null</code></td>
+                </tr>
+                <tr>
+                  <td><code>EVENT_SOURCE_FACTORY</code></td>
+                  <td><code>(url) =&gt; EventSource | null</code></td>
+                  <td>trả <code>null</code></td>
+                </tr>
+                <tr>
+                  <td><code>OBJECT_URLS</code></td>
+                  <td><code>create</code> / <code>revoke</code> cho URL <code>blob:</code></td>
+                  <td><code>create</code> trả <code>null</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Để ý hai hình dạng khác nhau. <code>WINDOW</code> và <code>NAVIGATOR</code> trả
+            <strong>đối tượng hoặc <code>null</code></strong> — người gọi kiểm tra.
+            <code>KeyValueStorage</code> thì trả một bản <em>không làm gì</em> — người gọi
+            không cần kiểm tra gì cả, vì "lưu mà không lưu được" là một hành vi hợp lệ. Còn
+            các <em>factory</em> trả <code>null</code> vì việc tạo ra một
+            <code>EventSource</code> giả sẽ phải giả lập cả một giao thức.
+          </p>
+
+          <p>
+            Chọn hình dạng nào là một quyết định: <strong>no-op khi việc không làm được là
+            chấp nhận được; <code>null</code> khi người gọi phải biết.</strong>
+          </p>
+
+          <h3>3.2 Một token cho <code>navigator</code>, không phải một token mỗi khả năng</h3>
+
+          <div class="code">
+            <div class="code__file">docs/browser-capabilities.md</div>
+            <pre><code>`NAVIGATOR` is one token for the object, not one per capability: each
+capability is already an object with its own feature test
+(`navigator.clipboard` is `undefined` on an insecure origin), and wrapping each
+again would be an abstraction with one caller. Callers test for what they need.</code></pre>
+          </div>
+
+          <p>
+            Đây là quy tắc 8 của <code>CLAUDE.md</code> được áp đúng chỗ: <em>không thêm trừu
+            tượng mà không gọi được tên người dùng thứ hai</em>. Một
+            <code>ClipboardService</code> bọc quanh <code>navigator.clipboard</code> sẽ có đúng
+            một caller, thêm một lớp, và vẫn phải feature test ở đâu đó.
+          </p>
+
+          <p>
+            Và câu cuối là phần quan trọng: <em>"Callers test for what they need."</em> Phép
+            kiểm tra không biến mất — nó chỉ nằm ở nơi biết mình cần gì.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Bằng chứng rằng thiết kế này đúng</span>
+            <p>
+              <em
+                >"Nine new lab pages, a service worker, a Web Worker and cross-tab messaging
+                were added; the server build succeeded throughout, and no
+                `isPlatformBrowser` guard was added anywhere."</em
+              >
+            </p>
+            <p>
+              Con số <strong>không</strong> là con số đáng chú ý ở đây. Trong hầu hết dự án có
+              SSR, <code>isPlatformBrowser</code> xuất hiện vài chục lần và mỗi lần là một
+              nhánh không ai test. Ở đây nó bằng không — vì mỗi global đã được xử lý
+              <em>một lần</em>, tại chỗ khai token.
+            </p>
+          </div>
+
+          <h3>3.3 Ngoại lệ được nêu tên</h3>
+
+          <p>
+            Hai chỗ trong repo <em>không</em> đi qua token, và cả hai đều được ghi lại:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chỗ nào</th>
+                  <th>Vì sao được miễn</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>new Worker(new URL('./primes.worker', import.meta.url))</code>
+                  </td>
+                  <td>
+                    Angular CLI <strong>chỉ nhận ra đúng hình dạng chữ này</strong> để tách
+                    worker thành một bundle riêng. Đưa qua một lớp bọc là CLI không còn thấy
+                    nó. Bù lại: nó chỉ chạy khi có người bấm, và code kiểm
+                    <code>typeof Worker</code> trước.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>performance.mark</code> trong <code>main.ts</code></td>
+                  <td>
+                    <code>main.ts</code> là <em>điểm vào của trình duyệt</em> — nó không bao
+                    giờ nằm trong bản build server. Ranh giới ở đây là ranh giới file, không
+                    cần token.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Hai ngoại lệ, hai lý do kỹ thuật cụ thể, viết ngay cạnh chỗ vi phạm. Đây là cách
+            một quy tắc <em>sống sót</em>: không phải bằng cách không có ngoại lệ, mà bằng cách
+            mỗi ngoại lệ đều giải thích được.
+          </p>
+
+          <h3>3.4 Web Worker: thứ nó sửa, và thứ nó không sửa</h3>
+
+          <p>Nhớ con số ở brief 31:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Main thread</th>
+                  <th>Worker</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Khung hình dài nhất</td>
+                  <td><strong>178 ms</strong> — trang đóng băng</td>
+                  <td><strong>17 ms</strong> — giữ 60 fps</td>
+                </tr>
+                <tr>
+                  <td>Tổng thời gian</td>
+                  <td>cơ sở</td>
+                  <td><strong>+22 ms</strong> (chậm hơn)</td>
+                </tr>
+                <tr>
+                  <td>Kết quả</td>
+                  <td colspan="2">1 270 607 số nguyên tố — giống hệt nhau</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Worker <strong>không làm việc đó nhanh hơn</strong>. Nó làm việc đó
+            <em>ở chỗ khác</em>, để luồng vẽ giao diện rảnh tay. Nếu chỉ số bạn theo dõi là
+            tổng thời gian, worker trông như một bước lùi.
+          </p>
+
+          <p>Và ba trường hợp nó <em>không</em> phải câu trả lời:</p>
+
+          <ul>
+            <li>
+              <strong>Việc ngắn hơn một khung hình.</strong> Chi phí dựng worker và sao chép
+              thông điệp lớn hơn phần việc.
+            </li>
+            <li>
+              <strong>Việc bị chi phối bởi chuyện sao chép dữ liệu.</strong> Gửi 50 MB sang để
+              làm một phép lọc đơn giản thì bạn chỉ chuyển chi phí, không giảm nó.
+            </li>
+            <li>
+              <strong>Có thể chia nhỏ việc ngay trên main thread.</strong> Tài liệu nêu đúng
+              phương án thay thế: <code>scheduler.yield()</code> hoặc
+              <code>setTimeout</code> — giữ trang phản hồi được, <em>cùng tổng thời gian</em>,
+              và không phải quản một luồng.
+            </li>
+          </ul>
+
+          <h3>3.5 Ba cấp độ phản ứng khi một khả năng vắng mặt</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cấp</th>
+                  <th>Làm gì</th>
+                  <th>Ví dụ trong repo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1 — <strong>Suy biến im lặng</strong></td>
+                  <td>Tính năng không chạy, không ai cần biết</td>
+                  <td>
+                    <code>localStorage</code> bị chặn → <code>KeyValueStorage</code> trở thành
+                    "không lưu gì"; theme quay về mặc định hệ thống
+                  </td>
+                </tr>
+                <tr>
+                  <td>2 — <strong>Suy biến có nói</strong></td>
+                  <td>Tính năng không chạy, và người dùng được cho biết</td>
+                  <td>
+                    Lab worker đặt cờ <code>unsupported</code> khi
+                    <code>typeof Worker === 'undefined'</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>3 — <strong>Mất một lớp bảo vệ</strong></td>
+                  <td>Chạy theo cách cũ, kém an toàn hơn, nhưng vẫn chạy</td>
+                  <td>
+                    Không có Web Locks → refresh phiên chạy không được bảo vệ (brief 26)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Cấp 3 là cấp đáng suy nghĩ nhất: nó <em>không</em> an toàn bằng, và lựa chọn đó
+            được ghi lại thay vì để ứng dụng từ chối chạy. Quy tắc chung: khi một khả năng
+            vắng mặt, hỏi xem <strong>mất nó thì mất gì</strong> — rồi chọn cấp tương ứng.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Mười hai khả năng, và mỗi cái có cùng sáu mục</h3>
+
+          <p>
+            <code>docs/browser-capabilities.md</code> mô tả mỗi API theo đúng một khuôn:
+            <em>problem · solution · why · alternative · trade-offs · when not to use it</em>,
+            cộng ghi chú trình duyệt và test. Dưới đây là phần cô đọng nhất của từng mục —
+            hãy đọc như một bảng tra:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>API</th>
+                  <th>Điều đáng nhớ nhất</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>localStorage</code></td>
+                  <td>
+                    Đồng bộ, ~5 MB, <strong>chỉ chuỗi</strong>, và
+                    <em>mọi script trên origin đều đọc được</em> — nên không bao giờ chứa
+                    token. Nó <strong>ném lỗi</strong> ở một số chế độ riêng tư, nên
+                    <code>KeyValueStorage</code> bắt và suy biến.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>sessionStorage</code></td>
+                  <td>
+                    Theo <em>tab</em>, và được <strong>sao chép</strong> sang tab mở ra từ nó —
+                    một chi tiết hay bị quên.
+                  </td>
+                </tr>
+                <tr>
+                  <td>IndexedDB</td>
+                  <td>
+                    Bất đồng bộ, có cấu trúc, dung lượng lớn. Repo bọc nó bằng
+                    <strong>ba hàm Promise</strong> (<code>requestResult</code>,
+                    <code>transactionDone</code>, <code>openDatabase</code>) — không dùng thư
+                    viện nào.
+                  </td>
+                </tr>
+                <tr>
+                  <td>URL API</td>
+                  <td>
+                    <em>"the browser's own parser - it agrees with the browser on every edge
+                    case"</em>. Và đây là lý do <code>safeReturnUrl</code> (bài 16) so
+                    <strong>origin</strong> chứ không bao giờ dùng
+                    <code>startsWith</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>History API</td>
+                  <td>
+                    <strong>Ghi qua Router, đọc qua <code>WINDOW</code>.</strong> Gọi thẳng
+                    <code>history.pushState</code> đổi URL sau lưng router — và thanh địa chỉ
+                    với route đang vẽ bất đồng với nhau.
+                  </td>
+                </tr>
+                <tr>
+                  <td>File API</td>
+                  <td>
+                    <code>file.slice(0, 8).arrayBuffer()</code> đọc chữ ký
+                    <strong>mà không nạp cả file</strong>. Hash thì cần cả file trong bộ nhớ —
+                    nên bỏ qua với file &gt; 50 MB.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Clipboard API</td>
+                  <td>
+                    Chỉ tồn tại trên secure origin. <em>Ghi</em> thì dễ;
+                    <em>đọc</em> thì nhắc hoặc cần quyền — vì clipboard có thể chứa bất cứ thứ
+                    gì người dùng đã copy ở bất cứ đâu.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Permissions API</td>
+                  <td>
+                    Chỉ <em>đọc</em>. Giá trị thật: một trang
+                    <strong>không thể nhắc lại sau khi bị từ chối</strong>, nên biết trước giúp
+                    nó giải thích cách bật lại thay vì đưa ra một nút không làm gì.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Geolocation</td>
+                  <td>
+                    Một lần từ chối là <strong>vĩnh viễn với trang đó</strong>. Và:
+                    <em>"Nothing here stores or sends the position."</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Web Worker</td>
+                  <td>Mục 3.4.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.2 Worker, đọc cả hai phía</h3>
+
+          <div class="code">
+            <div class="code__file">technical-labs/workers/primes.worker.ts — toàn bộ file</div>
+            <pre><code>/// &lt;reference lib="webworker" /&gt;
+import { countPrimes, type PrimeRequest, type PrimeResponse } from './primes';
+
+/**
+ * The worker side of the workers lab: receives a limit, counts, answers.
+ *
+ * It runs on its own thread with its own event loop, so however long the
+ * count takes, the page stays responsive. What it cannot do is touch the
+ * page: no DOM, no Angular, no injector - only messages, which are copied
+ * (structured clone) on the way in and out.
+ */
+addEventListener('message', ({ data }: MessageEvent&lt;PrimeRequest&gt;) =&gt; {
+  const started = performance.now();
+  const count = countPrimes(data.limit);
+  postMessage({ count, computeMs: performance.now() - started } satisfies PrimeResponse);
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/// &lt;reference lib="webworker" /&gt;</code></td>
+                  <td>
+                    Nói với TypeScript rằng file này sống trong môi trường worker — nên
+                    <code>addEventListener</code> ở phạm vi toàn cục là hợp lệ, còn
+                    <code>document</code> thì không tồn tại. Kiểu dữ liệu cưỡng chế ranh giới.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>countPrimes</code> nằm ở file <strong>khác</strong>
+                    (<code>./primes</code>)
+                  </td>
+                  <td>
+                    Phần <em>logic</em> là một hàm thuần, nên unit test được bình thường. File
+                    worker chỉ còn lớp vỏ thông điệp. Đây là cách làm cho thứ "không test được
+                    trong jsdom" co lại còn ba dòng.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>PrimeRequest</code> / <code>PrimeResponse</code></td>
+                  <td>
+                    Một <em>contract</em> cho ranh giới thông điệp — cùng ý tưởng với bài 08,
+                    chỉ là ranh giới ở đây là giữa hai luồng chứ không phải giữa hai máy.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Trả về cả <code>computeMs</code></td>
+                  <td>
+                    Worker tự đo phần tính toán của nó. Nhờ đó so sánh được "thời gian tính"
+                    với "tổng thời gian kể cả sao chép" — chính là +22 ms ở mục 3.4.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và phía gọi:</p>
+
+          <div class="code">
+            <div class="code__file">technical-labs/workers/worker-demo.ts</div>
+            <pre><code>private countInWorker(): Promise&lt;number | null&gt; {
+  if (typeof Worker === 'undefined') {
+    this.unsupported.set(true);
+    return Promise.resolve(null);
+  }
+  // This exact shape - `new Worker(new URL(&lt;literal&gt;, import.meta.url))` - is
+  // what the Angular CLI recognises and bundles as a separate worker chunk.
+  const worker = new Worker(new URL('./primes.worker', import.meta.url), { type: 'module' });
+  this.destroyRef.onDestroy(() =&gt; worker.terminate());
+  return new Promise((resolve) =&gt; {
+    worker.onmessage = ({ data }: MessageEvent&lt;PrimeResponse&gt;) =&gt; {
+      worker.terminate();
+      resolve(data.count);
+    };
+    worker.onerror = () =&gt; {
+      worker.terminate();
+      resolve(null);
+    };
+    worker.postMessage({ limit: PRIME_LIMIT });
+  });
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó lo chuyện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>typeof Worker === 'undefined'</code></td>
+                  <td>
+                    Feature test <em>trước</em> khi chạm tới. Đây cũng là thứ làm cho ngoại lệ
+                    ở mục 3.3 chấp nhận được.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>new URL('./primes.worker', import.meta.url)</code> — đúng hình dạng
+                    chữ
+                  </td>
+                  <td>
+                    Một comment giải thích ràng buộc của công cụ. Không có nó, người sau sẽ
+                    "dọn dẹp" bằng cách rút đường dẫn ra thành hằng số — và worker im lặng
+                    không được bundle nữa.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>terminate()</code> xuất hiện <strong>ba lần</strong></td>
+                  <td>
+                    Khi xong, khi lỗi, và khi component bị huỷ. Mỗi worker là một
+                    <em>luồng thật</em> của hệ điều hành; quên kết thúc là rò một luồng. Ba
+                    đường thoát, ba lần dọn — giống hệt kỷ luật ở brief 25 và 27.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>onerror</code> trả <code>null</code>, không ném</td>
+                  <td>
+                    Một worker hỏng làm tính năng không chạy, không làm trang vỡ. Suy biến cấp
+                    2 ở mục 3.5.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.3 Hai chỗ quy tắc này trả nợ ngoài chuyện SSR</h3>
+
+          <p>
+            Lý do công khai của việc cấm global là bản build server. Nhưng nó mang lại hai thứ
+            khác mà các brief trước đã dùng:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lợi ích</th>
+                  <th>Thấy ở đâu</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <strong>Test được những thứ không test được</strong>
+                  </td>
+                  <td>
+                    <code>EVENT_SOURCE_FACTORY</code> cho phép một
+                    <code>FakeEventSource</code> điều khiển bằng tay (brief 25);
+                    <code>BROADCAST_CHANNEL_FACTORY</code> cho phép dựng "hai tab" trong một
+                    tiến trình (brief 26). Không có token, cả hai lớp đó
+                    <em>không có cách nào</em> test.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Một chỗ duy nhất để xử lý sự vắng mặt</strong>
+                  </td>
+                  <td>
+                    <code>KeyValueStorage</code> bắt lỗi của chế độ riêng tư
+                    <em>một lần</em>, cho mọi người gọi. Không có nó, mỗi chỗ đọc storage phải
+                    có <code>try/catch</code> riêng — và chỗ nào quên thì vỡ trong một chế độ
+                    mà không ai test.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Nói cách khác: quy tắc "không chạm global" trông như một ràng buộc,
+            nhưng thứ nó thật sự làm là <strong>ép mọi API trình duyệt đi qua một biên có
+            tên</strong> — và một biên có tên thì thay thế được, giả lập được, và xử lý lỗi
+            được ở một chỗ.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Một khả năng của trình duyệt đi vào ứng dụng thế nào</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    N["Tôi cần một API của trình duyệt"] --> Q1{"Đã có token trong core/platform chưa?"}
+    Q1 -->|"rồi"| U["inject nó, rồi feature test cái mình cần"]
+    Q1 -->|"chưa"| Q2{"Nó là một ĐỐI TƯỢNG hay một KHẢ NĂNG?"}
+
+    Q2 -->|"đối tượng gốc: window, navigator"| T1["một token cho cả đối tượng<br/>trả null trên server"]
+    Q2 -->|"một khả năng con: clipboard, locks"| T2["KHÔNG thêm token<br/>— nó đã là một thuộc tính có feature test riêng<br/>bọc lại là trừu tượng một người dùng"]
+    Q2 -->|"một thứ phải TẠO RA: EventSource, BroadcastChannel"| T3["một FACTORY token<br/>(url) trả về đối tượng hoặc null"]
+    Q2 -->|"một thứ có thể THẤT BẠI mà không ai cần biết"| T4["một token trả bản NO-OP<br/>người gọi không phải rẽ nhánh"]
+
+    U --> F{"Khả năng đó vắng mặt thì sao?"}
+    T1 --> F
+    T3 --> F
+    T4 --> F
+
+    F -->|"mất không ai cần biết"| D1["suy biến im lặng — như storage bị chặn"]
+    F -->|"tính năng không chạy"| D2["nói cho người dùng — cờ unsupported"]
+    F -->|"mất một lớp bảo vệ"| D3["chạy theo cách cũ, và GHI LẠI là kém an toàn hơn"]
+
+    U --> E{"Công cụ build có ràng buộc hình dạng code không?"}
+    E -->|"có — new Worker new URL literal"| X["ngoại lệ, kèm comment giải thích<br/>+ feature test tại chỗ"]
+            </pre>
+            <figcaption>
+              Nhánh <code>T2</code> là nhánh người ta hay làm sai theo hướng
+              <em>thừa</em>: tạo một service cho mỗi API trình duyệt. Và ba nhánh
+              <code>D1–D3</code> buộc bạn trả lời câu "mất nó thì mất gì" trước khi viết code
+              xử lý.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Một phép tính nặng chạy ở đâu</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant M as Main thread — vẽ giao diện
+    participant W as Worker thread
+
+    rect rgb(40,40,40)
+    Note over U,M: Trên main thread
+    U-&gt;&gt;M: bấm Đếm
+    M-&gt;&gt;M: countPrimes(20 triệu)
+    Note over M: khung hình dài nhất 178ms<br/>không cuộn được, không gõ được, không bấm được
+    M--&gt;&gt;U: kết quả — và trang vừa đứng hình
+    end
+
+    rect rgb(40,40,40)
+    Note over U,W: Trong worker
+    U-&gt;&gt;M: bấm Đếm
+    M-&gt;&gt;M: typeof Worker? — feature test trước
+    M-&gt;&gt;W: new Worker(...) rồi postMessage limit
+    Note over M,W: dữ liệu được SAO CHÉP, không chia sẻ bộ nhớ
+    W-&gt;&gt;W: countPrimes — event loop RIÊNG
+    M--&gt;&gt;U: trang vẫn cuộn được, vẫn gõ được — khung dài nhất 17ms
+    W--&gt;&gt;M: postMessage count và computeMs
+    M-&gt;&gt;W: terminate()
+    M--&gt;&gt;U: cùng kết quả 1 270 607, tổng thời gian +22ms
+    end
+            </pre>
+            <figcaption>
+              Hai dòng cuối là toàn bộ sự đánh đổi: <em>chậm hơn 22 ms</em> và
+              <em>trang không đóng băng</em>. Nếu chỉ số bạn theo dõi là tổng thời gian, bạn sẽ
+              kết luận sai.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Token cho đối tượng, không cho từng khả năng</h4>
+          <p>
+            Đã bàn ở mục 3.2. Giá phải trả: mỗi người gọi tự feature test, nên cùng một phép
+            kiểm có thể lặp lại ở hai chỗ. Đổi lại: không có một tá service bọc mỏng, mỗi cái
+            một caller.
+          </p>
+
+          <h4><code>localStorage</code> thay vì cookie hay IndexedDB cho theme</h4>
+          <p>
+            Cookie bị <em>loại</em> vì nó đi kèm <strong>mọi request</strong> — sai hoàn toàn
+            cho một tuỳ chọn giao diện. IndexedDB bị loại vì nó
+            <em>bất đồng bộ</em>: quá muộn cho lần vẽ đầu tiên của theme. Đây là một ví dụ đẹp
+            cho việc chọn công nghệ theo <strong>thời điểm cần dữ liệu</strong>, không theo
+            "cái nào hiện đại hơn".
+          </p>
+
+          <h4>Ba hàm Promise tự viết thay vì một thư viện IndexedDB</h4>
+          <p>
+            API của IndexedDB dựa trên sự kiện và khó dùng. Lời giải của repo:
+            <code>requestResult</code>, <code>transactionDone</code>,
+            <code>openDatabase</code> — ba hàm bọc, dùng bởi hai nơi (kho ghi chú của lab và
+            bản sao offline). Quy tắc 8 lại được áp: có <em>hai</em> người gọi, nên trừu tượng
+            này được phép tồn tại; và nó dừng ở ba hàm chứ không thành một ORM.
+          </p>
+
+          <h4>Worker được tạo và huỷ cho mỗi lần chạy</h4>
+          <p>
+            Phương án khác là giữ một worker sống suốt đời trang (worker pool). Repo
+            <em>tạo mới mỗi lần, kết thúc ngay sau đó</em> — đơn giản hơn, và với một lab chạy
+            theo cú bấm thì chi phí khởi tạo không đáng kể. Đánh đổi được ghi:
+            <em>"each worker is a thread - created per run and terminated here."</em> Trong
+            một ứng dụng chạy liên tục, pool mới là câu trả lời.
+          </p>
+
+          <h4>Phương án thay thế cho worker: chia nhỏ việc</h4>
+          <p>
+            <code>scheduler.yield()</code> hoặc <code>setTimeout</code> giữ trang phản hồi
+            được mà <strong>không</strong> cần luồng thứ hai, không cần sao chép dữ liệu, không
+            cần bundle riêng — với cùng tổng thời gian. Nếu việc của bạn chia nhỏ được, đó là
+            lựa chọn rẻ hơn nhiều.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Gọi thẳng <code>window</code> "cho nhanh"</span>
+            <p>
+              Bản build server đổ ngay — nếu bạn có bản build server. Nếu chưa có, nó chạy tốt
+              cho tới ngày ai đó bật SSR, và lúc đó bạn có hàng trăm chỗ phải sửa. Đó chính là
+              lý do repo giữ bản build server <em>dù không dùng SSR cho ứng dụng</em> (brief
+              30).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Rắc <code>isPlatformBrowser</code> để chữa</span>
+            <p>
+              Mỗi chỗ dùng thành hai nhánh, và nhánh server hầu như không bao giờ được test.
+              Số nhánh tăng theo số lần dùng global, trong khi với token thì nó là
+              <strong>một</strong> — ở chỗ khai token.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Tạo một service cho mỗi API</span>
+            <p>
+              <code>ClipboardService</code>, <code>GeolocationService</code>,
+              <code>PermissionsService</code> — mỗi cái một caller, mỗi cái một file, mỗi cái
+              vẫn phải feature test bên trong. Trừu tượng không xoá được sự phức tạp, nó chỉ
+              dời chỗ — và ở đây nó dời vào chỗ khó tìm hơn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Giả định API tồn tại</span>
+            <p>
+              <code>navigator.clipboard.writeText(...)</code> trên HTTP là một
+              <code>TypeError</code> về <code>undefined</code>, ở một dòng không nói gì về
+              nguyên nhân thật (origin không an toàn). Và nó chỉ xảy ra ở môi trường staging
+              chạy HTTP, không bao giờ trên máy bạn (<code>localhost</code> được coi là an
+              toàn).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Gọi <code>history.pushState</code> trực tiếp</span>
+            <p>
+              URL đổi sau lưng router. Thanh địa chỉ nói một đằng, route đang vẽ nói một nẻo,
+              và nút Back đưa người dùng tới một trạng thái mà ứng dụng không biết mình đã ở
+              đó. Ghi qua Router, đọc qua <code>WINDOW</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Để token hoặc dữ liệu nhạy cảm trong <code>localStorage</code></span>
+            <p>
+              Mọi script trên origin đọc được — kể cả một script bên thứ ba được thêm vào sau
+              này. Đây là một trong những lý do ADR-0016 chọn cookie
+              <code>HttpOnly</code> (bài 19).
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Dùng worker cho việc nhỏ</span>
+            <p>
+              Dựng worker, sao chép dữ liệu sang, tính 2 ms, sao chép kết quả về. Bạn vừa làm
+              chậm đi và thêm một tệp bundle. Ngưỡng là: việc phải dài hơn một khung hình, và
+              không bị chi phối bởi chi phí sao chép.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Quên <code>terminate()</code></span>
+            <p>
+              Mỗi worker là một luồng thật. Một trang tạo worker theo mỗi cú bấm mà không kết
+              thúc chúng sẽ tích luỹ luồng cho tới khi tab chậm hẳn. Ba đường thoát — xong,
+              lỗi, component bị huỷ — đều phải gọi.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">9. "Dọn dẹp" đường dẫn trong <code>new Worker</code></span>
+            <p>
+              Rút <code>'./primes.worker'</code> ra thành một hằng số trông gọn hơn, và Angular
+              CLI không còn nhận ra hình dạng đó để bundle worker. Lỗi xuất hiện lúc chạy, ở
+              bản production, dưới dạng một file 404. Đây là lý do comment ở mục 4.2 tồn tại.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Phần thú vị: mỗi API trình duyệt được test ở <em>hai</em> tầng, và việc chia ở đâu
+            là một bài học về ranh giới.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>API</th>
+                  <th>Unit test khẳng định</th>
+                  <th>Browser test khẳng định</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Storage</td>
+                  <td>
+                    <code>platform.tokens.spec.ts</code>: đi vòng (ghi rồi đọc), và
+                    <strong>trường hợp bị từ chối</strong>
+                  </td>
+                  <td>
+                    Sống sót qua reload; <code>localStorage</code> chia sẻ với tab mới,
+                    <code>sessionStorage</code> thì không
+                  </td>
+                </tr>
+                <tr>
+                  <td>URL API</td>
+                  <td>
+                    <code>describeUrl</code>: đường dẫn tương đối, khoá lặp, giải mã,
+                    scheme-relative khác origin, chuỗi không hợp lệ
+                  </td>
+                  <td>Chạy trong trình duyệt thật</td>
+                </tr>
+                <tr>
+                  <td>File API</td>
+                  <td>
+                    Chữ ký, xem trước, và <strong>digest với một <code>SubtleCrypto</code>
+                    giả</strong>
+                  </td>
+                  <td>SHA-256 <em>thật</em> của một file <em>thật</em></td>
+                </tr>
+                <tr>
+                  <td>Permissions</td>
+                  <td>Các trạng thái, tên quyền lạ, và trường hợp không có API</td>
+                  <td>Chạy thật</td>
+                </tr>
+                <tr>
+                  <td>Geolocation</td>
+                  <td>Ánh xạ mã lỗi (từ chối, không khả dụng, hết giờ)</td>
+                  <td>Cho phép với một vị trí cố định; và bị từ chối</td>
+                </tr>
+                <tr>
+                  <td>Web Worker</td>
+                  <td>
+                    <code>countPrimes</code> — <strong>một hàm thuần</strong>, không dính gì
+                    tới worker
+                  </td>
+                  <td>
+                    Cả hai cách cho <strong>cùng 1 270 607</strong>, và khung hình dài nhất của
+                    bản worker ngắn hơn
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Hình dạng lặp lại ở mọi hàng: <strong>unit test lo phần logic và các ca biên;
+            browser test lo phần "API thật có cư xử như ta nghĩ không".</strong> Và cách làm
+            cho ranh giới đó rẻ là tách logic ra khỏi API — <code>countPrimes</code> là một hàm
+            thuần nên file worker chỉ còn ba dòng, và ba dòng đó chỉ cần một browser test.
+          </p>
+
+          <div class="box box--note">
+            <span class="box__label">Khẳng định tôi thích nhất trong bảng</span>
+            <p>
+              <em>"both runs give 1,270,607 primes"</em> — test không chỉ đo tốc độ, nó khẳng
+              định <strong>hai cách cho cùng một kết quả</strong>. Một tối ưu hiệu năng làm đổi
+              kết quả không phải một tối ưu; và với một worker, nơi dữ liệu bị sao chép qua
+              ranh giới, đó là một rủi ro thật.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    R["Quy tắc: code ứng dụng KHÔNG BAO GIỜ chạm global của trình duyệt"]
+
+    R --> W1["Lý do công khai: ứng dụng cũng build cho server<br/>một tham chiếu trực tiếp làm ĐỔ BUILD ngay"]
+    R --> W2["Lợi ích thứ hai: TEST ĐƯỢC<br/>FakeEventSource, hai tab giả trong một tiến trình"]
+    R --> W3["Lợi ích thứ ba: xử lý sự vắng mặt ở MỘT chỗ<br/>storage bị chặn được bắt một lần cho mọi caller"]
+
+    R --> H["Hình dạng token tuỳ theo: mất nó thì mất gì"]
+    H --> H1["đối tượng hoặc null — người gọi kiểm tra"]
+    H --> H2["factory trả null — thứ phải tạo ra"]
+    H --> H3["no-op — khi thất bại là chấp nhận được"]
+
+    R --> A["KHÔNG bọc từng khả năng con<br/>navigator.clipboard đã có feature test của nó<br/>— bọc lại là trừu tượng một người dùng"]
+
+    R --> E["Ngoại lệ thì NÊU TÊN và giải thích tại chỗ<br/>new Worker cần đúng hình dạng chữ cho CLI<br/>main.ts là điểm vào trình duyệt, không nằm trong build server"]
+
+    R --> P{"Việc nặng làm đóng băng trang?"}
+    P -->|"chia nhỏ được"| P1["scheduler.yield hoặc setTimeout<br/>— cùng tổng thời gian, không thêm luồng"]
+    P -->|"không chia nhỏ được"| P2["Web Worker"]
+    P2 --> P3["tách LOGIC ra thành hàm thuần<br/>file worker chỉ còn lớp vỏ thông điệp"]
+    P2 --> P4["contract cho thông điệp — bài 08 ở ranh giới luồng"]
+    P2 --> P5["terminate ở CẢ BA đường thoát"]
+    P2 --> P6["và nhớ: tổng thời gian có thể TĂNG<br/>thứ được sửa là khung hình, không phải tốc độ"]
+            </pre>
+            <figcaption>
+              Ba ô <code>W1–W3</code> là lý do một quy tắc nghe như chuyện phong cách lại đáng
+              cưỡng chế: nó mua ba thứ rất khác nhau. Và nhánh dưới cùng nhắc rằng Web Worker
+              là câu trả lời <em>thứ hai</em>, sau khi đã hỏi liệu có chia nhỏ việc được không.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Đi hết khu lab API trình duyệt</h3>
+            <p class="task__meta">~40 phút · không sửa code</p>
+            <ol>
+              <li>
+                Mở <code>/technical-labs/browser-apis</code>. Với mỗi phần (URL, History,
+                File, Clipboard, Permissions, Geolocation), thử một lần và ghi lại
+                <em>điều bạn không đoán trước được</em>.
+              </li>
+              <li>
+                Phần Permissions: từ chối quyền vị trí, rồi thử xin lại. Trang có nhắc lại
+                được không? Nó nói gì thay vào đó?
+              </li>
+              <li>
+                Phần File: thả vào một file ảnh, xem chữ ký. Giờ đổi tên một file
+                <code>.txt</code> thành <code>.png</code> và thả vào — chữ ký nói gì so với
+                kiểu khai? (Đây là brief 27 nhìn từ phía công cụ.)
+              </li>
+              <li>
+                Phần Clipboard: thử trên <code>localhost</code>. Giờ nghĩ xem điều gì xảy ra
+                nếu staging chạy HTTP thuần — <code>navigator.clipboard</code> còn tồn tại
+                không?
+              </li>
+              <li>
+                Mở <code>/technical-labs/browser-storage</code>, mở một tab thứ hai. Thứ gì
+                được chia sẻ, thứ gì không?
+              </li>
+            </ol>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Cảm nhận một luồng bị chặn</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                Mở <code>/technical-labs/workers</code>. Chạy phép đếm
+                <strong>trên main thread</strong> và <em>trong lúc nó chạy</em>, thử: cuộn
+                trang, gõ vào một ô nhập, bấm một nút.
+              </li>
+              <li>Chạy lại <strong>trong worker</strong> và thử đúng ba việc đó.</li>
+              <li>So hai con số: tổng thời gian, và khung hình dài nhất. Cái nào "nhanh hơn"?</li>
+              <li>
+                Mở DevTools → Performance, ghi lại cả hai lần chạy. Trong bản main thread, bạn
+                thấy một khối màu dài liền mạch — đó chính là 178 ms.
+              </li>
+              <li>
+                Mở tab Sources → danh sách file. Tìm chunk của worker. Nó có nằm trong bundle
+                chính không?
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 1 là bước quan trọng</summary>
+              <p>
+                Vì "trang đóng băng 178 ms" là một con số trừu tượng cho tới khi ngón tay bạn
+                cuộn mà màn hình không nhúc nhích. Mọi lập luận về Web Worker đều dựa vào cảm
+                giác đó — và nó là thứ không bảng số liệu nào truyền đạt được.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Phá quy tắc, và xem ai bắt</h3>
+            <p class="task__meta">~35 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong một component bất kỳ, thêm <code>localStorage.setItem('x', '1')</code>.
+                Chạy <code>npm run lint</code>. Ai bắt, và thông báo nói gì?
+              </li>
+              <li>
+                Giờ tắt tạm luật lint đó cho dòng này và chạy <code>npm run build</code>. Lần
+                này ai bắt?
+              </li>
+              <li>Hoàn nguyên. Thử điều ngược lại: dùng <code>LOCAL_STORAGE</code> cho đúng.</li>
+              <li>
+                Trong <code>worker-demo.ts</code>, rút đường dẫn worker ra thành một hằng số:
+                <code>const path = './primes.worker'; new Worker(new URL(path, import.meta.url))</code>.
+                Build production và chạy thử lab.
+              </li>
+              <li>Chuyện gì xảy ra? Lỗi xuất hiện ở đâu — lúc build hay lúc chạy?</li>
+              <li>Hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Hai loại cổng, hai loại phản hồi</summary>
+              <p>
+                Bước 1–2 cho bạn <strong>hai</strong> lớp bảo vệ độc lập cho cùng một quy tắc:
+                lint (nhanh, trong editor) và bản build server (chậm hơn, nhưng không tắt
+                được). Bước 4–5 thì ngược lại: <em>không</em> có cổng nào — lỗi chỉ xuất hiện
+                lúc chạy, ở bản production. Đó chính là lý do chỗ đó cần một comment thay vì
+                một luật.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao cấm chạm global, và điều đó mua được ba thứ gì?</summary>
+            <p>
+              Lý do công khai: ứng dụng cũng build cho server, nơi không có global nào — một
+              tham chiếu trực tiếp làm đổ build ngay. Ba thứ mua được: bản build server xanh,
+              <strong>khả năng test</strong> (fake <code>EventSource</code>, hai tab giả), và
+              <strong>một chỗ duy nhất</strong> xử lý sự vắng mặt (storage bị chặn).
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao không có token riêng cho clipboard, locks, geolocation?</summary>
+            <p>
+              Vì mỗi khả năng đó <em>đã</em> là một thuộc tính có feature test riêng
+              (<code>navigator.clipboard</code> là <code>undefined</code> trên origin không an
+              toàn). Bọc lại sẽ là một trừu tượng chỉ có một người dùng — quy tắc 8. Người gọi
+              tự kiểm thứ mình cần.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Ba hình dạng token, và chọn theo tiêu chí gì?</summary>
+            <p>
+              Trả <em>đối tượng hoặc <code>null</code></em> khi người gọi phải biết; trả một
+              <em>factory</em> cho thứ phải tạo ra; trả một bản <em>no-op</em> khi "không làm
+              được" là một hành vi chấp nhận được. Tiêu chí: mất khả năng đó thì mất gì.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Hai ngoại lệ của quy tắc, và vì sao chúng chấp nhận được?</summary>
+            <p>
+              <code>new Worker(new URL(&lt;literal&gt;, import.meta.url))</code> — Angular CLI
+              chỉ nhận ra đúng hình dạng chữ đó để bundle worker; bù lại có feature test và nó
+              chỉ chạy khi có người bấm. Và <code>performance.mark</code> trong
+              <code>main.ts</code> — file đó là điểm vào của trình duyệt, không bao giờ nằm
+              trong bản build server.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Web Worker sửa cái gì, và không sửa cái gì?</summary>
+            <p>
+              Sửa <strong>khung hình dài nhất</strong>: 178 ms → 17 ms, trang giữ 60 fps.
+              Không sửa tổng thời gian — thực ra <em>chậm hơn 22 ms</em> vì phải sao chép dữ
+              liệu. Nó không làm việc nhanh hơn, nó làm việc ở chỗ khác.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Ba trường hợp worker <em>không</em> phải câu trả lời?</summary>
+            <p>
+              Việc ngắn hơn một khung hình; việc bị chi phối bởi chi phí sao chép dữ liệu; và
+              việc có thể chia nhỏ ngay trên main thread bằng
+              <code>scheduler.yield()</code> hoặc <code>setTimeout</code> — cùng tổng thời
+              gian, không cần luồng thứ hai.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao <code>countPrimes</code> nằm ở file riêng, không trong file worker?</summary>
+            <p>
+              Để phần <em>logic</em> là một hàm thuần, unit test được bình thường, và file
+              worker co lại còn ba dòng vỏ thông điệp. Đây là cách thu nhỏ phần "chỉ test được
+              trong trình duyệt thật" xuống mức tối thiểu — cùng ý tưởng với bài 23.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao theme dùng <code>localStorage</code> chứ không cookie hay IndexedDB?</summary>
+            <p>
+              Cookie đi kèm <em>mọi request</em> — sai cho một tuỳ chọn giao diện. IndexedDB
+              <em>bất đồng bộ</em> — quá muộn cho lần vẽ đầu tiên. Chọn theo
+              <strong>thời điểm cần dữ liệu</strong>, không theo công nghệ nào mới hơn.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 25</strong> và <strong>26</strong> dùng hai factory token để test
+              những thứ không test được. <strong>Brief 29</strong> là nơi
+              <code>KeyValueStorage</code> và IndexedDB trả nợ.
+              <strong>Brief 31</strong> có các con số của Web Worker.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="31-performance-va-bundle-budget.html">← Brief 31</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
