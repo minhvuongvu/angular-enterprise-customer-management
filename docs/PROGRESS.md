@@ -1425,6 +1425,45 @@ it. Recorded as debt row 8 rather than silenced by raising the budget.
 
 ---
 
+## Maintenance after Phase 8
+
+Work on the repository after `phase-8-complete` that is not a phase. Recorded because a
+cold session reading only the phase log would be surprised by it.
+
+- **2026-10-15 - renamed to "Angular Enterprise Customer Management"** (`5bdc58f`), because a
+  parallel React implementation of the same domain is planned at
+  `E:\React Enterprise Customer Management`. Changed: the `README.md` title, the crumb in
+  `docs/learning/index.html`, `package.json` `name`, and the two `name` lines in
+  `package-lock.json` (regenerated with `npm install --package-lock-only`; no dependency
+  line moved). Deliberately **not** changed: the `@ecm/*` workspace scope, which is an
+  internal identifier that is never published and cannot collide across two separate
+  repositories, and `<title>Customer Management</title>`, which names the _product_ - the
+  React build is the same product. The point of the pair is that what should be identical
+  is identical, so that the remaining difference is Angular versus React.
+  Two things the rename broke and that a reinstall is needed for: the three workspace
+  junctions in `node_modules` are **absolute**, so they dangled until `npm install`; and
+  `.angular/cache`, `dist/` and `coverage/` had the old path baked in and were deleted.
+- **2026-10-15 - `lint/styles.ts` computed `ROOT` from `new URL('..', import.meta.url).pathname`**
+  (`39738fa`), which is a URL string, not a path: on Windows it produced `/E:/...%20...`, and
+  `join()` then built `E:\E:\Angular%20Enterprise...` and died with ENOENT. Now
+  `join(import.meta.dirname, '..')`, matching `lint/architecture.ts`, `lint/secrets.ts` and
+  `perf/check-budgets.ts`, which were already right. The bug needed a space in the path, so it
+  predates the rename; CI never caught it because `ubuntu-latest` checks out to a path with no
+  space, where the `pathname` happens to be valid POSIX.
+- **2026-10-15 - `source-map-js` 1.2.1 → 1.2.2**, a lockfile-only patch for
+  GHSA-68fv-2mgg-jv7q (high) that was failing CI's dependency audit. Build and test tooling
+  only, no application path; recorded in ADR-0001 ("Security update - post-Phase-8"). The
+  reusable lesson is in that record: `npm audit --omit=dev` does not prune a workspace
+  package's devDependencies, so a dev-only advisory still turns the `quality` job red.
+- **E2E on a developer machine can fail with `sign-in failed with 429`.** Not a defect in the
+  suite. `playwright.config.ts` sets `workers: CI ? 2 : undefined`, so locally Playwright takes
+  half the cores - six on a twelve-core machine - and all six share one `127.0.0.1` bucket in
+  the mock API's rate limit (`app.ts`, `MOCK_API_RATE_LIMIT`, 600 requests per minute per IP,
+  applied to every route). The same suite is 215/215 green at `--workers=2`. Open question:
+  whether to pin `workers: 2` for both environments or raise the limit for the E2E server.
+
+---
+
 ## Technical-debt register
 
 Debt is only acceptable when it is written down. Remove the row when it is paid.

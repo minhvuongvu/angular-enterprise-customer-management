@@ -132,3 +132,31 @@ the previous lockfile with only its `@angular/*` entries removed, re-resolved by
 stay inside its peer ranges. The lock is on **Angular 22**, not on a patch: a minor
 update within the major, for a security fix, does not need a superseding ADR - it needs
 this record and a full verify (PROGRESS, Phase 8).
+
+## Security update - post-Phase-8, 2026-10-15
+
+`npm audit --omit=dev --audit-level=high` (ADR-0042, the `quality` job) started failing on
+**GHSA-68fv-2mgg-jv7q**, high - `source-map-js` `1.0.0 - 1.2.1`, event-loop denial of
+service through indexed source-map section offsets. Published after `phase-8-complete`;
+the lockfile was not touched by the project rename that preceded it (`5bdc58f` changed
+only two `name` lines), so this is the world moving again, not a local change.
+
+Nothing in the application depends on it. Every path is build or test tooling:
+`postcss` and `sass` under `@angular/build`, `magicast` under `@vitest/coverage-v8`,
+`css-tree` under `jsdom` - all four requiring packages are **devDependencies** of a
+workspace package, and no source map from an untrusted source is ever parsed. Worth
+recording anyway: `--omit=dev` does **not** prune a workspace package's devDependencies,
+so a dev-only advisory still fails the gate. A future advisory in the same position will
+do the same, and arguing about reachability will not make CI green.
+
+The fix is a lockfile-only patch bump, **1.2.1 → 1.2.2**, applied with `npm audit fix`:
+three lines of one entry (`version`, `resolved`, `integrity`), no `package.json` change,
+because every requiring range already admits it (`^1.2.1` for postcss, magicast and
+css-tree; `>=0.6.2 <2.0.0` for sass). `source-map-js` is not in the locked table above,
+and the rule from the Phase 8 record applies unchanged: a patch for a security fix needs
+this record and a full verify, not a superseding ADR.
+
+Verified after the bump: format, lint (eslint, styles, architecture, secrets), typecheck,
+486 + 133 + 45 unit tests, build with prerender, and all four bundle budgets - initial
+JavaScript still 510.7 kB to the byte, which is what a build-tooling-only change should
+look like.
