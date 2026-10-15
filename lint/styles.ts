@@ -65,7 +65,7 @@ const RULES: readonly Rule[] = [
   },
 ];
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = join(import.meta.dirname, '..');
 const SOURCE = join(ROOT, 'apps/web/src');
 /** The one file allowed to define colours. */
 const TOKEN_FILE = join(SOURCE, 'styles/_tokens.scss');
