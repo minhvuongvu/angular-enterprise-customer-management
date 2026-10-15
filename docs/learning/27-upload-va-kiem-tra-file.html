@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 27 — Upload và kiểm tra file</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 27
+        </p>
+        <h1>Upload và kiểm tra file ◆</h1>
+        <p class="lede">
+          Một ô "chọn ảnh đại diện" trông như việc của buổi chiều. Nó chứa: hai lớp kiểm tra
+          phải không bao giờ bất đồng, một lời khai mà bạn không được tin, một giới hạn của
+          <code>fetch</code> buộc phải đổi tầng vận chuyển, một thanh tiến trình phải
+          <em>thật</em>, và một chỗ rò bộ nhớ ai cũng quên.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu · ◆ có máy trạng thái</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi bạn phải làm bất cứ ô upload nào — ảnh đại diện, tài liệu đính kèm, file
+              import. Và khi bạn phải <em>xuất</em> ra CSV: mục 3.8 là thứ mà rất nhiều hệ
+              thống làm sai một cách lặng lẽ.
+            </p>
+            <p>
+              Nền cần có: bài 08 (contract dùng chung), bài 09 (interceptor), bài 20 (biên bảo
+              mật nằm ở server), bài 10 (taxonomy lỗi).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>File</code>, <code>Blob</code></td>
+                  <td>
+                    <code>Blob</code> là một đống byte có kiểu khai báo;
+                    <code>File</code> là một <code>Blob</code> có thêm
+                    <code>name</code> và thời điểm sửa. Trình duyệt đưa cho bạn
+                    <code>File</code> khi người dùng chọn hoặc kéo thả.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Declared MIME type</strong> (<code>file.type</code>)</td>
+                  <td>
+                    Kiểu <em>trình duyệt đoán</em>, hầu như luôn từ phần mở rộng của tên file
+                    — trên Windows thì tra trong registry. Nó là một
+                    <strong>lời khai</strong>, không phải một phép đo.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Magic bytes</strong> / signature</td>
+                  <td>
+                    Vài byte đầu tiên nhận dạng định dạng thật: PNG luôn bắt đầu bằng 8 byte
+                    cố định, JPEG bằng 3, WebP bằng header RIFF có chữ <code>WEBP</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>multipart/form-data</code></td>
+                  <td>
+                    Cách gói file vào một request HTTP: nhiều "phần", mỗi phần có tên, tên
+                    file và kiểu khai báo. Trình duyệt tự dựng khi bạn gửi một
+                    <code>FormData</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Object URL</strong> (<code>blob:</code>)</td>
+                  <td>
+                    Một URL tạm trỏ tới một <code>Blob</code> trong bộ nhớ, dùng để xem trước
+                    ảnh hoặc để tải file xuống. <strong>Phải</strong> được
+                    <code>revoke</code>, nếu không blob sống tới khi đóng tab.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Upload progress</strong></td>
+                  <td>
+                    Sự kiện "đã gửi được bao nhiêu byte". <code>XMLHttpRequest</code> có
+                    (<code>xhr.upload.onprogress</code>); <code>fetch</code>
+                    <strong>không có</strong>. Chi tiết này định hình cả kiến trúc ở mục 3.5.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpBackend</code></td>
+                  <td>
+                    Tầng dưới cùng của <code>HttpClient</code>, nơi request thật sự rời khỏi
+                    trình duyệt — <em>bên dưới</em> toàn bộ chuỗi interceptor ở bài 09.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>HttpEvent</code></td>
+                  <td>
+                    Khi bật <code>reportProgress</code>, <code>HttpClient</code> phát ra một
+                    <em>luồng</em> sự kiện (bảy loại) chứ không chỉ một response.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Abort</strong></td>
+                  <td>
+                    Dừng một request <em>đang chạy</em>. Với XHR là
+                    <code>xhr.abort()</code> — và trong Angular, huỷ subscribe chính là gọi
+                    nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Thuộc tính <code>accept</code></td>
+                  <td>
+                    Gợi ý cho hộp chọn file của trình duyệt. <strong>Không</strong> chặn kéo
+                    thả, và người dùng đổi được sang "All files". Là tiện ích, không phải
+                    kiểm tra.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>CSV injection</strong> (formula injection)</td>
+                  <td>
+                    Một ô bắt đầu bằng <code>=</code>, <code>+</code>, <code>-</code>,
+                    <code>@</code>, tab hoặc CR sẽ được Excel/Sheets
+                    <em>thực thi như công thức</em> khi mở file. Mục 3.8.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Nói được ba thứ client biết về một file, và vì sao
+              <strong>không thứ nào là bằng chứng</strong>.
+            </li>
+            <li>
+              Dựng được kiểu kiểm tra chạy hai lần bằng <em>một</em> hàm dùng chung, để client
+              và server không bao giờ bất đồng.
+            </li>
+            <li>Giải thích được phép kiểm duy nhất mà client không thể làm thay server.</li>
+            <li>
+              Làm được một thanh tiến trình <em>thật</em> và một nút huỷ <em>thật</em> — và
+              biết vì sao cả hai đòi đổi tầng vận chuyển.
+            </li>
+            <li>Không rò bộ nhớ vì object URL, và không xuất ra một file CSV chạy được.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Nhận <code>multipart/form-data</code>, giới hạn kích thước</td>
+                  <td>Y hệt — mock API làm đúng việc đó</td>
+                </tr>
+                <tr>
+                  <td>Kiểm content type của phần tải lên</td>
+                  <td><code>checkFile</code>, chạy ở <em>cả hai</em> đầu</td>
+                </tr>
+                <tr>
+                  <td>Kiểm magic bytes trước khi lưu</td>
+                  <td><code>detectImageType</code> trong mock API</td>
+                </tr>
+                <tr>
+                  <td>Streaming upload, backpressure</td>
+                  <td>
+                    <em>Không có</em> — không chunked, không resumable; mục 6 nói rõ
+                  </td>
+                </tr>
+                <tr>
+                  <td>Sinh CSV an toàn cho Excel</td>
+                  <td>
+                    <code>csvCell</code> — cùng một luật, nhưng ở đây có <em>hai</em> nơi sinh
+                    CSV
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "kiểm ở client là đã kiểm"</span>
+            <p>
+              Quy tắc 10 của <code>CLAUDE.md</code>, lần thứ n:
+              <strong>kiểm tra ở frontend là UX, không phải biên bảo mật.</strong> Ai cũng gửi
+              được một request bằng <code>curl</code>. Phép kiểm ở client tồn tại để người
+              dùng <em>biết ngay</em> và để không gửi đi thứ chắc chắn bị từ chối — không phải
+              để bảo vệ server.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "<code>file.type</code> cho biết đó là file gì"</span>
+            <p>
+              Không. Nó là thứ <em>trình duyệt đoán từ phần mở rộng</em>. Đổi tên
+              <code>trojan.html</code> thành <code>avatar.png</code> thì
+              <code>file.type</code> trở thành <code>image/png</code> — mà nội dung vẫn là
+              HTML. Chú thích trong <code>file-policy.ts</code> nói gọn:
+              <em
+                >"The name is typed by a person, the type is guessed by the browser from that
+                name, and a size says nothing about content."</em
+              >
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "cứ gửi là có tiến trình"</span>
+            <p>
+              Đây là chỗ bất ngờ nhất với người từ backend sang:
+              <code>fetch</code> — API HTTP hiện đại của trình duyệt —
+              <strong>không có sự kiện tiến trình upload</strong>. Không có cách nào biết đã
+              gửi được bao nhiêu byte. Chỉ <code>XMLHttpRequest</code>, API cũ hơn, có.
+            </p>
+            <p>
+              Và Angular 22 không im lặng chịu đựng: <code>FetchBackend</code>
+              <strong>ném lỗi</strong> <code>NG02824</code> nếu một request xin
+              <code>reportUploadProgress</code>. Nên "hiện phần trăm" không phải một dòng
+              code, mà là một quyết định kiến trúc — mục 3.5.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Ba thứ client biết, và không thứ nào là bằng chứng</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thông tin</th>
+                  <th>Từ đâu ra</th>
+                  <th>Vì sao không tin được</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>name</code></td>
+                  <td>Người dùng gõ</td>
+                  <td>
+                    Đổi tên được tuỳ ý. Và <code>invoice.pdf.exe</code> là một file thực thi.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>type</code></td>
+                  <td>Trình duyệt đoán từ <code>name</code></td>
+                  <td>Nó là hệ quả của cái thứ nhất, nên cũng giả được như nhau</td>
+                </tr>
+                <tr>
+                  <td><code>size</code></td>
+                  <td>Đo thật</td>
+                  <td>Đúng, nhưng không nói gì về <em>nội dung</em></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ba thứ đó đủ cho một phép kiểm <em>tiện lợi</em>, và không đủ cho một phép kiểm
+            <em>an toàn</em>. Phân chia trách nhiệm theo đó: client kiểm được những gì nó biết
+            và nói ngay cho người dùng; server kiểm lại tất cả, cộng một phép kiểm mà client
+            không làm thay được.
+          </p>
+
+          <h3>3.2 Kiểm hai lần, bằng <em>một</em> hàm</h3>
+
+          <p>
+            Hai phép kiểm thì dễ; giữ cho chúng <strong>không bao giờ bất đồng</strong> mới
+            khó. Hệ quả của bất đồng rất cụ thể:
+          </p>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/file-policy.ts — chú thích</div>
+            <pre><code>Both run **this** function, so the two can never disagree about what "a valid
+avatar" means - a client that accepted `.gif` while the server refused it
+would produce an error the user could not have avoided.</code></pre>
+          </div>
+
+          <p>
+            <em>"an error the user could not have avoided"</em> là định nghĩa chính xác của
+            loại lỗi tệ nhất trong một form: người dùng làm đúng mọi thứ giao diện yêu cầu,
+            và vẫn bị từ chối. Đây là lý do luật nằm trong
+            <code>packages/contracts</code> — cùng chỗ với schema Zod ở bài 08, vì cùng một lý
+            do.
+          </p>
+
+          <h3>3.3 Phép kiểm duy nhất client không làm thay được</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/http/file-signature.ts — chú thích</div>
+            <pre><code>The one upload check a client cannot make for the server. A file's name is
+typed by a person and its declared type is the browser's guess from that
+name, so both are claims; the bytes are the file. A PNG always begins with
+the same eight bytes, a JPEG with three, a WebP with a RIFF header naming
+`WEBP` - and an HTML page renamed to `avatar.png` begins with none of them.</code></pre>
+          </div>
+
+          <p>
+            Tình huống thật: một file HTML đặt tên <code>avatar.png</code>, khai
+            <code>image/png</code>. Nó <strong>qua hết</strong> mọi phép kiểm phía client —
+            đúng đuôi, đúng kiểu khai, đúng kích thước. Server đọc tám byte đầu, không khớp
+            chữ ký PNG nào, trả 415.
+          </p>
+
+          <p>Và chú thích nói tiếp một câu quan trọng hơn:</p>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/http/file-signature.ts — chú thích</div>
+            <pre><code>This is still not full content inspection. A file can begin with a valid
+signature and carry anything after it; a real service would decode the image
+and re-encode it, which discards whatever was hidden in it. That step is
+stated in docs/security.md as belonging to a production backend rather than
+implied to be done here.</code></pre>
+          </div>
+
+          <p>
+            Tức là: chữ ký là một <em>sàn</em>, không phải bảo đảm. Cách đúng trong sản phẩm
+            thật là <strong>giải mã rồi mã hoá lại</strong> ảnh — việc đó vứt bỏ mọi thứ giấu
+            phía sau. Repo không làm, và nói ra là mình không làm.
+          </p>
+
+          <h3>3.4 Phần mở rộng lấy từ dấu chấm <em>cuối</em></h3>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/file-policy.ts</div>
+            <pre><code>/**
+ * The extension as the policy compares it: lower-case, from the **last** dot.
+ *
+ * The last dot is the one that matters, because it is the one an operating
+ * system and a web server act on - `invoice.pdf.exe` is an executable. A name
+ * with no dot, or only a leading one (`.bashrc`), has no extension.
+ */
+export function fileExtensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot &gt; 0 ? name.slice(dot).toLowerCase() : '';
+}</code></pre>
+          </div>
+
+          <p>
+            Ba dòng, ba quyết định. <code>lastIndexOf</code> chứ không
+            <code>indexOf</code>: lấy dấu chấm đầu thì <code>invoice.pdf.exe</code> được coi
+            là <code>.pdf</code>, trong khi hệ điều hành coi nó là <code>.exe</code>.
+            <code>toLowerCase()</code>: <code>.PNG</code> cũng là PNG.
+            <code>dot &gt; 0</code> chứ không <code>&gt;= 0</code>:
+            <code>.bashrc</code> có dấu chấm ở vị trí 0 và nó <em>không</em> phải phần mở
+            rộng.
+          </p>
+
+          <h3>3.5 Tiến trình thật đòi một tầng vận chuyển khác</h3>
+
+          <p>Chuỗi suy luận, từ một yêu cầu UI tới một quyết định hạ tầng:</p>
+
+          <ol>
+            <li>Người dùng cần thấy phần trăm khi upload một file 2 MB.</li>
+            <li><code>fetch</code> không có sự kiện tiến trình upload.</li>
+            <li><code>XMLHttpRequest</code> có.</li>
+            <li>
+              Nhưng cả ứng dụng dùng <code>fetch</code>, vì SSR được xây quanh nó (bài 09).
+            </li>
+            <li>
+              Và không thể dựng một <code>HttpClient</code> thứ hai: nó sẽ
+              <strong>đi vòng qua chuỗi interceptor</strong> — không correlation id, không
+              CSRF, không refresh, không map lỗi. Mà upload là một lệnh
+              <em>ghi</em>, nó cần đủ cả bốn.
+            </li>
+            <li>
+              → Chọn transport <strong>theo từng request</strong>, ở tầng
+              <em>dưới</em> interceptor.
+            </li>
+          </ol>
+
+          <p>
+            Đây là một ví dụ rất đẹp cho việc đọc một ADR: bốn phương án được cân, và phương
+            án thắng không phải phương án "hiển nhiên" nào. Mục 4.4 đọc code, mục 6 đọc cả bốn
+            phương án.
+          </p>
+
+          <h3>3.6 Huỷ thật, không phải ẩn thanh tiến trình</h3>
+
+          <p>
+            Nhớ bài 07: Observable <em>lạnh</em>, và huỷ subscribe là huỷ việc. Ở đây nó có
+            một hệ quả rất cụ thể — huỷ subscribe một request XHR sẽ gọi
+            <code>xhr.abort()</code>, và <strong>byte ngừng rời khỏi máy</strong>.
+          </p>
+
+          <p>
+            Chú thích trong <code>customer-avatar.ts</code> nói rõ sự khác biệt:
+            <em
+              >"The bytes stop; it is not a progress bar being hidden while the upload carries
+              on underneath."</em
+            >
+            Đây là khác biệt mà người dùng cảm nhận được trên một kết nối chậm hoặc một gói
+            cước tính theo dung lượng.
+          </p>
+
+          <h3>3.7 Object URL: chỗ rò bộ nhớ ai cũng quên</h3>
+
+          <div class="code">
+            <div class="code__file">hình dạng của vấn đề</div>
+            <pre><code>const url = URL.createObjectURL(file);   // trình duyệt GIỮ file trong bộ nhớ
+img.src = url;
+// ...
+URL.revokeObjectURL(url);                // nếu quên dòng này: giữ tới khi đóng tab</code></pre>
+          </div>
+
+          <p>
+            Một object URL là một tham chiếu sống. Chọn mười ảnh để xem trước mà không thu hồi
+            thì mười file nằm nguyên trong bộ nhớ. Repo thu hồi ở
+            <strong>ba</strong> thời điểm: khi ảnh xem trước bị thay, khi upload xong, và khi
+            component bị huỷ — và gói việc đó sau một injection token
+            (<code>OBJECT_URLS</code>) để không chạm global, đúng quy tắc 2 ở bài 05.
+          </p>
+
+          <h3>3.8 File bạn <em>xuất ra</em> cũng là một bề mặt tấn công</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/files.routes.ts</div>
+            <pre><code>/**
+ * One CSV cell, safe to open in a spreadsheet.
+ *
+ * Two different problems. Quoting keeps a comma or a newline inside the cell
+ * instead of breaking the row. The leading apostrophe defends against formula
+ * injection: a customer named `=HYPERLINK("https://evil.test", "Click")` is a
+ * string to this server and a live formula to Excel the moment someone opens
+ * the export.
+ */
+function csvCell(value: string): string {
+  const neutralised = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(neutralised) ? `"${neutralised.replace(/"/g, '""')}"` : neutralised;
+}</code></pre>
+          </div>
+
+          <p>
+            Hai vấn đề <em>khác nhau</em> trong một hàm, và chú thích tách bạch rõ. Dấu nháy
+            kép giải quyết vấn đề <em>định dạng</em>: dấu phẩy hay xuống dòng trong một ô
+            không được làm vỡ hàng. Dấu nháy đơn đứng trước giải quyết vấn đề
+            <em>an ninh</em>: một tên khách hàng bắt đầu bằng <code>=</code> là một
+            <strong>công thức sống</strong> ngay khi ai đó mở file bằng Excel.
+          </p>
+
+          <p>
+            Điều đáng chú ý về mô hình tấn công: dữ liệu đi vào hệ thống của bạn hoàn toàn vô
+            hại — nó chỉ là một chuỗi. Nó trở nên nguy hiểm khi
+            <em>một chương trình khác</em> diễn giải nó. Đây là loại lỗ hổng mà không có bộ
+            quét nào phát hiện, vì về mặt kỹ thuật thì server của bạn chẳng làm gì sai cả.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 <code>checkFile</code>: luật chung, viết một lần</h3>
+
+          <div class="code">
+            <div class="code__file">packages/contracts/src/file-policy.ts</div>
+            <pre><code>export interface FilePolicy {
+  /** Lower-case, with the leading dot. */
+  readonly extensions: readonly string[];
+  readonly mimeTypes: readonly string[];
+  readonly maxBytes: number;
+}
+
+/** The facts about a file that a browser's `File` and a multipart part both carry. */
+export interface FileFacts {
+  readonly name: string;
+  readonly type: string;
+  readonly size: number;
+}
+
+/**
+ * Why a file was refused. A code, not a sentence: the client translates it and
+ * the server writes its own developer-facing message.
+ */
+export type FileRejection = 'EMPTY' | 'TOO_LARGE' | 'EXTENSION' | 'MIME_TYPE';
+
+/**
+ * The first rule a file breaks, or `null` if it breaks none.
+ *
+ * Checked in order of how cheaply a user can fix the problem, which is also
+ * the order a user would want to be told about it.
+ */
+export function checkFile(file: FileFacts, policy: FilePolicy): FileRejection | null {
+  if (file.size &lt;= 0) return 'EMPTY';
+  if (file.size &gt; policy.maxBytes) return 'TOO_LARGE';
+  if (!policy.extensions.includes(fileExtensionOf(file.name))) return 'EXTENSION';
+  // A declared type can carry parameters (`text/csv; charset=utf-8`), which
+  // say nothing about what kind of file it is.
+  const declared = file.type.split(';')[0].trim().toLowerCase();
+  if (!policy.mimeTypes.includes(declared)) return 'MIME_TYPE';
+  return null;
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>FileFacts</code> chỉ có ba trường
+                  </td>
+                  <td>
+                    Chú thích nói rõ: đây là <em>giao của</em> những gì một
+                    <code>File</code> trong trình duyệt và một phần multipart ở server cùng
+                    có. Nhờ thế một hàm chạy được ở cả hai nơi mà không cần adapter.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Trả về <strong>mã</strong>, không phải câu</td>
+                  <td>
+                    <code>'TOO_LARGE'</code> — client dịch thành tiếng Việt (bài 21), server
+                    viết thông điệp cho lập trình viên. Cùng một sự thật, hai cách trình bày,
+                    không ai phải dịch câu của ai.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Thứ tự</strong> các phép kiểm
+                  </td>
+                  <td>
+                    Chú thích giải thích tiêu chí sắp xếp:
+                    <em>"in order of how cheaply a user can fix the problem"</em>. Nói "file
+                    quá lớn" trước khi nói "sai định dạng" là tử tế hơn — người dùng sửa cái
+                    rẻ trước.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>file.type.split(';')[0]</code></td>
+                  <td>
+                    Kiểu khai có thể kèm tham số: <code>text/csv; charset=utf-8</code>. So
+                    nguyên chuỗi sẽ từ chối một file hoàn toàn hợp lệ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>IMPORT_ALLOWED_MIME_TYPES</code> có
+                    <code>application/vnd.ms-excel</code>
+                  </td>
+                  <td>
+                    Chú thích:
+                    <em
+                      >"browsers on Windows report a `.csv` as `application/vnd.ms-excel`...
+                      Refusing it would refuse most real users."</em
+                    >
+                    Một dòng cấu hình sinh ra từ thực tế, không từ chuẩn.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.2 <code>FileDrop</code>: tiếp cận được trước, kéo thả sau</h3>
+
+          <div class="code">
+            <div class="code__file">customers/files/file-drop.ts — chú thích</div>
+            <pre><code>## Accessible first, draggable second
+
+The control is a real `&lt;input type="file"&gt;` inside a `&lt;label&gt;`, so a
+keyboard user tabs to it and presses Enter, and a screen reader announces
+it as what it is. Drag and drop is layered on top for pointer users; it is
+never the only way in.
+
+`accept` narrows the browser's file picker, which is a convenience: it does
+not stop a file being dropped, and a user can switch the picker to "All
+files". The caller validates what arrives with `checkFile`, and the server
+validates it again.
+
+It selects; it does not validate, upload or preview.</code></pre>
+          </div>
+
+          <p>
+            Ba bài học trong một chú thích. <strong>Một</strong>: thứ tự xây dựng — control
+            native trước, kéo thả là lớp phủ lên trên, không bao giờ là lối vào duy nhất (bài
+            22). <strong>Hai</strong>: <code>accept</code> được gọi đúng tên là
+            <em>tiện ích</em>, không phải kiểm tra. <strong>Ba</strong>: ranh giới trách nhiệm
+            — component này <em>chọn</em> file, thế thôi. Hai caller (avatar và import) kiểm
+            tra, xem trước và upload theo cách khác nhau, nên những việc đó thuộc về chúng.
+          </p>
+
+          <h3>4.3 <code>UploadAwareBackend</code>: chọn transport theo từng request</h3>
+
+          <div class="code">
+            <div class="code__file">core/http/upload-aware.backend.ts</div>
+            <pre><code>/**
+ * Both transports sit *below* the interceptor chain, so an upload gets the
+ * correlation id, the CSRF header, refresh-on-expiry and error mapping exactly
+ * like any other request. Cancelling works the same way too: unsubscribing
+ * aborts the XHR, which is how "cancel upload" stops bytes leaving the
+ * browser rather than only hiding a progress bar. ADR-0021.
+ */
+@Injectable()
+export class UploadAwareBackend implements HttpBackend {
+  private readonly fetch = inject(FetchBackend);
+  private readonly xhr = inject(HttpXhrBackend);
+
+  handle(req: HttpRequest&lt;unknown&gt;): Observable&lt;HttpEvent&lt;unknown&gt;&gt; {
+    return req.reportUploadProgress ? this.xhr.handle(req) : this.fetch.handle(req);
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            <strong>Một dòng logic</strong>, và nó là toàn bộ bản sửa. Điều kiện phân nhánh
+            là chính cái thuộc tính phân biệt hai trường hợp:
+            <code>reportUploadProgress</code>. Không cần cấu hình, không cần danh sách URL,
+            không ai phải nhớ gì.
+          </p>
+
+          <p>
+            Vị trí mới là phần quan trọng: nó thay <em>backend</em> mà
+            <code>withFetch()</code> đã cài, nên nó nằm <strong>dưới</strong> toàn bộ chuỗi
+            interceptor của bài 09. Một upload vẫn mang correlation id, vẫn có header CSRF,
+            vẫn được làm mới phiên khi hết hạn, vẫn được map lỗi. So với phương án "tạo một
+            <code>HttpClient</code> thứ hai cho upload" thì khác biệt là: ở đây bạn không mất
+            gì cả.
+          </p>
+
+          <h3>4.4 <code>Transfer&lt;T&gt;</code>: thu hẹp bảy loại sự kiện còn hai</h3>
+
+          <div class="code">
+            <div class="code__file">customers/data/transfer.ts</div>
+            <pre><code>/**
+ * A file transfer as the application sees it: some progress, then a result.
+ *
+ * `HttpEvent` has seven kinds, of which a page cares about two. This narrows
+ * the stream at the API boundary, the same way `AppError` narrows failures,
+ * so a component renders "40 %" and "done" without knowing what an
+ * `HttpEventType.UploadProgress` is.
+ *
+ * `total` is `null` when the size is unknown - a response without a
+ * `Content-Length`. The UI then shows activity rather than a percentage it
+ * would have to invent.
+ */
+export type Transfer&lt;T&gt; =
+  | { readonly kind: 'progress'; readonly loaded: number; readonly total: number | null }
+  | { readonly kind: 'done'; readonly value: T };
+
+/** The fraction transferred, or `null` when there is no honest answer. */
+export function fractionOf(transfer: Transfer&lt;unknown&gt;): number | null {
+  if (transfer.kind === 'done') {
+    return 1;
+  }
+  return transfer.total ? Math.min(1, transfer.loaded / transfer.total) : null;
+}</code></pre>
+          </div>
+
+          <p>
+            Cùng một mẫu với <code>AppError</code> ở bài 10 và <code>RemoteData</code> ở bài
+            11: <strong>thu hẹp từ vựng của framework thành từ vựng của ứng dụng, ngay tại
+            biên</strong>. Component không bao giờ phải biết
+            <code>HttpEventType</code> là gì.
+          </p>
+
+          <p>
+            Và chi tiết trung thực: <code>total</code> có thể là <code>null</code> khi response
+            không có <code>Content-Length</code>. Lúc đó <code>fractionOf</code> trả
+            <code>null</code> — <em>"no honest answer"</em> — và giao diện hiện một thanh
+            đang-chạy thay vì một phần trăm bịa ra. So sánh với cách làm phổ biến là nhân đại
+            một con số cho nó chạy từ 0 tới 90 rồi dừng.
+          </p>
+
+          <h3>4.5 Máy trạng thái upload, đọc từng chuyển dịch</h3>
+
+          <div class="code">
+            <div class="code__file">customers/customer-avatar/customer-avatar.ts</div>
+            <pre><code>type UploadState =
+  | { readonly state: 'idle' }
+  | { readonly state: 'invalid'; readonly reasonKey: string; readonly params: object }
+  | { readonly state: 'ready'; readonly file: File; readonly preview: string | null }
+  | { readonly state: 'uploading'; readonly file: File; readonly preview: string | null;
+      readonly percent: number | null }
+  | ...</code></pre>
+          </div>
+
+          <p>
+            Một union có thẻ phân biệt, y như <code>RemoteData</code> ở bài 11 — và cùng một
+            lợi ích: không trạng thái nào mang theo trường mà nó không cần, và TypeScript
+            không cho bạn đọc <code>percent</code> khi đang ở <code>ready</code>.
+          </p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-avatar/customer-avatar.ts</div>
+            <pre><code>protected choose(file: File): void {
+  this.releasePreview();
+  const rejection = checkFile(file, AVATAR_FILE_POLICY);
+  if (rejection) {
+    this.upload.set({
+      state: 'invalid',
+      reasonKey: fileRejectionKey(rejection),
+      params: fileRejectionParams(AVATAR_FILE_POLICY),
+    });
+    return;
+  }
+  this.upload.set({ state: 'ready', file, preview: this.objectUrls.create(file) });
+}
+
+/** Aborts the request; the chosen file stays, ready to try again. */
+protected cancel(): void {
+  const current = this.upload();
+  this.transfer?.unsubscribe();
+  this.transfer = null;
+  if (current.state === 'uploading') {
+    this.upload.set({ state: 'ready', file: current.file, preview: current.preview });
+    this.notifications.toast('customers.avatar.cancelled', { tone: 'info' });
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó quyết định điều gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>releasePreview()</code> ở <em>đầu</em> <code>choose</code></td>
+                  <td>
+                    Chọn file thứ hai thì object URL của file thứ nhất được thu hồi
+                    <strong>trước</strong> khi tạo cái mới. Thiếu dòng này, mỗi lần người dùng
+                    đổi ý là một blob bị bỏ lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td>File bị từ chối → trạng thái <code>invalid</code>, không gửi gì</td>
+                  <td>
+                    Mục đích của phép kiểm phía client: nói ngay, và không tiêu băng thông cho
+                    một thứ chắc chắn bị từ chối.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>cancel()</code> quay về <code>ready</code>, không về
+                    <code>idle</code>
+                  </td>
+                  <td>
+                    Comment nói rõ: <em>"the chosen file stays, ready to try again."</em> Huỷ
+                    vì mạng chậm thì không có nghĩa là người dùng đổi ý về file. Bắt họ chọn
+                    lại là trừng phạt họ vì đã bấm huỷ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Lỗi → <code>failed</code> kèm <code>messageKeyOf(error)</code></td>
+                  <td>
+                    Bài 10: thông điệp đến từ taxonomy, không phải từ server.
+                    <code>failed</code> giữ nguyên file để nút "Thử lại" gửi lại đúng file đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>start()</code> nhận cả <code>ready</code> lẫn
+                    <code>failed</code>
+                  </td>
+                  <td>
+                    Một hàm phục vụ cả "gửi" lẫn "thử lại" — vì đứng từ góc độ máy trạng thái
+                    thì đó là cùng một chuyển dịch.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và điều mà component này cố ý <em>không</em> làm:</p>
+
+          <div class="code">
+            <div class="code__file">customers/customer-avatar/customer-avatar.ts — chú thích</div>
+            <pre><code>## It does not block the page
+
+The state is this component's own. The rest of the detail page - refresh,
+edit, the audit link - stays usable while bytes are moving, and leaving the
+page cancels the upload rather than orphaning it.</code></pre>
+          </div>
+
+          <p>
+            Trạng thái upload là của <em>component</em>, không phải của trang, không phải của
+            store. Nên không có overlay chặn toàn trang, không có spinner toàn cục. Và vì nó
+            thuộc component, rời trang sẽ huỷ nó — chứ không để lại một request mồ côi đang
+            chạy.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của một lần upload ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+
+    idle --> invalid : chọn file — checkFile từ chối<br/>KHÔNG gửi gì cả
+    invalid --> ready : chọn file khác, hợp lệ
+    invalid --> idle : bỏ qua
+
+    idle --> ready : chọn file hợp lệ<br/>tạo object URL để xem trước
+
+    ready --> uploading : bấm Tải lên<br/>percent = 0
+    uploading --> uploading : HttpEvent UploadProgress → percent
+    uploading --> idle : xong — thu hồi preview, toast, nạp lại bản ghi<br/>vì upload đã làm version đổi
+    uploading --> ready : HUỶ — unsubscribe gọi xhr.abort()<br/>byte dừng thật, file vẫn giữ
+    uploading --> failed : lỗi — thông điệp từ taxonomy, không phải từ server
+
+    failed --> uploading : Thử lại — gửi lại CHÍNH file đó
+    failed --> idle : bỏ
+
+    ready --> idle : bỏ — thu hồi preview
+            </pre>
+            <figcaption>
+              Hai mũi tên hay bị làm sai: <code>uploading → ready</code> khi huỷ (không phải
+              về <code>idle</code> — giữ file lại cho người dùng), và
+              <code>failed → uploading</code> (gửi lại cùng file, không bắt chọn lại). Mọi mũi
+              tên rời khỏi <code>ready</code> hoặc <code>uploading</code> đều phải đi qua việc
+              thu hồi object URL.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Một file đi từ ổ đĩa tới server</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as Người dùng
+    participant FD as app-file-drop
+    participant AV as CustomerAvatar
+    participant I as 5 interceptor
+    participant BE as UploadAwareBackend
+    participant S as Server
+
+    U-&gt;&gt;FD: chọn, hoặc kéo thả
+    FD-&gt;&gt;AV: fileSelected(File)
+    AV-&gt;&gt;AV: checkFile(file, AVATAR_FILE_POLICY)
+    Note over AV: tên · kiểu khai · kích thước<br/>ba lời khai, không cái nào là bằng chứng
+
+    alt bị từ chối
+        AV--&gt;&gt;U: trạng thái invalid, câu đã dịch — KHÔNG gửi gì
+    else hợp lệ
+        AV-&gt;&gt;AV: objectUrls.create(file) để xem trước
+        U-&gt;&gt;AV: bấm Tải lên
+        AV-&gt;&gt;I: POST multipart, reportUploadProgress = true
+        I-&gt;&gt;BE: qua correlationId · logging · refresh · csrf · errorMapping
+        BE-&gt;&gt;S: reportUploadProgress? → HttpXhrBackend
+        loop trong lúc gửi
+            S--&gt;&gt;AV: UploadProgress → percent
+        end
+        S-&gt;&gt;S: checkFile LẠI, rồi đọc 8 byte đầu
+        alt byte đầu không khớp kiểu khai
+            S--&gt;&gt;AV: 415 — HTML đổi tên thành .png bị chặn ở ĐÂY
+        else hợp lệ
+            S--&gt;&gt;AV: 200
+            AV-&gt;&gt;AV: thu hồi object URL, nạp lại bản ghi
+        end
+    end
+            </pre>
+            <figcaption>
+              Bước 3 và bước 13 là <strong>cùng một hàm</strong>
+              <code>checkFile</code>, chạy ở hai nơi. Bước 14 là phép kiểm mà bước 3 không thể
+              làm thay. Và lưu ý bước 10: transport được chọn ở
+              <em>dưới</em> interceptor, nên upload vẫn có đủ CSRF và error mapping.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>Bốn phương án cho tiến trình upload (ADR-0021)</h4>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phương án</th>
+                  <th>Vì sao bị loại / được chọn</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>A — chuyển cả ứng dụng sang <code>withXhr()</code></td>
+                  <td>
+                    Đảo một quyết định của Phase 0 cho <em>mọi</em> request chỉ để phục vụ
+                    hai; và XHR trên server cần một polyfill mà bản build SSR không có.
+                  </td>
+                </tr>
+                <tr>
+                  <td>B — một <code>HttpClient</code> thứ hai cho upload</td>
+                  <td>
+                    Nó sẽ <strong>đi vòng qua chuỗi interceptor</strong> — không CSRF, không
+                    refresh, không map lỗi — hoặc phải nhân đôi chuỗi đó. Mà upload là lệnh
+                    ghi, nó cần đủ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>C — tiến trình giả</td>
+                  <td>
+                    Nguyên văn:
+                    <em
+                      >"a progress bar that is not measuring anything is a lie the user will
+                      notice on the first slow connection."</em
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>D — chọn transport theo từng request, dưới interceptor</strong>
+                  </td>
+                  <td>
+                    Được chọn. Một dòng điều kiện, không mất gì ở chuỗi interceptor, và huỷ
+                    subscribe gọi được <code>xhr.abort()</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Lưu ý chi tiết cuối của ADR: tiến trình <em>tải xuống</em> (cho export) vẫn ở lại
+            <code>fetch</code>, vì <code>fetch</code> hỗ trợ được. Chỉ đổi đúng chỗ cần đổi.
+          </p>
+
+          <h4>Chỉ kiểm chữ ký, không giải mã và mã hoá lại ảnh</h4>
+          <p>
+            <code>docs/file-handling.md</code> liệt kê trong mục "What is not done":
+            <em>"Images are signature-checked, not decoded and re-encoded; no malware scan;
+            user content is not served from a separate origin."</em> Ba thiếu sót, nêu tên,
+            kèm con trỏ sang <code>docs/security.md</code>. Cách ghi nợ đáng học: không nói
+            "đã kiểm file an toàn", mà nói <em>chính xác</em> đã kiểm tới đâu.
+          </p>
+
+          <h4>Không chunked, không resumable</h4>
+          <p>
+            Giới hạn 2 MB cho ảnh và 5 MB cho CSV khiến việc tải lại từ đầu khi lỗi là chấp
+            nhận được. Nếu giới hạn là 500 MB thì câu trả lời phải khác —
+            và đó là điều kiện xem lại.
+          </p>
+
+          <h4><code>accept</code> chỉ là tiện ích</h4>
+          <p>
+            Đổi lại một thứ nhỏ nhưng thật: hộp chọn file lọc sẵn cho người dùng. Giới hạn
+            được nói ra: nó không chặn kéo thả, và người dùng đổi được sang "All files". Nên
+            nó không bao giờ được tính là một lớp kiểm tra.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Tin <code>file.type</code></span>
+            <p>
+              Đổi tên một file HTML thành <code>.png</code> là xong — trình duyệt tự khai
+              <code>image/png</code>, và mọi phép kiểm phía client đều qua. Nếu server cũng
+              chỉ nhìn kiểu khai, bạn vừa nhận và lưu một trang HTML dưới dạng "ảnh". Nếu nó
+              lại được phục vụ từ cùng origin, đó là một lỗ XSS lưu trữ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Chỉ kiểm ở một đầu</span>
+            <p>
+              Chỉ client: ai cũng gửi được <code>curl</code>. Chỉ server: người dùng chọn một
+              file 40 MB, chờ tải lên hết, rồi mới bị từ chối. Cần cả hai, và chúng phải là
+              <em>cùng một luật</em> — hai bản cài đặt sẽ lệch nhau trong vòng vài tháng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Lấy phần mở rộng từ dấu chấm đầu tiên</span>
+            <p>
+              <code>name.split('.')[1]</code> đọc <code>invoice.pdf.exe</code> thành
+              <code>pdf</code>. Hệ điều hành và web server thì đọc nó là
+              <code>exe</code>. Hai cách hiểu khác nhau về cùng một tên file là một lỗ hổng
+              kinh điển.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Thanh tiến trình giả</span>
+            <p>
+              Chạy tới 90% bằng <code>setInterval</code> rồi đứng im chờ response. Trên mạng
+              nhanh thì không ai nhận ra; trên mạng chậm thì nó đứng ở 90% suốt ba mươi giây
+              và người dùng bấm tải lại trang — đúng lúc upload sắp xong.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Nút "Huỷ" chỉ ẩn giao diện</span>
+            <p>
+              Byte vẫn đang rời khỏi máy. Trên 4G tính theo dung lượng, đây không phải lỗi
+              thẩm mỹ. Tệ hơn: upload vẫn hoàn tất, server vẫn lưu, và người dùng tin rằng họ
+              đã huỷ.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Quên <code>revokeObjectURL</code></span>
+            <p>
+              Mỗi lần xem trước giữ nguyên một file trong bộ nhớ tới khi đóng tab. Một trang
+              quản trị nơi người ta thử mười lăm ảnh liền là vài trăm MB không trả lại. Không
+              có cảnh báo nào, không có lỗi nào — chỉ là tab ngày càng nặng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Chặn cả trang trong lúc upload</span>
+            <p>
+              Một overlay toàn trang trong lúc tải một tấm ảnh 2 MB. Người dùng không xem được
+              gì, không sửa được gì, và nếu mạng treo thì họ kẹt. Trạng thái upload thuộc về
+              <em>component</em>, và phần còn lại của trang không liên quan.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Xuất CSV không trung hoà công thức</span>
+            <p>
+              Một khách hàng tên <code>=HYPERLINK("https://evil.test","Click")</code>. Hệ
+              thống của bạn lưu nó như một chuỗi, trả về như một chuỗi, xuất ra như một chuỗi
+              — và Excel biến nó thành một liên kết sống trên máy của người kế toán. Không bộ
+              quét bảo mật nào báo, vì server bạn chẳng làm gì sai.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tầng</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Unit, trong <code>packages/contracts</code></td>
+                  <td>
+                    <code>checkFile</code> với từng luật bị phá: rỗng, quá lớn, sai đuôi, sai
+                    kiểu khai — và các ca biên của <code>fileExtensionOf</code>
+                    (<code>.bashrc</code>, không có dấu chấm, nhiều dấu chấm). Đây là loại
+                    hàm thuần mà unit test phủ được 100% rẻ nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Mock API</td>
+                  <td>
+                    415 cho một file có byte đầu không khớp kiểu khai — tức là
+                    <em>phép kiểm mà client không làm thay được</em> thật sự có răng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Component (<code>customer-avatar.spec.ts</code>)
+                  </td>
+                  <td>
+                    Máy trạng thái: file sai thì <strong>không có request nào được gửi</strong>
+                    (<code>HttpTestingController</code> xác nhận bằng
+                    <code>verify()</code>); huỷ làm request bị
+                    <code>cancelled</code>; thất bại hiện khoá dịch từ taxonomy chứ không phải
+                    chữ của server.
+                  </td>
+                </tr>
+                <tr>
+                  <td>E2E</td>
+                  <td>
+                    Upload thật trong trình duyệt thật, và — theo
+                    <code>docs/file-handling.md</code> —
+                    <em>"the E2E suite observes the request fail in the browser"</em> khi bấm
+                    huỷ. Tức là nó khẳng định <strong>byte thật sự dừng</strong>, không chỉ
+                    giao diện đổi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Khẳng định đáng chép</span>
+            <p>
+              "Một file sai thì <strong>không request nào được gửi</strong>" là một khẳng định
+              <em>phủ định</em>, và nó rất dễ quên viết. Nó được viết miễn phí nếu bạn kết
+              thúc mỗi integration test bằng <code>backend.verify()</code> (bài 23): không còn
+              request nào chưa được trả lời <em>cũng có nghĩa là</em> không có request nào
+              không ai mong đợi.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Tôi phải làm một ô upload"}
+
+    S --> V1["Viết LUẬT một lần, ở contracts dùng chung<br/>đuôi · kiểu khai · kích thước · rỗng"]
+    V1 --> V2["Client chạy: nói NGAY, và không gửi thứ chắc chắn bị từ chối"]
+    V1 --> V3["Server chạy LẠI: đó mới là luật"]
+    V3 --> V4["Server thêm phép kiểm client KHÔNG làm thay được:<br/>đọc byte đầu, so với kiểu khai"]
+    V4 --> V5["Và biết rằng chữ ký vẫn chưa đủ<br/>giải mã rồi mã hoá lại mới là câu trả lời thật"]
+
+    S --> U1{"Cần hiện phần trăm?"}
+    U1 -->|"có"| U2["fetch KHÔNG có upload progress<br/>→ chọn transport theo từng request, DƯỚI interceptor"]
+    U1 -->|"không"| U3["cứ fetch như mọi request khác"]
+    U2 --> U4["Huỷ = unsubscribe = xhr.abort()<br/>byte dừng thật, không chỉ ẩn thanh"]
+    U2 --> U5["total null thì hiện HOẠT ĐỘNG<br/>đừng bịa một phần trăm"]
+
+    S --> P1["Xem trước = object URL<br/>THU HỒI khi thay, khi xong, khi huỷ component"]
+
+    S --> ST["Trạng thái thuộc về COMPONENT, không phải trang<br/>phần còn lại vẫn dùng được · rời trang thì huỷ upload"]
+
+    S --> O1{"Có xuất file ra không?"}
+    O1 -->|"CSV"| O2["Trung hoà ô bắt đầu bằng = + - @ tab CR<br/>bằng một dấu nháy đơn"]
+    O2 --> O3["Dữ liệu vô hại cho tới khi CHƯƠNG TRÌNH KHÁC diễn giải nó"]
+
+    V2 --> A["Và: control gốc trước, kéo thả là lớp phủ<br/>accept chỉ là tiện ích, không phải kiểm tra"]
+            </pre>
+            <figcaption>
+              Ba trục độc lập: <em>kiểm tra</em> (trái), <em>vận chuyển</em> (giữa),
+              <em>đầu ra</em> (phải). Người ta thường chỉ nghĩ tới trục thứ nhất, làm sơ sài
+              trục thứ hai, và quên hẳn trục thứ ba.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Giả mạo một file và xem nó bị chặn ở đâu</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                Tạo một file HTML bất kỳ, đổi tên thành <code>avatar.png</code>. Mở trang chi
+                tiết một khách hàng và thử tải nó lên.
+              </li>
+              <li>
+                Nó <strong>qua</strong> được phép kiểm phía client không? Mở DevTools →
+                Network: request có được gửi đi không?
+              </li>
+              <li>Server trả về mã gì? Giao diện hiện câu gì?</li>
+              <li>
+                Giờ thử một file <code>.gif</code> thật. Lần này request có được gửi không? Vì
+                sao khác với bước 2?
+              </li>
+              <li>Thử một file ảnh &gt; 2 MB. Và một file rỗng.</li>
+              <li>
+                Với mỗi trường hợp, ghi vào một bảng: <em>bị chặn ở đâu</em> (client hay
+                server), <em>mã lỗi</em>, và <em>người dùng đọc được câu gì</em>.
+              </li>
+            </ol>
+            <details>
+              <summary>Bảng của bạn nên trông thế nào</summary>
+              <p>
+                Ba hàng bị chặn ở client (gif, quá lớn, rỗng) — không có request nào. Một hàng
+                đi tới server rồi mới bị chặn bằng 415: chính là HTML đổi tên. Hàng cuối đó là
+                toàn bộ lý do mục 3.3 tồn tại.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Huỷ thật hay huỷ giả?</h3>
+            <p class="task__meta">~30 phút · không sửa code sản phẩm</p>
+            <ol>
+              <li>
+                DevTools → Network → chọn throttling <em>Slow 4G</em>. Chọn một ảnh gần 2 MB
+                và bấm Tải lên.
+              </li>
+              <li>Quan sát phần trăm. Nó có <em>thật</em> không? Nó đi theo nhịp nào?</li>
+              <li>
+                Bấm Huỷ ở giữa chừng. Trong tab Network, request đó kết thúc ở trạng thái gì?
+              </li>
+              <li>
+                Sau khi huỷ, giao diện ở trạng thái nào — <code>idle</code> hay
+                <code>ready</code>? File đã chọn còn đó không? Vì sao thiết kế thế?
+              </li>
+              <li>
+                Trong lúc đang upload, hãy thử dùng phần còn lại của trang: bấm Làm mới, mở
+                link Audit. Có bị chặn không?
+              </li>
+              <li>
+                Trong lúc đang upload, bấm nút Back của trình duyệt. Request có bị huỷ không?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn đang kiểm ba lời hứa</summary>
+              <p>
+                (3) Request phải <em>đổ</em>/bị huỷ, không phải hoàn tất lặng lẽ. (5) Trang
+                không bị chặn — trạng thái thuộc component. (6) Rời trang huỷ upload, chứ
+                không để lại request mồ côi. Cả ba đều là câu trong chú thích của
+                <code>customer-avatar.ts</code>, và bạn vừa kiểm chứng từng câu.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Một khách hàng tên là công thức</h3>
+            <p class="task__meta">~35 phút · sửa dữ liệu, rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Tạo (hoặc sửa) một khách hàng có tên bắt đầu bằng <code>=</code>, ví dụ
+                <code>=1+1</code>. Ứng dụng có cho lưu không?
+              </li>
+              <li>
+                Xuất CSV từ trang danh sách. Mở file bằng trình soạn thảo văn bản — ô đó trông
+                thế nào?
+              </li>
+              <li>
+                Mở cùng file bằng Excel hoặc Google Sheets. Ô đó hiện gì? Nếu dấu nháy đơn
+                không có thì sẽ hiện gì?
+              </li>
+              <li>
+                Tìm <code>csvCell</code> trong <code>apps/mock-api/src/routes/files.routes.ts</code>
+                và tạm bỏ phần trung hoà. Xuất lại, mở lại bằng spreadsheet.
+              </li>
+              <li>Hoàn nguyên.</li>
+              <li>
+                Câu hỏi cuối: repo có <strong>hai</strong> nơi sinh CSV (export ở server, báo
+                cáo lỗi import ở trình duyệt). Cả hai có cùng cách trung hoà không? Kiểm
+                <code>customers/customer-import/import-error-report.ts</code>.
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 6 là bước quan trọng nhất</summary>
+              <p>
+                Vì một luật an toàn áp dụng ở <em>một</em> trong hai nơi sinh ra cùng loại file
+                thì chỉ là nửa luật. Đây cũng là lý do mà loại lỗi này sống dai: người ta sửa
+                chỗ xuất chính và quên chỗ xuất phụ.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Ba thứ client biết về một file, và cái nào là bằng chứng?</summary>
+            <p>
+              Tên (người dùng gõ), kiểu khai (trình duyệt đoán từ tên), kích thước (đo thật).
+              <strong>Không cái nào</strong> là bằng chứng về nội dung — kích thước đo đúng
+              nhưng không nói gì về bên trong.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao luật kiểm file nằm trong <code>packages/contracts</code>?</summary>
+            <p>
+              Để client và server chạy <em>cùng một hàm</em> và không bao giờ bất đồng. Một
+              client chấp nhận <code>.gif</code> trong khi server từ chối sẽ sinh ra "một lỗi
+              mà người dùng không thể tránh được".
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Phép kiểm nào client không thể làm thay server?</summary>
+            <p>
+              Đọc những byte đầu tiên và so với kiểu khai. Một trang HTML đổi tên thành
+              <code>avatar.png</code> qua hết mọi phép kiểm phía client và bị chặn ở đây bằng
+              415. Nhưng chữ ký vẫn chỉ là sàn — câu trả lời thật là giải mã rồi mã hoá lại
+              ảnh.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao lấy phần mở rộng từ dấu chấm cuối?</summary>
+            <p>
+              Vì đó là dấu chấm mà hệ điều hành và web server hành động theo:
+              <code>invoice.pdf.exe</code> là một file thực thi. Và
+              <code>dot &gt; 0</code> chứ không <code>&gt;= 0</code>, để
+              <code>.bashrc</code> không bị coi là có phần mở rộng.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao upload phải đi trên XHR, và vì sao không tạo một <code>HttpClient</code> thứ hai?</summary>
+            <p>
+              Vì <code>fetch</code> không có sự kiện tiến trình upload, còn
+              <code>FetchBackend</code> của Angular thì ném lỗi nếu bị hỏi. Không tạo client
+              thứ hai vì nó sẽ đi vòng qua chuỗi interceptor — mất CSRF, mất refresh, mất map
+              lỗi — mà upload là lệnh ghi và cần đủ cả. Giải pháp: chọn transport theo từng
+              request, ở tầng <em>dưới</em> interceptor.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. "Huỷ" được cài đặt thế nào, và vì sao nó là huỷ thật?</summary>
+            <p>
+              Huỷ subscribe. Với một request đang chạy trên XHR, Angular gọi
+              <code>xhr.abort()</code> — byte ngừng rời khỏi trình duyệt. Khác hẳn việc ẩn
+              thanh tiến trình trong khi upload vẫn chạy tiếp bên dưới.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Ba thời điểm phải thu hồi object URL?</summary>
+            <p>
+              Khi ảnh xem trước bị thay bằng file khác, khi upload hoàn tất, và khi component
+              bị huỷ. Quên bất kỳ cái nào là giữ nguyên một file trong bộ nhớ tới khi đóng
+              tab.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao một ô CSV bắt đầu bằng <code>=</code> là nguy hiểm?</summary>
+            <p>
+              Vì spreadsheet <em>thực thi</em> nó như công thức khi mở file. Dữ liệu hoàn toàn
+              vô hại trong hệ thống của bạn — nó chỉ là một chuỗi — và trở nên nguy hiểm khi
+              một chương trình khác diễn giải nó. Cách chữa: thêm một dấu nháy đơn trước mọi ô
+              bắt đầu bằng <code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, tab
+              hoặc CR, ở <strong>mọi</strong> nơi sinh ra CSV.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 28</strong> là bước tiếp theo của chính luồng này: cùng
+              <code>app-file-drop</code>, cùng <code>checkFile</code>, nhưng với một quy trình
+              hai pha — xem trước rồi mới ghi — và chuyện thành công một phần.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="26-da-tab-va-leader-election.html">← Brief 26</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

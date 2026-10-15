@@ -1,0 +1,1717 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 26 — Đa tab &amp; bầu leader</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 26
+        </p>
+        <h1>Đa tab &amp; bầu leader ◆</h1>
+        <p class="lede">
+          Người dùng mở ba tab cùng một ứng dụng. Chúng dùng chung cookie, chung
+          <code>localStorage</code>, chung service worker — và cho tới khi bạn làm gì đó,
+          mỗi tab cư xử như thể nó là tab duy nhất. Brief này về bốn cơ chế để chúng nói
+          chuyện, và về một bài học phân tán thu nhỏ: vì sao
+          <code>localStorage</code> không bao giờ làm được một cái khoá.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu · ◆ có máy trạng thái</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi có người báo lỗi bắt đầu bằng <em>"nếu mở hai tab thì…"</em>: đăng xuất ở
+              tab này mà tab kia vẫn hiện dữ liệu, một job chạy n lần với n tab, hai tab cùng
+              làm mới phiên và một tab bị đá ra.
+            </p>
+            <p>
+              Nền cần có: brief 25 (nó để lại đúng câu hỏi mà brief này trả lời), bài 19
+              (phiên và refresh), bài 05 (injection token cho API trình duyệt).
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>BroadcastChannel</code></td>
+                  <td>
+                    API trình duyệt: mở một kênh theo tên, <code>postMessage</code> đi tới
+                    <strong>mọi tab khác</strong> cùng origin —
+                    <em>không bao giờ</em> quay về tab đã gửi. Tính chất "không tự nghe mình"
+                    đó là thứ mọi caller ở đây dựa vào.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Structured clone</strong></td>
+                  <td>
+                    Cách trình duyệt sao chép dữ liệu qua ranh giới (tab, worker). Sao được
+                    object, array, Date, Map; <strong>không</strong> sao được hàm, class
+                    instance, DOM node.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Sự kiện <code>storage</code></td>
+                  <td>
+                    Bắn ở <em>mọi tab khác</em> khi một khoá <code>localStorage</code> đổi.
+                    Không phải một kênh nhắn tin — nó là hệ quả phụ của việc
+                    <em>lưu</em> một giá trị.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Web Locks API</strong> (<code>navigator.locks</code>)</td>
+                  <td>
+                    Khoá loại trừ thật, do trình duyệt cấp: một tab giữ khoá tên X thì tab
+                    khác phải chờ. Trình duyệt <strong>tự nhả</strong> khi tab giữ khoá chết —
+                    đây là điều không cơ chế tự chế nào làm được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Lease</strong> (hợp đồng thuê)</td>
+                  <td>
+                    Một bản ghi <code>{ holder, expiresAt }</code>: "tab này làm leader tới
+                    thời điểm đó". Phải gia hạn liên tục, nếu không nó hết hạn và tab khác
+                    giành lấy.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Heartbeat</strong>, <strong>settle</strong></td>
+                  <td>
+                    Nhịp mỗi tab nhìn vào lease (1 s), và khoảng chờ sau khi
+                    <em>giành</em> trước khi đọc lại xem mình có thắng không (150 ms).
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Compare-and-set</strong> (CAS)</td>
+                  <td>
+                    "Ghi giá trị mới <em>nếu</em> giá trị cũ vẫn là X" — một thao tác nguyên
+                    tử. <code>localStorage</code> <strong>không có</strong>, và toàn bộ phần
+                    khó của brief này bắt nguồn từ đó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Split brain</strong> / hai leader</td>
+                  <td>
+                    Hai tab cùng tin mình là leader. Trong hệ phân tán đây là lỗi kinh điển;
+                    ở đây nó <em>xảy ra được</em>, và cách sống chung là làm cho công việc
+                    <em>idempotent</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Idempotent</strong></td>
+                  <td>
+                    Chạy hai lần cho kết quả như chạy một lần. Một lệnh đọc thì idempotent;
+                    "cộng 1 vào bộ đếm" thì không.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Fencing token</strong></td>
+                  <td>
+                    Số thế hệ gắn vào mỗi kết quả, để bên nhận bỏ kết quả của một leader cũ.
+                    Lab trong repo <em>không</em> có — và mục 6 nói thẳng đó là một thiếu sót
+                    được nêu tên.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Background throttling</strong></td>
+                  <td>
+                    Tab ẩn chạy timer tối đa 1 lần/giây; ẩn quá 5 phút thì Chrome siết còn
+                    1 lần/phút. Một leader bị siết sẽ không gia hạn kịp lease.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>pagehide</code>, <strong>bfcache</strong>
+                  </td>
+                  <td>
+                    <code>pagehide</code> bắn khi trang rời đi, kể cả khi vào
+                    <em>back/forward cache</em>. Dùng <code>unload</code> thay nó sẽ
+                    <strong>vô hiệu hoá</strong> bfcache — một lỗi hiệu năng ngầm.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>SharedWorker</code></td>
+                  <td>
+                    Một worker dùng chung cho mọi tab. Về lý thuyết là lời giải cho mọi thứ ở
+                    đây; mục 6 nói vì sao bị loại.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chọn đúng một trong bốn cơ chế — <code>BroadcastChannel</code>, sự kiện
+              <code>storage</code>, Web Lock, lease — theo <em>loại</em> vấn đề, không theo
+              thói quen.
+            </li>
+            <li>
+              Nói được vì sao <code>localStorage</code> không bao giờ làm được một cái khoá
+              đúng, bằng đúng hai chữ: <em>compare-and-set</em>.
+            </li>
+            <li>
+              Thiết kế payload liên tab an toàn trước một lần deploy: validate ở
+              <strong>cả hai đầu</strong>, và đặt phiên bản vào tên kênh.
+            </li>
+            <li>
+              Phân biệt được chuyện <em>nên</em> loan báo giữa các tab với chuyện
+              <strong>không</strong> nên — và nói được vì sao "phiên hết hạn" thuộc loại thứ
+              hai.
+            </li>
+            <li>Vẽ được máy trạng thái ba trạng thái của bầu cử theo lease.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>
+            Đây là brief mà nền backend của bạn <strong>có lợi nhất</strong>. Mọi khái niệm
+            đều là khái niệm hệ phân tán, chỉ thu nhỏ lại: thay vì n máy chủ thì là n tab,
+            thay vì mạng chập chờn thì là tab bị ẩn và bị đóng băng.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Leader election (ZooKeeper, etcd, Consul)</td>
+                  <td>Lease trong <code>localStorage</code>, hoặc Web Lock</td>
+                </tr>
+                <tr>
+                  <td>Lease với TTL, gia hạn định kỳ</td>
+                  <td><code>{ holder, expiresAt }</code>, heartbeat 1 s, lease 3 s</td>
+                </tr>
+                <tr>
+                  <td>Distributed lock</td>
+                  <td><code>navigator.locks.request(name, ...)</code></td>
+                </tr>
+                <tr>
+                  <td>Pub/sub nội bộ cụm</td>
+                  <td><code>BroadcastChannel</code></td>
+                </tr>
+                <tr>
+                  <td>Node chết không kịp báo</td>
+                  <td>Tab bị đóng (crash) — không có <code>pagehide</code></td>
+                </tr>
+                <tr>
+                  <td>Mạng phân mảnh → split brain</td>
+                  <td>Tab bị đóng băng/siết timer → hai leader</td>
+                </tr>
+                <tr>
+                  <td>Fencing token</td>
+                  <td><em>Không có trong lab</em> — một giới hạn được nêu tên</td>
+                </tr>
+                <tr>
+                  <td>CAS của Redis / <code>SETNX</code></td>
+                  <td><strong>Không tồn tại</strong> trong <code>localStorage</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "<code>localStorage</code> dùng làm khoá được"</span>
+            <p>
+              Ở backend bạn có <code>SETNX</code>, có <code>UPDATE ... WHERE version = ?</code>,
+              có transaction. <code>localStorage</code> <strong>không có gì cả</strong>: chỉ
+              <code>read</code> và <code>write</code> rời nhau. Mọi thuật toán khoá dựng trên
+              nó đều là đọc-rồi-ghi, và giữa hai thao tác đó luôn có một khe cho tab khác chen
+              vào.
+            </p>
+            <p>
+              Chú thích trong <code>lease-election.ts</code> nói đúng điều này:
+              <em>"`localStorage` has no compare-and-set."</em> Đó là lý do kỹ thuật duy nhất
+              cần nhớ từ cả brief.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "mỗi tab là một node biết mình đang sống"</span>
+            <p>
+              Node ở backend hoặc chạy hoặc chết. Một tab có <em>bốn</em> trạng thái trung
+              gian mà bạn không gặp ở server: bị ẩn (timer siết còn 1 lần/giây), bị siết sâu
+              (1 lần/phút sau 5 phút), bị <em>freeze</em> hoàn toàn, và bị
+              <em>discard</em> rồi dựng lại.
+            </p>
+            <p>
+              Điều nguy hiểm: một tab bị đóng băng <strong>vẫn tin</strong> mình là leader.
+              Nó không biết nó đã ngủ. Tài liệu ghi thẳng:
+              <em>"The frozen tab still believes it leads until its next heartbeat."</em>
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "gửi luôn dữ liệu cho tab kia cho nhanh"</span>
+            <p>
+              Phản xạ tối ưu hoá rất tự nhiên: tab A vừa tải khách hàng C-000001 rồi, gửi
+              nguyên object sang tab B thì B khỏi phải gọi API. Sai, và lý do là
+              <em>phân quyền</em>: tab B có thể đang ở một phiên khác, một người dùng khác,
+              một quyền khác.
+            </p>
+            <p>
+              Nguyên tắc của repo: kênh chỉ mang <strong>tin rằng có chuyện xảy ra</strong>,
+              không mang dữ liệu. Mỗi tab tự nạp lại qua tầng HTTP của chính nó, nên không
+              bản ghi nào đi giữa hai tab mà không qua kiểm tra quyền của server.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 Bốn tình huống, bốn cơ chế khác nhau</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tình huống</th>
+                  <th>Cơ chế</th>
+                  <th>Vì sao chính nó</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Tab A sửa một khách hàng</td>
+                  <td><code>BroadcastChannel</code>, topic <code>customers</code></td>
+                  <td>Một <em>sự kiện</em>: xảy ra rồi thì thôi, tab mở sau không cần biết</td>
+                </tr>
+                <tr>
+                  <td>Tab A đăng xuất</td>
+                  <td><code>BroadcastChannel</code>, topic <code>session</code></td>
+                  <td>Cũng là một sự kiện, và cần tới ngay</td>
+                </tr>
+                <tr>
+                  <td>Hai tab cùng làm mới phiên</td>
+                  <td>Web Lock <code>ecm.session.refresh</code></td>
+                  <td>
+                    Không phải loan tin — là <strong>loại trừ</strong>. Chỉ một tab được chạy
+                    tại một thời điểm
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tab A đổi theme</td>
+                  <td>Sự kiện <code>storage</code></td>
+                  <td>
+                    Là <em>state đã được lưu sẵn</em>. Không cần code gửi gì cả — lưu là tự
+                    báo
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Bốn dòng, ba cơ chế, và đó là cả bài học:
+            <strong>dùng mỗi thứ đúng việc của nó</strong> — nhắn tin, loại trừ, state đã
+            lưu. Nhét cả bốn vào một <code>BroadcastChannel</code> thì ba trong bốn sẽ sai một
+            cách tinh vi.
+          </p>
+
+          <h3>3.2 <code>BroadcastChannel</code> hay sự kiện <code>storage</code>?</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th><code>BroadcastChannel</code></th>
+                  <th>Sự kiện <code>storage</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Mang cái gì</td>
+                  <td>Một thông điệp (structured clone)</td>
+                  <td>Một thay đổi của một khoá <code>localStorage</code></td>
+                </tr>
+                <tr>
+                  <td>Có lưu lại không</td>
+                  <td><strong>Không</strong> — tab mở sau không thấy gì</td>
+                  <td><strong>Có</strong> — giá trị còn đó, tab mở sau đọc được</td>
+                </tr>
+                <tr>
+                  <td>Người gửi có nhận lại</td>
+                  <td>Không</td>
+                  <td>Không</td>
+                </tr>
+                <tr>
+                  <td>Hợp với</td>
+                  <td>Sự kiện: "đã đăng xuất", "khách hàng vừa đổi"</td>
+                  <td>State vốn đã phải lưu: một tuỳ chọn</td>
+                </tr>
+                <tr>
+                  <td>Không hợp với</td>
+                  <td>State mà một tab mới mở cần thấy</td>
+                  <td>
+                    Nhắn tin — bạn sẽ phải <em>ghi</em> một thứ chỉ để gửi nó đi
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Câu hỏi phân loại gọn nhất: <strong>"một tab mở ra sau đó có cần biết điều này
+            không?"</strong> Cần → nó là state, hãy lưu. Không → nó là sự kiện, hãy phát.
+          </p>
+
+          <h3>3.3 Web Locks: thứ duy nhất là khoá thật</h3>
+
+          <div class="code">
+            <div class="code__file">hình dạng của API</div>
+            <pre><code>await navigator.locks.request('tên-khoá', async () =&gt; {
+  // chạy ở đây, và không tab nào khác của origin này
+  // chạy cùng tên khoá cùng lúc
+});
+// khoá tự nhả khi hàm trên kết thúc</code></pre>
+          </div>
+
+          <p>Ba tính chất mà không bản tự chế nào có được:</p>
+
+          <ol>
+            <li>
+              <strong>Nguyên tử thật.</strong> Trình duyệt cấp khoá, không phải bạn đọc rồi
+              ghi. Không có khe nào để chen vào.
+            </li>
+            <li>
+              <strong>Tự nhả khi tab chết.</strong> Tab giữ khoá bị đóng đột ngột thì trình
+              duyệt chuyển khoá cho tab đang chờ. Đây là phần mà mọi thuật toán lease phải
+              mô phỏng bằng thời gian hết hạn — và luôn mô phỏng không hoàn hảo.
+            </li>
+            <li>
+              <strong>Xếp hàng sẵn.</strong> Tab thứ hai không phải thử lại; nó chờ, rồi được
+              gọi.
+            </li>
+          </ol>
+
+          <p>
+            Giá phải trả: nó <em>đục</em> — bạn không nhìn thấy gì bên trong, không quan sát
+            được, không phá được để học. Đó chính là lý do repo vẫn giữ một bản lease tự viết
+            trong khu lab, và dùng Web Lock trong code thật.
+          </p>
+
+          <h3>3.4 Bầu leader theo lease: ba hằng số và một vòng lặp</h3>
+
+          <div class="code">
+            <div class="code__file">technical-labs/leader-election/lease-election.ts</div>
+            <pre><code>/** How long a claim lasts without renewal. Three missed heartbeats. */
+export const LEASE_MS = 3_000;
+/** How often every tab looks at the lease, and the leader renews it. */
+export const HEARTBEAT_MS = 1_000;
+/** How long a claimant waits before re-reading, to see whether its claim survived. */
+export const SETTLE_MS = 150;</code></pre>
+          </div>
+
+          <p>Mỗi nhịp heartbeat, mọi tab chạy đúng một đoạn logic:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tab đang là</th>
+                  <th>Bản ghi lease nói gì</th>
+                  <th>Làm gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Leader</td>
+                  <td>Vẫn ghi tên mình</td>
+                  <td>Gia hạn <code>expiresAt</code></td>
+                </tr>
+                <tr>
+                  <td>Leader</td>
+                  <td>Ghi tên <em>tab khác</em></td>
+                  <td>
+                    <strong>Thoái vị.</strong> Nó đã mất lease trong lúc không nhìn — bị ẩn,
+                    bị đóng băng, bị siết timer
+                  </td>
+                </tr>
+                <tr>
+                  <td>Follower</td>
+                  <td>Không có, hoặc đã hết hạn</td>
+                  <td>
+                    <strong>Giành</strong>: ghi id mình, chờ <code>SETTLE_MS</code>, đọc lại.
+                    Còn tên mình → làm leader; không → làm follower
+                  </td>
+                </tr>
+                <tr>
+                  <td>Follower</td>
+                  <td>Còn hạn, tên người khác</td>
+                  <td>Không làm gì</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Và một chi tiết nhỏ mà quan trọng: leader rời đi
+            <em>lịch sự</em> (<code>pagehide</code>) thì <strong>xoá hẳn</strong> bản ghi và
+            loan báo "tôi thoái vị". Các follower nhịp ngay lập tức, nên việc chuyển giao mất
+            một lần settle (150 ms) thay vì phải chờ lease hết hạn (3 s).
+          </p>
+
+          <h3>3.5 Vì sao nó không phải một cái khoá — và hai leader xuất hiện thế nào</h3>
+
+          <div class="code">
+            <div class="code__file">lease-election.ts — chú thích</div>
+            <pre><code>`localStorage` has no compare-and-set. Two tabs that both see an expired
+lease both write; the settle-and-reread picks the last writer, but only if
+both re-reads happen after both writes. A tab paused between its write and
+its re-read - a busy main thread, a background timer delayed - can read its
+own id after the other tab has already confirmed itself. For a moment
+there are two leaders. The job it runs must therefore be safe to run twice.</code></pre>
+          </div>
+
+          <p>Diễn lại bằng dòng thời gian, vì đây là chỗ cần đọc chậm:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thời điểm</th>
+                  <th>Tab A</th>
+                  <th>Tab B</th>
+                  <th>Bản ghi lease</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>t0</td>
+                  <td>đọc: hết hạn</td>
+                  <td>đọc: hết hạn</td>
+                  <td>(hết hạn)</td>
+                </tr>
+                <tr>
+                  <td>t1</td>
+                  <td>ghi <code>holder = A</code></td>
+                  <td>—</td>
+                  <td>A</td>
+                </tr>
+                <tr>
+                  <td>t2</td>
+                  <td><strong>bị treo</strong> — main thread bận</td>
+                  <td>ghi <code>holder = B</code></td>
+                  <td>B</td>
+                </tr>
+                <tr>
+                  <td>t3</td>
+                  <td>—</td>
+                  <td>đọc lại: thấy B → <strong>tôi là leader</strong></td>
+                  <td>B</td>
+                </tr>
+                <tr>
+                  <td>t4</td>
+                  <td>
+                    tỉnh dậy, đọc lại… nhưng nếu nó ghi đè lại trước đó thì thấy A →
+                    <strong>tôi cũng là leader</strong>
+                  </td>
+                  <td>—</td>
+                  <td>?</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Không có cách nào vá bằng cách thêm bước. Mọi bước thêm vào cũng là đọc-rồi-ghi,
+            và lại có khe mới. Chỉ có hai lối ra:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Dùng Web Locks</strong> — trình duyệt có thứ nguyên tử mà bạn không có;
+            </li>
+            <li>
+              <strong>Sống chung</strong>: chấp nhận cửa sổ hai leader, và bắt công việc phải
+              <em>idempotent</em>. Lab chọn cách này, và chọn một công việc là
+              <strong>lệnh đọc</strong> — chạy hai lần cũng vô hại.
+            </li>
+          </ul>
+
+          <p>
+            Bảng các chế độ hỏng trong <code>docs/cross-tab.md</code> còn liệt kê ba kiểu
+            nữa, đáng đọc nguyên bản: leader bị đóng băng; leader bị kill (không có
+            <code>pagehide</code> — mất tới ~4 giây để tiếp quản); và
+            <code>localStorage</code> bị chặn, lúc đó <strong>không có leader nào cả</strong>
+            và công việc không bao giờ chạy.
+          </p>
+
+          <h3>3.6 Vòng đời trang: ba thứ phá hỏng mọi thuật toán theo nhịp</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hiện tượng</th>
+                  <th>Hậu quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <strong>Siết timer nền</strong>: tab ẩn chạy tối đa 1 lần/giây; ẩn trên 5
+                    phút thì 1 lần/phút
+                  </td>
+                  <td>
+                    Leader bị ẩn không gia hạn kịp, mất lease, tab đang hiện giành lấy —
+                    <em>đúng</em>, nhưng vai leader sẽ nhảy qua lại giữa các tab ẩn. Và:
+                    <strong><code>LEASE_MS</code> phải lớn hơn nhịp đã bị siết</strong>, mà
+                    3 giây thì không lớn hơn một phút.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Freeze / discard</strong></td>
+                  <td>
+                    Freeze = không chạy gì (giống hệt nút "Freeze heartbeat" trong lab);
+                    discard = coi như crash.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>bfcache</strong></td>
+                  <td>
+                    <code>pagehide</code> bắn khi vào bfcache, nên lab thoái vị đúng lúc. Dùng
+                    <code>unload</code> thay nó thì <em>vô hiệu hoá luôn bfcache</em> — sửa
+                    một lỗi, tạo một lỗi hiệu năng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Dòng đầu bảng là kết luận quan trọng nhất và cũng thành thật nhất:
+            <strong>hằng số hiện tại không chịu được chế độ siết sâu</strong>. Repo viết điều
+            đó ra thay vì giấu đi.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 <code>TabChannel</code>: một kênh, nhiều chủ sở hữu</h3>
+
+          <div class="code">
+            <div class="code__file">core/cross-tab/tab-channel.ts</div>
+            <pre><code>/** The one channel every tab of the application shares. Versioned, see below. */
+export const TAB_CHANNEL_NAME = 'ecm.tabs.v1';
+
+interface TabEnvelope {
+  readonly topic: string;
+  readonly payload: unknown;
+}
+
+post(topic: string, payload: unknown): void {
+  this.channel?.postMessage({ topic, payload } satisfies TabEnvelope);
+}
+
+/** Payloads other tabs posted on `topic`, still unvalidated. */
+on(topic: string): Observable&lt;unknown&gt; {
+  return this.received.pipe(
+    filter((envelope) =&gt; envelope.topic === topic),
+    map((envelope) =&gt; envelope.payload),
+  );
+}</code></pre>
+          </div>
+
+          <p>
+            Để ý kiểu trả về: <code>Observable&lt;unknown&gt;</code>, và comment nói rõ
+            <em>"still unvalidated"</em>. Đây là một lựa chọn kiểu dữ liệu có chủ ý —
+            <code>unknown</code> buộc người gọi phải thu hẹp kiểu trước khi dùng, nên không ai
+            "quên" kiểm tra được.
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/cross-tab/tab-channel.ts — chú thích</div>
+            <pre><code>## Why core knows no topics
+
+Two owners use it - the session (a sign-out ends every tab) and the
+customer feature (a change made here is news there) - and core must not
+learn customer vocabulary to serve the second. So the channel carries a
+topic and an opaque payload, and **each owner validates its own payload**.
+That validation is not optional: a tab running an older build of the
+application, after a deploy, is on the same channel and may send shapes
+this build has never seen. The channel name carries a version for the day a
+change cannot be made compatible.</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quyết định</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Core không biết topic nào cả</td>
+                  <td>
+                    Hai chủ sở hữu, và <code>core/</code> không được học từ vựng của feature
+                    khách hàng để phục vụ chủ thứ hai — đúng luật
+                    <code>core-depends-only-on-core</code> ở bài 24.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Mỗi chủ tự kiểm payload của mình</strong>
+                  </td>
+                  <td>
+                    Lý do rất cụ thể và rất dễ bỏ qua: <em>sau một lần deploy</em>, một tab
+                    đang chạy bản cũ vẫn mở, vẫn ở trên cùng kênh đó, và vẫn gửi những hình
+                    dạng mà bản mới chưa từng thấy. Đây là ranh giới phiên bản
+                    <strong>bên trong</strong> một trình duyệt.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tên kênh mang số phiên bản: <code>ecm.tabs.v1</code></td>
+                  <td>
+                    Cho cái ngày payload không thể đổi tương thích được nữa: đổi sang
+                    <code>v2</code>, và hai thế hệ tab đơn giản là không nghe thấy nhau — tốt
+                    hơn nhiều so với nghe thấy rồi hiểu sai.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có <code>BroadcastChannel</code> thì im lặng</td>
+                  <td>
+                    Trên server (SSR), <code>post</code> không làm gì và <code>on</code> không
+                    bao giờ phát. Chú thích: <em>"callers do not branch"</em> — không ai phải
+                    viết <code>if (isBrowser)</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và phần ranh giới quan trọng nhất:</p>
+
+          <div class="code">
+            <div class="code__file">core/cross-tab/tab-channel.ts — chú thích</div>
+            <pre><code>## What it is not
+
+Not a transport for data. It carries *that* something changed, and each
+tab refetches what it shows through its own HTTP layer - with its own
+authorisation. Copying records between tabs would be a second, unvalidated
+path for server data.</code></pre>
+          </div>
+
+          <h3>4.2 Một thay đổi được loan báo đúng một lần</h3>
+
+          <p>
+            Đây là chỗ brief 25 và brief này khớp vào nhau, và lập luận rất đẹp. Có hai kênh
+            có thể mang tin "khách hàng C-000001 vừa đổi":
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ai làm thay đổi</th>
+                  <th>Kênh nào mang tin</th>
+                  <th>Kênh kia làm gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Người dùng khác</td>
+                  <td>Luồng SSE (brief 25)</td>
+                  <td>
+                    Kênh tab không mang — nó chỉ nối các tab của
+                    <em>cùng một trình duyệt</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cùng người dùng, <strong>tab khác</strong></td>
+                  <td>Kênh tab</td>
+                  <td>
+                    SSE <strong>bỏ qua</strong>, vì
+                    <code>event.actorId === session.user()?.id</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cùng người dùng, <strong>chính tab này</strong></td>
+                  <td>Không kênh nào</td>
+                  <td>
+                    SSE bỏ qua; <code>BroadcastChannel</code> không gửi lại cho người gửi
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            <code>docs/cross-tab.md</code> tóm tắt bằng một câu đáng nhớ:
+            <em
+              >"each change is announced exactly once, by the mechanism that can tell who made
+              it."</em
+            >
+            Luồng SSE biết <em>người dùng</em> nhưng không biết <em>tab</em>; kênh tab biết
+            tab nhưng không ra khỏi trình duyệt. Ghép lại thì phủ kín, không chồng lấn — và
+            không cần thêm một cơ chế khử trùng nào ở giữa.
+          </p>
+
+          <p>
+            Phần phản ứng thì dùng chung hoàn toàn: cùng hàm <code>react()</code>, chỉ khác
+            <em>câu chữ</em>. Khoá dịch đổi từ <code>realtime.customer.updated</code> thành
+            <code>crossTab.customer.updated</code> — "…vừa được sửa ở một tab khác". Hành vi
+            giống hệt, kể cả nguyên tắc gắn cờ chứ không thay.
+          </p>
+
+          <h3>4.3 Đăng xuất thì loan báo; hết hạn thì <em>không</em></h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session-cross-tab.ts — chú thích</div>
+            <pre><code>## Only a deliberate sign-out is announced
+
+Not an expiry. A tab's refresh can fail for reasons that are that tab's
+own - most obviously, it lost the race described in `SessionService.
+refresh()` - while another tab still holds a perfectly good session.
+Broadcasting "expired" would let one tab's failure sign out the tab that
+won. Each tab discovers an expiry by itself, on its next request.</code></pre>
+          </div>
+
+          <p>
+            Đây là chi tiết tinh tế nhất của cả brief, và nó đáng dừng lại. Hai sự kiện
+            <em>trông</em> giống nhau — "phiên kết thúc" — nhưng khác nhau ở một điểm quyết
+            định:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Đăng xuất chủ động</th>
+                  <th>Phiên hết hạn</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sự thật về ai</td>
+                  <td>
+                    Về <strong>phiên</strong> — server đã huỷ, cookie dùng chung đã mất
+                  </td>
+                  <td>
+                    Có thể chỉ về <strong>tab này</strong> — nó vừa thua một cuộc đua refresh
+                  </td>
+                </tr>
+                <tr>
+                  <td>Loan báo thì sao</td>
+                  <td>Đúng: mọi tab đều đã mất phiên thật</td>
+                  <td>
+                    <strong>Sai</strong>: thất bại của tab thua sẽ đá luôn tab vừa thắng và
+                    đang có phiên tốt
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nên làm gì</td>
+                  <td>Phát <code>{ event: 'signed-out' }</code></td>
+                  <td>Im lặng — mỗi tab tự phát hiện ở request kế tiếp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Quy tắc rút ra, chuyển được sang mọi dự án:
+            <strong>chỉ loan báo những sự thật về hệ thống, không loan báo sự thật về chính
+            mình.</strong>
+          </p>
+
+          <p>
+            Và phần không echo: tab nhận kết thúc phiên với lý do
+            <code>signed-out-elsewhere</code>, mà lý do đó <em>không</em> được loan báo lại.
+            Cộng với việc <code>BroadcastChannel</code> không gửi lại cho người gửi: một lần
+            đăng xuất sinh ra đúng một thông điệp, dù có bao nhiêu tab.
+          </p>
+
+          <h3>4.4 Web Lock cho việc duy nhất không được chạy hai lần</h3>
+
+          <div class="code">
+            <div class="code__file">core/auth/session.service.ts</div>
+            <pre><code>/**
+ * Runs `work` while holding the named Web Lock, so no other tab of this
+ * origin runs it at the same time.
+ *
+ * The lock is held until the request settles - `firstValueFrom` turns its
+ * completion into the promise the lock waits on. Where there are no Web
+ * Locks, the work simply runs.
+ */
+private oneTabAtATime&lt;T&gt;(name: string, work: () =&gt; Observable&lt;T&gt;): Observable&lt;T&gt; {
+  const locks = this.locks;
+  if (!locks) {
+    return work();
+  }
+  return defer(() =&gt; from(locks.request(name, () =&gt; firstValueFrom(work()))));
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chi tiết</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Vấn đề nó giải</td>
+                  <td>
+                    Refresh token <em>xoay vòng</em> khi dùng. Hai tab hết hạn cùng lúc cùng
+                    gửi một refresh token; server coi lần thứ hai là replay và từ chối —
+                    <strong>đúng theo thiết kế bảo mật</strong>. Bài 19 gọi đây là "tính đúng,
+                    không phải tối ưu".
+                  </td>
+                </tr>
+                <tr>
+                  <td>Vì sao Web Lock chứ không <code>BroadcastChannel</code></td>
+                  <td>
+                    Vì đây không phải chuyện <em>loan tin</em> mà là chuyện
+                    <em>loại trừ</em>. Tự dựng loại trừ bằng tin nhắn sẽ đẻ ra đúng những cuộc
+                    đua ở mục 3.5.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>firstValueFrom(work())</code></td>
+                  <td>
+                    Cầu nối Observable → Promise, vì <code>locks.request</code> giữ khoá cho
+                    tới khi Promise settle. Bài 07 — và đây là một trong rất ít chỗ
+                    <em>nên</em> đi từ Observable sang Promise.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>defer(...)</code></td>
+                  <td>
+                    Giữ cho nó <em>lạnh</em> (bài 07): không ai subscribe thì không xin khoá.
+                    Thiếu <code>defer</code>, khoá bị xin ngay lúc dựng Observable.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không có Web Locks thì chạy thẳng</td>
+                  <td>
+                    Suy biến về hành vi cũ thay vì đổ. Một trình duyệt thiếu API thì mất lớp
+                    bảo vệ chứ không mất ứng dụng.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Single-flight trong tab vẫn giữ nguyên</td>
+                  <td>
+                    Hai lớp khác nhau: <code>shareReplay</code> gộp các lời gọi
+                    <em>trong</em> một tab (bài 19); Web Lock xếp hàng
+                    <em>giữa</em> các tab. Cần cả hai.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.5 Theme: cơ chế không cần code gửi</h3>
+
+          <div class="code">
+            <div class="code__file">core/theme/theme.service.ts</div>
+            <pre><code>private followOtherTabs(): void {
+  const win = inject(WINDOW);
+  if (!win) {
+    return;
+  }
+  const onStorage = (event: StorageEvent): void =&gt; {
+    if (event.key === STORAGE_KEY || event.key === null) {
+      this.current.set(this.readStoredPreference());
+    }
+    ...</code></pre>
+          </div>
+
+          <p>
+            Không có <code>post</code> ở đâu cả. Theme <em>vốn đã</em> được lưu vào
+            <code>localStorage</code>, và việc lưu đó tự bắn sự kiện <code>storage</code> ở
+            mọi tab khác. Lượng code để đồng bộ theme giữa các tab là
+            <strong>chỉ phần nghe</strong>.
+          </p>
+
+          <p>
+            Chi tiết nhỏ: <code>event.key === null</code> cũng được xử lý — đó là lúc
+            <code>localStorage.clear()</code> được gọi, và lúc đó không có khoá cụ thể nào để
+            so.
+          </p>
+
+          <h3>4.6 Lab bầu leader: đọc <code>tick()</code> từng nhánh</h3>
+
+          <div class="code">
+            <div class="code__file">technical-labs/leader-election/lease-election.ts</div>
+            <pre><code>tick(): void {
+  if (this.paused || this.roleValue === 'claiming') {
+    return;
+  }
+  const lease = this.currentLease();
+  const now = this.environment.now();
+
+  if (this.roleValue === 'leader') {
+    if (lease?.holder === this.tabId) {
+      this.write({ holder: this.tabId, expiresAt: now + LEASE_MS });
+      this.onChange('leader', this.currentLease());
+    } else {
+      // Someone else holds it: this tab's lease expired while it was not
+      // renewing - paused, frozen, or throttled in the background.
+      this.setRole('follower');
+    }
+    return;
+  }
+
+  if (!lease || lease.expiresAt &lt;= now) {
+    this.claim(now);
+  } else {
+    this.onChange(this.roleValue, lease);
+  }
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó ngăn chuyện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>roleValue === 'claiming'</code> thì thoát</td>
+                  <td>
+                    Một tab đang trong cửa sổ settle 150 ms thì <strong>không</strong> giành
+                    lại lần nữa. Thiếu dòng này, một tab có thể tự ghi đè chính nó và cuộc đua
+                    không bao giờ hội tụ.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Leader thấy tên người khác → <code>setRole('follower')</code></td>
+                  <td>
+                    <strong>Tự thoái vị.</strong> Đây là phần khiến hệ hồi phục được sau khi
+                    một tab bị đóng băng: nó tỉnh dậy, thấy mình không còn là chủ, và chấp
+                    nhận.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>lease.expiresAt &lt;= now</code></td>
+                  <td>
+                    Toàn bộ cơ chế phát hiện "leader đã chết" nằm ở một phép so sánh thời
+                    gian. Và vì <code>Date.now()</code> của các tab là một đồng hồ chung, một
+                    cú nhảy đồng hồ hệ thống sẽ làm hết hạn — hoặc kéo dài — mọi lease cùng
+                    lúc.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>this.environment.now()</code> chứ không <code>Date.now()</code></td>
+                  <td>
+                    Toàn bộ môi trường (<code>storage</code>, <code>now</code>,
+                    <code>setTimeout</code>, <code>setInterval</code>) được
+                    <strong>tiêm vào</strong> qua <code>ElectionEnvironment</code>. Nhờ vậy
+                    test dựng được "hai tab, đồng hồ do tôi điều khiển" — mục 8.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và phép kiểm cuối cùng, ngay trước khi chạy công việc:</p>
+
+          <div class="code">
+            <div class="code__file">technical-labs/leader-election/lease-election.ts</div>
+            <pre><code>/** Whether this tab may act as leader right now: it leads, and the record agrees. */
+holdsLease(): boolean {
+  const lease = this.currentLease();
+  return (
+    this.roleValue === 'leader' &amp;&amp;
+    lease?.holder === this.tabId &amp;&amp;
+    lease.expiresAt &gt; this.environment.now()
+  );
+}</code></pre>
+          </div>
+
+          <p>
+            Ba điều kiện: <em>tôi nghĩ tôi là leader</em>, <em>bản ghi đồng ý</em>,
+            <em>và nó chưa hết hạn</em>. Điều kiện thứ nhất là niềm tin; hai điều kiện sau là
+            sự thật dùng chung. Phép kiểm này <strong>thu hẹp</strong> cửa sổ hai leader nhưng
+            không đóng được nó — tài liệu nói thẳng:
+            <em>"The pre-job lease check narrows it; it cannot close it."</em> Đó là lý do
+            công việc vẫn phải idempotent.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của một tab trong cuộc bầu cử ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> follower
+
+    follower --> claiming : heartbeat thấy lease trống hoặc hết hạn<br/>ghi id mình vào
+    follower --> follower : lease còn hạn, tên người khác — không làm gì
+
+    claiming --> leader : sau SETTLE_MS đọc lại, vẫn thấy id mình
+    claiming --> follower : đọc lại thấy id tab khác — thua cuộc đua
+
+    leader --> leader : heartbeat — bản ghi vẫn tên mình, gia hạn expiresAt
+    leader --> follower : heartbeat — bản ghi tên NGƯỜI KHÁC<br/>mình đã mất lease lúc bị ẩn, đóng băng, siết timer
+
+    leader --> follower : resign() khi pagehide — xoá bản ghi, loan báo
+
+    note right of claiming
+        Cửa sổ 150ms này là chỗ
+        hai leader sinh ra: không có
+        compare-and-set, nên hai tab
+        cùng ghi thì chỉ đọc lại mới
+        biết ai thắng — và việc đọc lại
+        có thể bị treo
+    end note
+            </pre>
+            <figcaption>
+              Ba trạng thái, nhưng trạng thái đáng chú ý là <code>claiming</code> — nó tồn tại
+              <em>chỉ vì</em> <code>localStorage</code> không có thao tác nguyên tử. Với Web
+              Locks, máy trạng thái này chỉ còn hai trạng thái và không có cuộc đua nào.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Hai tab, một lần đăng xuất và một lần sửa dữ liệu</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant A as Tab A
+    participant CH as BroadcastChannel ecm.tabs.v1
+    participant B as Tab B
+    participant S as Server
+
+    rect rgb(40,40,40)
+    Note over A,B: Trường hợp 1 — sửa một khách hàng
+    A-&gt;&gt;S: PATCH /api/customers/C-000001
+    S--&gt;&gt;A: 200
+    A-&gt;&gt;A: CustomerStore cập nhật cache rồi phát ownChanges$
+    A-&gt;&gt;CH: post topic customers<br/>payload change updated, customerId, customerCode
+    CH-&gt;&gt;B: giao cho MỌI tab khác, không giao lại cho A
+    B-&gt;&gt;B: isOwnCustomerChange(payload)? — bản cũ sau deploy có thể gửi hình dạng lạ
+    B-&gt;&gt;B: cùng hàm react() như sự kiện SSE, chỉ khác câu chữ
+    B-&gt;&gt;S: GET lại qua tầng HTTP CỦA CHÍNH NÓ — kênh không mang dữ liệu
+    end
+
+    rect rgb(40,40,40)
+    Note over A,B: Trường hợp 2 — đăng xuất
+    A-&gt;&gt;S: POST /auth/logout
+    A-&gt;&gt;CH: post topic session, payload event signed-out
+    CH-&gt;&gt;B: nhận
+    B-&gt;&gt;B: endedElsewhere() — KHÔNG gọi server, cookie dùng chung đã mất rồi
+    B-&gt;&gt;B: ra trang đăng nhập, kèm returnUrl và một câu giải thích
+    Note over B: và KHÔNG loan báo lại — một lần đăng xuất, đúng một thông điệp
+    end
+            </pre>
+            <figcaption>
+              Bước 8 là ranh giới quan trọng nhất: tab B được <em>báo</em> rằng có chuyện xảy
+              ra, rồi tự đi hỏi server. Nếu tab A gửi luôn bản ghi, tab B sẽ hiển thị dữ liệu
+              mà chưa ai kiểm tra xem <em>nó</em> có quyền xem hay không.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4><code>SharedWorker</code> bị loại</h4>
+          <p>
+            Phương án đẹp nhất về lý thuyết: một worker giữ phiên và luồng realtime cho
+            <em>mọi</em> tab — một chỗ duy nhất cho state dùng chung, một kết nối SSE duy
+            nhất, không cần bầu bán gì. Bị loại vì hai lý do trong ADR-0027: Safari hỗ trợ
+            muộn, và <em>"it cannot reach the router or the stores"</em> — worker không có
+            DOM, nên nó không điều hướng được, không chạm vào store được, và bạn sẽ phải xây
+            một lớp cầu nối giữa worker với từng tab. Lớp cầu nối đó
+            <em>chính là</em> <code>BroadcastChannel</code>.
+          </p>
+
+          <h4>Giữ lại thuật toán lease dù Web Locks đúng hơn</h4>
+          <p>
+            Tài liệu nói thẳng Web Locks là câu trả lời cho production:
+            <em>"That is the production answer; the lease is kept here because its failure
+            modes are the lesson."</em> Đánh đổi có chủ ý: trong khu lab thì ưu tiên
+            <strong>quan sát được</strong> hơn <strong>đúng</strong>, vì mục đích của nó là
+            dạy. Và ranh giới được giữ nghiêm: code thật dùng Web Lock, lab dùng lease, không
+            lẫn.
+          </p>
+
+          <h4>Không có fencing token</h4>
+          <p>
+            Giới hạn được nêu tên:
+            <em>"a stale leader's result is indistinguishable from a current one."</em> Cách
+            làm đúng là gắn số thế hệ của lease vào mỗi kết quả, để bên nhận bỏ kết quả của
+            một leader đã cũ. Lab không làm, và nói ra là mình không làm — thay vì để người
+            đọc tưởng là đã kín.
+          </p>
+
+          <h4>Kiểm payload ở cả hai đầu</h4>
+          <p>
+            Giá: mỗi topic phải có một hàm thu hẹp kiểu
+            (<code>isSignedOut</code>, <code>isOwnCustomerChange</code>), và chúng phải được
+            bảo trì. Đổi lại: an toàn trước đúng tình huống mà
+            <strong>sẽ</strong> xảy ra trong mọi sản phẩm có người dùng thật — một tab mở từ
+            hôm qua, chạy bản build của hôm qua, vẫn đang gửi tin.
+          </p>
+
+          <h4>Vẫn một kết nối SSE mỗi tab</h4>
+          <p>
+            Câu hỏi mở số 5 của ADR-0027, và câu trả lời là <strong>giữ nguyên</strong>. Bầu
+            một tab giữ luồng duy nhất rồi phát lại cho các tab khác nghe có vẻ tiết kiệm,
+            nhưng nó kéo theo: lớp phát lại, một chế độ hỏng mới khi tab leader chết, độ trễ
+            bầu lại — tức là toàn bộ nội dung mục 3.5 — để sửa một vấn đề mà HTTP/2 đã sửa
+            bằng ghép kênh.
+          </p>
+
+          <h4>Cross-tab là UX, không phải cơ chế bảo đảm</h4>
+          <p>
+            Dòng cuối của <code>docs/cross-tab.md</code> về giới hạn sử dụng:
+            <em>"for anything a server must see - cross-tab messages are UX. Never to copy
+            data between tabs."</em> Một thông điệp liên tab có thể mất, có thể tới muộn, có
+            thể không bao giờ gửi (tab kia đã đóng). Đừng xây tính đúng đắn nào trên nó.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Gửi dữ liệu qua kênh cho "đỡ gọi API"</span>
+            <p>
+              Tab B hiển thị một bản ghi mà <em>nó</em> chưa từng được server cho phép xem.
+              Hai tab có thể đang ở hai phiên khác nhau, hai người dùng khác nhau, hai bộ
+              quyền khác nhau. Đây là một đường đi thứ hai cho dữ liệu server, và nó không đi
+              qua bất kỳ kiểm tra quyền nào.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Tin payload nhận được</span>
+            <p>
+              Hôm nay thì không sao — hai tab cùng một build. Ngày deploy thì khác: một tab mở
+              từ sáng vẫn chạy bản cũ, vẫn ở trên cùng kênh, và gửi một hình dạng mà bản mới
+              không hiểu. Kết quả là <code>undefined</code> đi sâu vào store, hoặc một ngoại
+              lệ trong handler. Đây là ranh giới phiên bản <em>bên trong</em> một trình duyệt,
+              và hầu như không ai nghĩ tới nó cho tới lần deploy đầu tiên.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Loan báo "phiên hết hạn"</span>
+            <p>
+              Tab A thua một cuộc đua refresh và bị từ chối. Nó phát "hết hạn". Tab B — vừa
+              thắng, đang có phiên hoàn toàn tốt — nhận được và tự đăng xuất. Thất bại cục bộ
+              của một tab vừa biến thành thất bại chung của mọi tab. Chỉ loan báo sự thật về
+              <em>hệ thống</em>, không loan báo sự thật về <em>chính mình</em>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">4. Dựng khoá bằng <code>localStorage</code></span>
+            <p>
+              <code>if (!localStorage.getItem('lock')) localStorage.setItem('lock', me)</code>
+              — đọc rồi ghi, và giữa hai thao tác có một khe. Hai tab cùng qua được câu
+              <code>if</code>. Mọi biến thể thêm bước (ghi rồi đọc lại, thêm timestamp, thêm
+              random) đều chỉ <em>thu hẹp</em> khe, không đóng được. Cần loại trừ thật thì
+              dùng <code>navigator.locks</code>.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Công việc của leader không idempotent</span>
+            <p>
+              "Chỉ leader chạy, nên gửi email là an toàn." Không: cửa sổ hai leader là có
+              thật, và nó xuất hiện đúng lúc máy chậm hoặc tab bị siết — tức là đúng lúc bạn
+              không ngồi nhìn. Lab chọn một <em>lệnh đọc</em> làm công việc, một cách có chủ
+              ý.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Đặt <code>LEASE_MS</code> quá ngắn</span>
+            <p>
+              3 giây nghe hợp lý cho tới khi tab ẩn quá 5 phút và Chrome siết timer còn
+              <strong>1 lần/phút</strong>. Leader ẩn không gia hạn kịp, mất lease, một tab
+              khác giành, rồi nó tỉnh dậy và giành lại — vai leader nhảy qua lại liên tục.
+              Quy tắc: <code>LEASE_MS</code> phải lớn hơn nhịp heartbeat
+              <em>đã bị siết</em>, không phải nhịp lý tưởng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. Dùng <code>unload</code> để dọn dẹp</span>
+            <p>
+              Nó có vẻ đúng hơn <code>pagehide</code> — nhưng chỉ cần
+              <em>đăng ký</em> một listener <code>unload</code> là trình duyệt
+              <strong>vô hiệu hoá bfcache</strong> cho trang đó. Bạn vừa sửa một lỗi liên tab
+              và tạo ra một lỗi hiệu năng cho nút Back của mọi người dùng.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Đọc-sửa-ghi trên <code>localStorage</code></span>
+            <p>
+              Chính cái bẫy mà lab cross-tab trình diễn: một bộ đếm dùng chung, hai tab cùng
+              bấm, cả hai cùng đọc 4 và cùng ghi 5. <code>localStorage</code> không có
+              transaction. Mọi phép "cộng dồn" trên nó đều mất dữ liệu dưới tải song song.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Vấn đề của mọi thứ trong brief này: nó cần <strong>hai tab</strong>, và unit test
+            chỉ có một tiến trình. Repo giải bằng cùng một kỹ thuật ở hai chỗ —
+            <em>tiêm môi trường vào</em>, rồi dựng hai "tab" trong cùng một test.
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/testing/broadcast-testing.ts — chú thích</div>
+            <pre><code>An in-memory stand-in for the browser's `BroadcastChannel`, for tests.
+
+It keeps the one property everything cross-tab relies on: a message goes to
+every *other* open channel of the same name, never back to its sender.
+Delivery is synchronous, so a test can post and assert on the next line;
+the real channel delivers on a later task, which is what the E2E suite
+(e2e/cross-tab.spec.ts) exercises.</code></pre>
+          </div>
+
+          <p>
+            Hai câu cuối là phần đáng học: bản giả <strong>cố ý khác</strong> bản thật ở một
+            điểm (giao đồng bộ thay vì ở task sau), vì điều đó làm test đọc được. Và nó
+            <em>nói ra</em> chỗ khác đó, kèm việc chỉ sang nơi tính chất bất đồng bộ thật được
+            kiểm — bộ E2E với hai trang trong một browser context. Một bản giả biết nói ra
+            giới hạn của mình thì dùng được; một bản giả im lặng thì không.
+          </p>
+
+          <p>
+            Phần bầu leader dùng cùng ý tưởng, qua interface
+            <code>ElectionEnvironment</code>:
+          </p>
+
+          <div class="code">
+            <div class="code__file">technical-labs/leader-election/lease-election.ts</div>
+            <pre><code>/** What the election needs from the browser, so a test can supply fakes. */
+export interface ElectionEnvironment {
+  readonly storage: KeyValueStorage;
+  readonly now: () =&gt; number;
+  readonly setTimeout: (callback: () =&gt; void, ms: number) =&gt; unknown;
+  readonly setInterval: (callback: () =&gt; void, ms: number) =&gt; unknown;
+  readonly clearInterval: (handle: unknown) =&gt; void;
+}</code></pre>
+          </div>
+
+          <p>
+            Năm thứ, và cả năm đều là <em>thời gian hoặc trạng thái dùng chung</em> — tức là
+            đúng những thứ làm cho thuật toán này khó test. Khi đã tiêm vào được, test dựng
+            được hai <code>LeaseElection</code> trên cùng một storage giả với một đồng hồ do
+            nó điều khiển, và những tên test sau đây trở nên viết được:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tên test</th>
+                  <th>Canh phần nào</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><em>a lone tab claims the lease and leads once its claim has settled</em></td>
+                  <td>Đường đi thường: <code>follower → claiming → leader</code></td>
+                </tr>
+                <tr>
+                  <td><em>a second tab follows while the lease is held and renewed</em></td>
+                  <td>Gia hạn hoạt động, và tab kia không chen vào</td>
+                </tr>
+                <tr>
+                  <td><em>a tab that sees a fresh claim does not contest it</em></td>
+                  <td>Lease còn hạn thì follower đứng yên</td>
+                </tr>
+                <tr>
+                  <td>
+                    <em
+                      >two tabs that both saw no lease both claim, and the re-read picks the
+                      last writer</em
+                    >
+                  </td>
+                  <td>
+                    <strong>Cuộc đua ở mục 3.5, được viết thành test</strong> — nó khẳng định
+                    hành vi <em>thật</em>, kể cả khi hành vi đó là "ai ghi sau thì thắng"
+                  </td>
+                </tr>
+                <tr>
+                  <td><em>when the leader resigns, a follower takes over on its next heartbeat</em></td>
+                  <td>Đường thoát lịch sự: một settle thay vì một lease</td>
+                </tr>
+                <tr>
+                  <td>
+                    <em>a frozen leader loses the lease when it expires, and steps down when it wakes</em>
+                  </td>
+                  <td>
+                    Kịch bản đóng băng, cả hai nửa: mất lease, <em>và</em> chấp nhận mất khi
+                    tỉnh
+                  </td>
+                </tr>
+                <tr>
+                  <td><em>reads a corrupt or foreign lease record as no lease</em></td>
+                  <td>
+                    <code>localStorage</code> là không gian dùng chung — một khoá có thể bị
+                    thứ khác ghi đè
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và tầng trình duyệt thật:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ở đâu</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>e2e/cross-tab.spec.ts</code></td>
+                  <td>
+                    Hai trang trong <em>một</em> browser context — tức là chung cookie, chung
+                    storage, chung <code>BroadcastChannel</code>, đúng như hai tab thật. Cả
+                    bốn cơ chế ở mục 3.1 đều được đi qua ở đây.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>e2e/labs.spec.ts</code></td>
+                  <td>Lab bầu leader trong trình duyệt thật, kể cả nút đóng băng heartbeat</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Hai tab của ứng dụng cần biết về nhau"}
+
+    S --> Q1{"Đây là loại vấn đề gì?"}
+
+    Q1 -->|"một SỰ KIỆN vừa xảy ra"| BC["BroadcastChannel<br/>tên có phiên bản · topic + payload opaque"]
+    BC --> BC1["Validate payload ở CẢ HAI đầu<br/>tab chạy bản cũ sau deploy vẫn ở trên kênh"]
+    BC --> BC2["Chỉ mang TIN, không mang DỮ LIỆU<br/>mỗi tab tự nạp lại qua HTTP của nó"]
+    BC --> BC3{"Sự thật này về ai?"}
+    BC3 -->|"về hệ thống — đăng xuất"| OK1["loan báo"]
+    BC3 -->|"về chính tab này — refresh thua"| NO1["ĐỪNG loan báo<br/>mỗi tab tự phát hiện"]
+
+    Q1 -->|"một STATE vốn đã được lưu"| ST["sự kiện storage<br/>không cần code gửi gì cả"]
+
+    Q1 -->|"LOẠI TRỪ: chỉ một tab được chạy"| WL["navigator.locks<br/>nguyên tử · tự nhả khi tab chết · có hàng đợi"]
+    WL --> WL1["thiếu API thì chạy thẳng<br/>mất lớp bảo vệ, không mất ứng dụng"]
+
+    Q1 -->|"BẦU một tab làm việc định kỳ"| LE{"cần ĐÚNG hay cần QUAN SÁT ĐƯỢC?"}
+    LE -->|"đúng"| WL
+    LE -->|"học, quan sát"| LS["lease trong localStorage"]
+    LS --> LS1["KHÔNG có compare-and-set<br/>→ cửa sổ hai leader là CÓ THẬT"]
+    LS1 --> LS2["nên công việc PHẢI idempotent"]
+    LS --> LS3["LEASE_MS lớn hơn nhịp ĐÃ BỊ SIẾT<br/>pagehide chứ không unload"]
+
+    BC2 --> END["Tất cả đều là UX<br/>đừng xây tính đúng đắn nào trên tin nhắn liên tab"]
+    ST --> END
+    LS2 --> END
+            </pre>
+            <figcaption>
+              Nhánh quan trọng nhất là nhánh đầu: <em>loại vấn đề</em>, không phải loại công
+              cụ. Và ô dưới cùng áp cho mọi nhánh — một thông điệp liên tab có thể mất, tới
+              muộn, hoặc không bao giờ được gửi.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Bốn cơ chế, bốn lần quan sát</h3>
+            <p class="task__meta">~35 phút · không sửa code</p>
+            <p>Mở hai tab, cùng người dùng. Với mỗi tình huống, ghi lại tab kia phản ứng gì.</p>
+            <ol>
+              <li>Tab A đổi theme sang tối. Tab B?</li>
+              <li>
+                Tab A sửa một khách hàng. Tab B (đang mở đúng khách hàng đó)? Câu thông báo
+                nói gì — <em>"người khác"</em> hay <em>"tab khác"</em>?
+              </li>
+              <li>Tab A đăng xuất. Tab B? Có request nào được gửi từ B không?</li>
+              <li>
+                Mở DevTools → Application → Local Storage ở cả hai tab. Trong lúc làm (1), bạn
+                thấy gì?
+              </li>
+              <li>
+                Giờ thử điều mà brief này nói là <em>không</em> xảy ra: để tab A
+                <strong>hết hạn</strong> phiên (xoá cookie, chờ một request). Tab B có bị đăng
+                xuất theo không? Vì sao <em>không</em>, và vì sao thế là đúng?
+              </li>
+              <li>
+                Trong tab B, mở Console và chạy
+                <code
+                  >new BroadcastChannel('ecm.tabs.v1').onmessage = (e) =&gt;
+                  console.log(e.data)</code
+                >. Lặp lại (2) và (3). Bạn thấy chính xác cái gì đi qua dây?
+              </li>
+            </ol>
+            <details>
+              <summary>Điều bước 6 cho bạn thấy</summary>
+              <p>
+                Một envelope <code>{ topic, payload }</code> rất nhỏ — và
+                <strong>không có dữ liệu khách hàng nào trong đó</strong>, chỉ có id và mã.
+                Đó là mục 4.1 nhìn thấy được bằng mắt.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá cuộc bầu cử</h3>
+            <p class="task__meta">~40 phút · không sửa code sản phẩm</p>
+            <ol>
+              <li>
+                Mở <code>/technical-labs/leader-election</code> trong
+                <strong>ba</strong> tab. Tab nào là leader?
+              </li>
+              <li>
+                Đóng tab leader bằng cách bấm X. Bao lâu thì có leader mới? (Gợi ý: nó
+                <em>thoái vị lịch sự</em>.)
+              </li>
+              <li>
+                Giờ bấm nút <em>Freeze heartbeat</em> ở tab leader thay vì đóng nó. Bao lâu?
+                Vì sao <strong>lâu hơn</strong>?
+              </li>
+              <li>
+                Trong lúc tab kia đã đóng băng và một tab khác đã lên làm leader, hãy
+                <em>bỏ đóng băng</em>. Tab vừa tỉnh nói gì về vai trò của nó? Có cửa sổ nào mà
+                giao diện hai tab <strong>cùng</strong> nói "tôi là leader" không?
+              </li>
+              <li>
+                Để ba tab đó ở chế độ ẩn (chuyển sang cửa sổ khác) khoảng 6 phút rồi quay
+                lại. Vai leader có nhảy qua lại không? Đối chiếu với mục 3.6.
+              </li>
+              <li>
+                DevTools → Application → Local Storage, theo dõi khoá
+                <code>ecm.lab.leader.lease</code> thay đổi theo thời gian thật.
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 3 lâu hơn bước 2</summary>
+              <p>
+                Đóng tab thì <code>pagehide</code> bắn, leader <em>xoá</em> bản ghi và loan
+                báo — tiếp quản mất một lần settle (~150 ms). Đóng băng thì không có tín hiệu
+                nào: các tab khác phải chờ <code>expiresAt</code> trôi qua, tức tới
+                <code>LEASE_MS + HEARTBEAT_MS + SETTLE_MS</code> ≈ 4 giây. Đó cũng chính là
+                điều xảy ra khi một tab bị kill thật.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Dựng cuộc đua hai leader trong một test</h3>
+            <p class="task__meta">~45 phút · viết code</p>
+            <p>
+              Test <em>"two tabs that both saw no lease both claim, and the re-read picks the
+              last writer"</em> đã có. Bạn sẽ viết tình huống tệ hơn: tab bị treo
+              <strong>giữa</strong> lần ghi và lần đọc lại.
+            </p>
+            <ol>
+              <li>
+                Mở <code>lease-election.spec.ts</code>, đọc cách nó dựng hai
+                <code>LeaseElection</code> trên một storage giả, và cách nó điều khiển
+                <code>now</code> và <code>setTimeout</code>.
+              </li>
+              <li>
+                Viết một test mới: tab A giành (ghi id A), rồi
+                <strong>trước khi</strong> callback settle của A chạy, cho tab B giành và
+                settle xong. Sau đó mới cho settle của A chạy.
+              </li>
+              <li>Khẳng định <code>role</code> của từng tab. Có đúng một leader không?</li>
+              <li>
+                Nếu bạn dựng được tình huống <strong>hai leader</strong>: đó không phải lỗi
+                của bạn — đó là mục 3.5. Hãy khẳng định đúng cái bạn quan sát được, và viết
+                một comment nói rõ test này ghi lại một giới hạn đã biết.
+              </li>
+              <li>
+                Thêm một khẳng định dùng <code>holdsLease()</code>: nó có
+                <em>thu hẹp</em> được cửa sổ không? Có đóng được không?
+              </li>
+            </ol>
+            <details>
+              <summary>Giá trị của một test ghi lại giới hạn</summary>
+              <p>
+                Một test khẳng định "ở đây có thể có hai leader" nghe như thừa nhận thất bại.
+                Thực ra nó là tài liệu <em>chạy được</em>: nếu ngày nào đó có người đổi thuật
+                toán và cửa sổ đó biến mất, test sẽ đổ và buộc người ta nhìn vào. Và nếu có
+                người định dùng lease này cho một việc không idempotent, test là thứ ngăn họ
+                lại.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Khi nào dùng <code>BroadcastChannel</code>, khi nào dùng sự kiện <code>storage</code>?</summary>
+            <p>
+              Câu hỏi phân loại: <em>một tab mở ra sau đó có cần biết điều này không?</em> Cần
+              → đó là state, hãy lưu và để sự kiện <code>storage</code> lo. Không →
+              đó là sự kiện, hãy phát qua <code>BroadcastChannel</code>.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Vì sao <code>localStorage</code> không bao giờ là một cái khoá?</summary>
+            <p>
+              Vì nó không có <em>compare-and-set</em>: chỉ có <code>read</code> và
+              <code>write</code> rời nhau, và giữa hai thao tác luôn có khe cho tab khác chen
+              vào. Thêm bước chỉ thu hẹp khe, không đóng được.
+              <code>navigator.locks</code> là thứ có tính nguyên tử thật.
+            </p>
+          </details>
+
+          <details>
+            <summary>3. Vì sao đăng xuất được loan báo mà hết hạn thì không?</summary>
+            <p>
+              Đăng xuất là sự thật về <em>phiên</em>: server đã huỷ, cookie dùng chung đã mất,
+              mọi tab đều đúng là đã hết phiên. Hết hạn có thể chỉ là sự thật về
+              <em>một tab</em> — nó vừa thua một cuộc đua refresh trong khi tab khác đang giữ
+              phiên tốt. Loan báo sẽ để thất bại của tab thua đá luôn tab thắng.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao kênh chỉ mang tin mà không mang dữ liệu?</summary>
+            <p>
+              Vì phân quyền. Tab nhận có thể ở phiên khác, người dùng khác, quyền khác. Mỗi
+              tab nạp lại qua tầng HTTP của chính nó, nên không bản ghi nào tới màn hình mà
+              không qua kiểm tra quyền của server.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Vì sao mỗi topic phải tự kiểm payload của mình?</summary>
+            <p>
+              Vì sau một lần deploy, một tab mở từ trước vẫn chạy bản cũ, vẫn ở trên cùng kênh
+              đó, và có thể gửi hình dạng mà bản mới chưa từng thấy. Đó là một ranh giới phiên
+              bản bên trong một trình duyệt. Tên kênh mang số phiên bản cho ngày không thể
+              tương thích được nữa.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Hai leader xuất hiện bằng cách nào?</summary>
+            <p>
+              Hai tab cùng thấy lease hết hạn, cùng ghi id mình. Phép "ghi rồi đọc lại" chọn
+              người ghi sau — nhưng chỉ khi cả hai lần đọc lại đều xảy ra sau cả hai lần ghi.
+              Một tab bị treo giữa lần ghi và lần đọc lại của nó có thể đọc thấy id của chính
+              mình sau khi tab kia đã tự xác nhận. Hệ quả: công việc phải idempotent.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. <code>LEASE_MS</code> nên so với cái gì?</summary>
+            <p>
+              Với nhịp heartbeat <strong>đã bị siết</strong>, không phải nhịp lý tưởng. Tab ẩn
+              quá 5 phút chỉ được chạy timer 1 lần/phút, nên một lease 3 giây không sống nổi
+              trong chế độ đó — và tài liệu của repo ghi thẳng giới hạn này.
+            </p>
+          </details>
+
+          <details>
+            <summary>8. Vì sao <code>pagehide</code> chứ không <code>unload</code>?</summary>
+            <p>
+              Vì chỉ cần đăng ký một listener <code>unload</code> là trình duyệt vô hiệu hoá
+              back/forward cache cho trang đó. <code>pagehide</code> bắn trong cả hai trường
+              hợp — rời trang thật và vào bfcache — nên nó làm đúng việc mà không phải trả
+              giá.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 25</strong> là nửa còn lại của bức tranh realtime.
+              <strong>Brief 29</strong> (offline &amp; service worker) dùng lại chính những
+              khái niệm vòng đời trang ở mục 3.6. <strong>Brief 32</strong> nói về các API
+              trình duyệt khác và cách repo gói chúng sau injection token.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="25-realtime-sse.html">← Brief 25</a></span>
+            <span><a href="index.html">Lộ trình →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>

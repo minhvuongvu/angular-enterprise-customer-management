@@ -1,0 +1,1765 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brief 25 — Realtime bằng SSE</title>
+    <link rel="stylesheet" href="assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="crumb">
+          <a href="index.html">Lộ trình</a> → Chặng 5 — Brief tra cứu → Brief 25
+        </p>
+        <h1>Realtime bằng SSE ◆</h1>
+        <p class="lede">
+          Người dùng A sửa một khách hàng. Người dùng B đang mở đúng khách hàng đó. B phải
+          biết — nhưng bản ghi trên màn hình B <strong>không được</strong> bị thay dưới chân
+          họ. Brief này về đường đi của một sự kiện từ server tới màn hình, và về bốn chuyện
+          khó mà ai làm realtime cũng gặp: mất kết nối, trùng lặp, bỏ sót, và token hết hạn.
+        </p>
+        <ul class="tags">
+          <li class="tag tag--transfers">Chuyển được sang dự án thật</li>
+          <li class="tag">Chặng 5 · brief tra cứu · ◆ có máy trạng thái</li>
+          <li class="tag">~1,5 giờ đọc + 1 giờ làm</li>
+        </ul>
+      </header>
+
+      <div class="layout">
+        <main>
+          <div class="box box--note">
+            <span class="box__label">Brief này đọc khi nào</span>
+            <p>
+              Khi bạn phải làm một tính năng "dữ liệu tự cập nhật": thông báo, bảng điều
+              khiển, danh sách nhiều người cùng sửa. Không cần đọc trước — nhưng
+              <strong>nên</strong> đọc trước khi chọn giữa SSE, WebSocket và polling, vì lựa
+              chọn đó khó đổi về sau.
+            </p>
+            <p>
+              Nền cần có: bài 07 (Observable, <code>Subject</code>), bài 11 (store và cache),
+              bài 19 (session và refresh). Bài 12 giúp hiểu phần vô hiệu hoá cache.
+            </p>
+          </div>
+
+          <!-- =========================================================== 0 -->
+          <h2 id="tu-vung"><span class="num">Mục 0</span>Từ vựng</h2>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Từ</th>
+                  <th>Nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>SSE</strong> (<em>server-sent events</em>)</td>
+                  <td>
+                    Một chuẩn web: client mở <strong>một request HTTP bình thường</strong>,
+                    server giữ nó mở và đẩy từng dòng text xuống. Một chiều —
+                    server nói, client nghe.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>EventSource</code></td>
+                  <td>
+                    API sẵn có của trình duyệt để tiêu thụ một luồng SSE. Nó
+                    <em>tự</em> kết nối lại khi rớt mạng và tự gửi lại id sự kiện cuối cùng —
+                    hai thứ bạn sẽ phải tự viết nếu dùng WebSocket.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>text/event-stream</code></td>
+                  <td>
+                    Content-Type của luồng. Định dạng trên dây là text thuần, mỗi sự kiện là
+                    vài dòng <code>id:</code> / <code>event:</code> / <code>data:</code> kết
+                    thúc bằng một dòng trống.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <strong>Event id</strong>, <code>Last-Event-ID</code>
+                  </td>
+                  <td>
+                    Mỗi sự kiện mang một id. Khi kết nối lại,
+                    <code>EventSource</code> gửi header
+                    <code>Last-Event-ID</code> với id cuối cùng nó thấy, để server biết phải
+                    phát lại từ đâu.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Replay buffer</strong></td>
+                  <td>
+                    Bộ đệm các sự kiện gần nhất mà server giữ lại (ở đây: 200) để phát lại
+                    cho một client vừa kết nối lại.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Heartbeat</strong></td>
+                  <td>
+                    Một dòng trống nghĩa (ở SSE là một <em>comment</em>:
+                    <code>: heartbeat</code>) gửi định kỳ, để proxy không tưởng rằng kết nối
+                    đã chết và đóng nó.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Resync</strong></td>
+                  <td>
+                    Sự kiện server gửi khi nó <em>không thể</em> nói cho bạn biết bạn đã bỏ
+                    lỡ gì (id đã rơi khỏi buffer). Nghĩa: "đừng tin những gì bạn đang có, đi
+                    hỏi lại từ đầu".
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>At-least-once</strong>, <strong>de-duplication</strong></td>
+                  <td>
+                    Một sự kiện có thể tới <em>nhiều hơn một lần</em> (phát lại chồng lên cái
+                    đã nhận). Khử trùng lặp theo id là việc của client — và nó phải nằm ở một
+                    chỗ duy nhất.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>readyState</code>: <code>CONNECTING</code> ·
+                    <code>OPEN</code> · <code>CLOSED</code>
+                  </td>
+                  <td>
+                    Trạng thái của <code>EventSource</code>. Phân biệt
+                    <code>CONNECTING</code> (trình duyệt đang tự thử lại) với
+                    <code>CLOSED</code> (trình duyệt đã bỏ cuộc) là
+                    <strong>điểm then chốt</strong> của cả brief này.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Exponential backoff</strong></td>
+                  <td>
+                    Thử lại sau 1 s, rồi 2, 4, 8… tới một trần. Để một server đang sập không
+                    bị hàng nghìn tab nện cùng lúc.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>X-Accel-Buffering: no</code></td>
+                  <td>
+                    Header nói với nginx: đừng đệm response này. Thiếu nó, proxy giữ sự kiện
+                    lại cho tới khi đầy buffer, và luồng trông như hỏng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- =========================================================== 1 -->
+          <h2 id="muc-tieu"><span class="num">Mục 1</span>Sau brief này bạn làm được gì</h2>
+
+          <ul>
+            <li>
+              Chọn được giữa SSE, WebSocket và polling, và nói ra lý do bằng
+              <em>hướng dữ liệu</em> chứ không bằng cảm tính.
+            </li>
+            <li>
+              Phân biệt hai loại hỏng của một luồng SSE, và biết cái thứ hai
+              <strong>bắt buộc</strong> phải tự xử lý — kể cả khi dùng
+              <code>EventSource</code>.
+            </li>
+            <li>
+              Xử lý đúng ba chuyện mà mọi hệ realtime đều gặp: trùng lặp, bỏ sót, và token
+              hết hạn giữa chừng.
+            </li>
+            <li>
+              Phát biểu được nguyên tắc quan trọng nhất về UX realtime:
+              <strong>đánh dấu, không thay thế</strong> — và nói được vì sao.
+            </li>
+            <li>Vẽ được máy trạng thái bốn trạng thái của một kết nối realtime.</li>
+          </ul>
+
+          <!-- =========================================================== 2 -->
+          <h2 id="dich-tu-backend">
+            <span class="num">Mục 2</span>Dịch từ backend sang Angular — và chỗ phép so sánh
+            sai
+          </h2>
+
+          <p>
+            Phép so sánh dùng được: <strong>một luồng SSE là một message consumer</strong>.
+            Có offset (event id), có replay từ offset, có giao hàng
+            <em>at-least-once</em>, có heartbeat, có reconnect. Nếu bạn từng viết consumer
+            cho Kafka hay RabbitMQ, bạn đã có đủ mô hình tư duy.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bạn đã biết ở backend</th>
+                  <th>Tương ứng ở đây</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Offset của consumer</td>
+                  <td><code>Last-Event-ID</code> / <code>?lastEventId=</code></td>
+                </tr>
+                <tr>
+                  <td>Retention của topic</td>
+                  <td>Replay buffer 200 sự kiện</td>
+                </tr>
+                <tr>
+                  <td>Offset đã rơi khỏi retention</td>
+                  <td>Sự kiện <code>resync</code></td>
+                </tr>
+                <tr>
+                  <td>At-least-once + idempotent consumer</td>
+                  <td>Khử trùng lặp theo id, nhớ 500 id gần nhất</td>
+                </tr>
+                <tr>
+                  <td>Heartbeat / keepalive</td>
+                  <td>Comment <code>: heartbeat</code> mỗi 15 giây</td>
+                </tr>
+                <tr>
+                  <td>Backoff khi broker không tới được</td>
+                  <td>1 s nhân đôi, trần 30 s</td>
+                </tr>
+                <tr>
+                  <td>Consumer group</td>
+                  <td>
+                    <em>Không có.</em> Mỗi tab là một consumer độc lập — xem mục 6
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Chỗ phép so sánh sai</h3>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 1 — "SSE là WebSocket bản nghèo"</span>
+            <p>
+              Nó là một <em>lựa chọn</em>, không phải một phiên bản thiếu. Sự kiện ở đây đi
+              một chiều: server → client. Khi đó SSE là HTTP thuần, nên nó
+              <strong>dùng lại toàn bộ hạ tầng bạn đã có</strong>: cookie phiên xác thực nó,
+              proxy dev và reverse proxy production chuyển nó nguyên vẹn, chính sách CORS đã
+              phủ, và trình duyệt tặng kèm reconnect với <code>Last-Event-ID</code>.
+            </p>
+            <p>
+              <code>docs/realtime.md</code> nói gọn:
+              <em
+                >"WebSocket would add a second protocol and a second authentication story for
+                a direction nothing uses."</em
+              >
+              Dùng WebSocket cho một luồng một chiều là mua một giao thức thứ hai và một câu
+              chuyện xác thực thứ hai cho một chiều không ai đi.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 2 — "<code>EventSource</code> tự lo hết"</span>
+            <p>
+              Nó tự lo <em>một nửa</em>. Rớt mạng thì nó tự thử lại, tự gửi
+              <code>Last-Event-ID</code> — rất tốt. Nhưng khi server trả về một
+              <strong>mã lỗi</strong> (thường gặp nhất: cookie truy cập hết hạn), nó
+              <strong>đóng vĩnh viễn</strong> và <em>không nói mã lỗi là gì</em> — API không
+              có chỗ để nói.
+            </p>
+            <p>
+              Và nó không thể tự làm mới token: nó không đi qua
+              <code>HttpClient</code>, nên không đi qua interceptor refresh ở bài 09 và 19.
+              Đây chính là phần bạn <strong>phải</strong> tự viết, và là lý do
+              <code>RealtimeClient</code> dài 230 dòng chứ không phải 20.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">Sai 3 — "nhận sự kiện thì cập nhật màn hình"</span>
+            <p>
+              Phản xạ tự nhiên từ phía backend: dữ liệu mới về thì ghi đè dữ liệu cũ. Trên UI
+              thì đó là một lỗi UX nặng. Người dùng B có thể
+              <em>đang đọc</em> bản ghi đó, hoặc đang gõ dở một form về nó. Thay nội dung dưới
+              chân họ là làm họ mất chỗ đọc, hoặc mất chữ đã gõ.
+            </p>
+            <p>
+              Nguyên tắc của repo: <strong>đánh dấu, không thay thế</strong>. Mục 3.6 nói kỹ,
+              và đó là ý quan trọng nhất của cả brief.
+            </p>
+          </div>
+
+          <!-- =========================================================== 3 -->
+          <h2 id="co-che"><span class="num">Mục 3</span>Cơ chế</h2>
+
+          <h3>3.1 SSE trên dây trông như thế nào</h3>
+
+          <p>
+            Đây là toàn bộ giao thức. Không có khung nhị phân, không có bắt tay — chỉ là một
+            response HTTP không bao giờ kết thúc:
+          </p>
+
+          <div class="code">
+            <div class="code__file">những byte thật sự đi trên dây</div>
+            <pre><code>HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+
+: connected
+
+id: 00000000000042
+event: customer.updated
+data: {"id":"00000000000042","type":"customer.updated","customerId":"...","actorId":"..."}
+
+: heartbeat
+
+id: 00000000000043
+event: customer.deleted
+data: {"id":"00000000000043", ... }</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Ý nghĩa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>id:</code></td>
+                  <td>
+                    Trình duyệt <strong>ghi nhớ</strong> giá trị này và gửi lại trong header
+                    <code>Last-Event-ID</code> ở lần kết nối lại. Bạn không phải làm gì cả.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>event:</code></td>
+                  <td>
+                    Tên loại sự kiện. Phía client,
+                    <code>addEventListener('customer.updated', ...)</code> nghe đúng loại đó.
+                    Bỏ dòng này thì mọi thứ về trong sự kiện mặc định
+                    <code>message</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>data:</code></td>
+                  <td>
+                    Nội dung, luôn là <strong>chuỗi</strong>. JSON là quy ước của bạn, không
+                    phải của giao thức — nên client phải tự <code>JSON.parse</code>, và việc
+                    đó <em>ném lỗi được</em>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Dòng trống</td>
+                  <td>Kết thúc một sự kiện. Đây là dấu phân cách duy nhất.</td>
+                </tr>
+                <tr>
+                  <td><code>: gì đó</code></td>
+                  <td>
+                    Comment — client bỏ qua. Dùng làm heartbeat: nó giữ kết nối sống mà không
+                    sinh ra sự kiện nào.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.2 <code>EventSource</code> làm gì, và không làm gì</h3>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trình duyệt tự làm</th>
+                  <th>Bạn phải tự làm</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Mở kết nối, gửi cookie cùng origin</td>
+                  <td>Khử trùng lặp theo id</td>
+                </tr>
+                <tr>
+                  <td>Tách sự kiện theo dòng trống</td>
+                  <td>Parse và <strong>kiểm tra</strong> <code>data</code> theo contract</td>
+                </tr>
+                <tr>
+                  <td>Nhớ id cuối và gửi <code>Last-Event-ID</code> khi tự nối lại</td>
+                  <td>
+                    Nối lại khi trình duyệt đã <strong>bỏ cuộc</strong> — và lúc đó phải tự
+                    đưa id vào query string, vì một <code>EventSource</code> mới
+                    <em>không đặt được header</em>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Tự thử lại sau khi rớt mạng</td>
+                  <td>Làm mới phiên hết hạn trước khi thử lại</td>
+                </tr>
+                <tr>
+                  <td>—</td>
+                  <td>Đóng luồng khi đăng xuất, huỷ timer, huỷ subscription đang chờ</td>
+                </tr>
+                <tr>
+                  <td>—</td>
+                  <td>Cho người dùng biết kết nối đang ở trạng thái nào</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>3.3 Hai loại hỏng, hai cách xử lý — điểm then chốt</h3>
+
+          <p>
+            Cả hai đều gọi vào cùng một hàm <code>onerror</code>, và đây là chỗ đa số bản viết
+            vội làm sai. Thứ phân biệt chúng là <code>readyState</code>:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Loại 1 — rớt kết nối</th>
+                  <th>Loại 2 — mã lỗi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Nguyên nhân</td>
+                  <td>Proxy hết giờ, server khởi động lại, Wi-Fi chớp</td>
+                  <td>Thường nhất: cookie truy cập hết hạn (401)</td>
+                </tr>
+                <tr>
+                  <td><code>readyState</code> trong <code>onerror</code></td>
+                  <td><code>CONNECTING</code></td>
+                  <td><code>CLOSED</code></td>
+                </tr>
+                <tr>
+                  <td>Trình duyệt làm gì</td>
+                  <td>
+                    Tự thử lại, <strong>có</strong> gửi <code>Last-Event-ID</code>
+                  </td>
+                  <td><strong>Bỏ cuộc vĩnh viễn</strong>, và không nói vì sao</td>
+                </tr>
+                <tr>
+                  <td>Bạn phải làm gì</td>
+                  <td>
+                    Báo trạng thái <code>reconnecting</code> rồi
+                    <strong>để yên</strong>
+                  </td>
+                  <td>
+                    Backoff → làm mới phiên qua <code>HttpClient</code> → mở luồng mới kèm
+                    <code>?lastEventId=</code>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label">Vì sao phải đi qua <code>HttpClient</code> ở loại 2</span>
+            <p>
+              Vì đó là <strong>điều duy nhất</strong> mà <code>EventSource</code> không tự làm
+              được cho mình. Gọi <code>GET /auth/session</code> bằng
+              <code>HttpClient</code> nghĩa là request đó đi qua chuỗi interceptor của bài 09
+              — trong đó có interceptor refresh của bài 19. Access token hết hạn được làm mới
+              <em>trên đường đi</em>, và luồng mới mở ra với một cookie còn hiệu lực.
+            </p>
+            <p>
+              Nếu phiên không làm mới được thì phiên đã kết thúc thật: lúc đó client
+              <strong>dừng hẳn</strong>, vì ứng dụng đang trên đường đưa người dùng ra trang
+              đăng nhập rồi.
+            </p>
+          </div>
+
+          <h3>3.4 Trùng lặp là bình thường, không phải lỗi</h3>
+
+          <p>
+            Sau một lần nối lại, server phát lại từ id bạn khai. Nhưng những gì
+            <em>đã tới</em> ngay trước lúc rớt rất có thể nằm trong đoạn phát lại đó. Nên
+            cùng một sự kiện tới hai lần là <strong>hành vi đúng của giao thức</strong>, không
+            phải bug cần sửa ở server.
+          </p>
+
+          <p>
+            Hệ quả kiến trúc: khử trùng lặp phải nằm ở
+            <strong>một chỗ duy nhất, càng sớm càng tốt</strong> — ngay sau khi parse, trước
+            khi bất kỳ consumer nào nhìn thấy. Nếu để mỗi consumer tự lo, bạn sẽ có n bản cài
+            đặt và n cơ hội quên.
+          </p>
+
+          <h3>3.5 Bỏ sót: khi server không thể nói bạn đã lỡ gì</h3>
+
+          <p>
+            Replay buffer hữu hạn (ở đây 200 sự kiện). Nếu tab của bạn ngủ cả đêm, hoặc server
+            vừa khởi động lại, thì id bạn khai không còn trong buffer. Lúc đó có hai cách sai
+            và một cách đúng:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cách xử lý</th>
+                  <th>Hậu quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Phát lại những gì <em>còn</em> trong buffer</td>
+                  <td>
+                    <strong>Tệ nhất.</strong> Client tưởng mình đã bắt kịp, trong khi thiếu
+                    một khoảng không ai biết. Một lịch sử thủng mà trông như lành.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Không phát gì, im lặng</td>
+                  <td>Client cũng tưởng mình bắt kịp. Cùng một lỗi, kín đáo hơn.</td>
+                </tr>
+                <tr>
+                  <td>
+                    Gửi một sự kiện <code>resync</code> — <strong>cách đúng</strong>
+                  </td>
+                  <td>
+                    "Tôi không nói được bạn đã lỡ gì." Client bỏ cache, nạp lại thứ đang trên
+                    màn hình, và đánh dấu bản ghi đang mở là chưa kiểm chứng.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Đây là một mẫu đáng mang đi: khi không bảo đảm được tính đầy đủ,
+            <strong>hãy nói ra là mình không bảo đảm được</strong>, thay vì giao một phần và
+            để bên kia tưởng là đủ.
+          </p>
+
+          <h3>3.6 Nguyên tắc vàng: đánh dấu, không thay thế</h3>
+
+          <p>
+            Cùng một sự kiện "C-000001 vừa đổi" dẫn tới <em>bốn</em> hành vi khác nhau, tuỳ
+            dữ liệu đó đang nằm ở đâu:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dữ liệu đang ở</th>
+                  <th>Làm gì</th>
+                  <th>Vì sao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Các trang danh sách trong cache</td>
+                  <td>Bỏ hết</td>
+                  <td>Trang nào cũng có thể chứa nó; nạp lại thì rẻ</td>
+                </tr>
+                <tr>
+                  <td>Danh sách <strong>đang</strong> trên màn hình</td>
+                  <td>Nạp lại ngay</td>
+                  <td>
+                    Nó không giữ thứ gì người dùng đã gõ; phần đang chọn vẫn được giữ
+                  </td>
+                </tr>
+                <tr>
+                  <td>Danh sách không trên màn hình</td>
+                  <td>Đánh dấu cũ, nạp lại ở lần ghé sau</td>
+                  <td>Không gửi request cho một danh sách không ai nhìn</td>
+                </tr>
+                <tr>
+                  <td>Bản ghi trên trang chi tiết</td>
+                  <td>
+                    <strong>Gắn cờ, không thay</strong> — banner + nút "Làm mới"
+                  </td>
+                  <td>Người dùng có thể đang đọc nó</td>
+                </tr>
+                <tr>
+                  <td>Bản ghi trong form đang sửa</td>
+                  <td>
+                    <strong>Gắn cờ, không thay</strong> — "nạp lại, giữ nguyên phần bạn đã
+                    sửa"
+                  </td>
+                  <td>
+                    Chữ người dùng gõ là của họ; phần hợp nhất là ADR-0015, bài 18
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Ranh giới rất rõ: <strong>cái gì máy sinh ra thì máy được thay; cái gì người
+            dùng chạm vào thì chỉ được gắn cờ.</strong> Và luôn có một nút để người dùng
+            <em>chủ động</em> lấy bản mới — thông báo mà không có đường hành động chỉ làm người
+            ta lo.
+          </p>
+
+          <!-- =========================================================== 4 -->
+          <h2 id="trong-repo"><span class="num">Mục 4</span>Trong repo này</h2>
+
+          <h3>4.1 Phía server: toàn bộ endpoint SSE</h3>
+
+          <div class="code">
+            <div class="code__file">apps/mock-api/src/routes/events.routes.ts</div>
+            <pre><code>router.get('/', requireAuth, (req, res) =&gt; {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  // Tells nginx not to buffer, which would otherwise hold events until the
+  // buffer filled and make the stream look broken.
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // An immediate comment makes the connection usable right away, so a client
+  // is not left wondering whether it connected.
+  res.write(': connected\n\n');
+
+  const send = (event: RealtimeEvent): void =&gt; {
+    res.write(`id: ${event.id}\n`);
+    res.write(`event: ${event.type}\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  const lastEventId =
+    req.get(LAST_EVENT_ID_HEADER) ??
+    (typeof req.query[LAST_EVENT_ID_PARAM] === 'string' ? req.query[LAST_EVENT_ID_PARAM] : '');
+  if (lastEventId) {
+    const missed = store.eventsAfter(lastEventId);
+    if (missed === null) {
+      res.write(`event: ${RESYNC_EVENT}\ndata: {}\n\n`);
+    } else {
+      missed.forEach(send);
+    }
+  }
+
+  const unsubscribe = store.subscribe(send);
+  const heartbeat = setInterval(() =&gt; res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+  ...
+  // Without this the store keeps a reference to a dead response for every
+  // tab that was ever opened.
+  req.on('close', cleanup);
+});</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Nó giải quyết chuyện gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>requireAuth</code></td>
+                  <td>
+                    Luồng sự kiện là một endpoint như mọi endpoint khác, và nó đi qua đúng
+                    middleware xác thực đó — bài 20, biên bảo mật thật nằm ở server.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>res.flushHeaders()</code></td>
+                  <td>
+                    Đẩy header đi ngay. Không có nó, Express chờ body đầu tiên — và client
+                    treo ở trạng thái "đang kết nối".
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>X-Accel-Buffering: no</code></td>
+                  <td>
+                    Chi tiết chỉ lộ ra khi deploy sau nginx: proxy đệm response lại, sự kiện
+                    nằm im tới khi đầy buffer, và luồng trông như hỏng. Một dòng, nhưng là
+                    một ngày debug.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>res.write(': connected\n\n')</code></td>
+                  <td>
+                    Một comment gửi ngay lập tức, để kết nối "có thật" ngay. Không có nó,
+                    client ngồi chờ byte đầu tiên mà không biết đã nối được chưa.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>req.get(LAST_EVENT_ID_HEADER) ?? req.query[...]</code>
+                  </td>
+                  <td>
+                    <strong>Hai đường vào cho cùng một thông tin.</strong> Trình duyệt tự nối
+                    lại thì gửi <em>header</em>; client tự mở luồng mới thì chỉ gửi được
+                    <em>query string</em>, vì <code>EventSource</code> không nhận header. Hỗ
+                    trợ cả hai là điều kiện để hai cơ chế reconnect ở mục 3.3 cùng chạy được.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>missed === null</code> → <code>resync</code></td>
+                  <td>Mục 3.5, viết thành ba dòng.</td>
+                </tr>
+                <tr>
+                  <td><code>req.on('close', cleanup)</code></td>
+                  <td>
+                    Comment nói hậu quả của việc quên:
+                    <em
+                      >"the store keeps a reference to a dead response for every tab that was
+                      ever opened."</em
+                    >
+                    Một rò rỉ bộ nhớ tăng theo số tab đã từng mở trong suốt đời server.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>4.2 <code>RealtimeClient</code>: nơi bốn chuyện khó được xử lý</h3>
+
+          <p>Trạng thái và hai luồng ra:</p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.ts</div>
+            <pre><code>export type RealtimeStatus = 'idle' | 'connecting' | 'open' | 'reconnecting';
+
+/** Ids remembered for de-duplication. Comfortably more than a replay can repeat. */
+export const SEEN_ID_LIMIT = 500;
+/** First retry after the browser gives up, doubled each time, capped. */
+export const RECONNECT_BASE_DELAY_MS = 1_000;
+export const RECONNECT_MAX_DELAY_MS = 30_000;
+
+private readonly eventStream = new Subject&lt;RealtimeEvent&gt;();
+/** Each event once, in arrival order, already validated against the contract. */
+readonly events$ = this.eventStream.asObservable();
+
+private readonly resyncStream = new Subject&lt;void&gt;();
+/**
+ * The stream reconnected and the server could not say what was missed.
+ * Whatever a consumer shows may be stale: revalidate it.
+ */
+readonly resync$ = this.resyncStream.asObservable();</code></pre>
+          </div>
+
+          <p>
+            Hai luồng ra, không phải một. <code>events$</code> là "có chuyện này xảy ra";
+            <code>resync$</code> là "tôi không biết chuyện gì đã xảy ra". Hai thông điệp khác
+            nhau về <em>bản chất</em>, nên tách làm hai kênh thay vì nhét
+            <code>resync</code> thành một loại event — consumer không phải lọc, và không ai
+            quên xử lý nó.
+          </p>
+
+          <p>
+            Lưu ý <code>Subject</code> + <code>.asObservable()</code> (bài 07): bên trong là
+            một <code>Subject</code> để client <em>đẩy</em> được; bên ngoài chỉ lộ ra
+            <code>Observable</code>, nên không consumer nào gọi <code>next()</code> được vào
+            luồng của người khác.
+          </p>
+
+          <p>Xử lý lỗi — chính là mục 3.3 thành code:</p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.ts</div>
+            <pre><code>source.onerror = () =&gt; {
+  if (source.readyState === source.CLOSED) {
+    // The browser has given up - an error status, typically an expired
+    // session. Recovering is this client's job now.
+    this.scheduleReconnect();
+  } else {
+    // A dropped connection the browser is already retrying, with
+    // Last-Event-ID. Report it, and let it.
+    this.statusState.set('reconnecting');
+  }
+};</code></pre>
+          </div>
+
+          <p>
+            Bảy dòng, và chúng là phần khó nhất của cả brief. Nhánh
+            <code>else</code> <strong>cố tình không làm gì ngoài báo trạng thái</strong> —
+            tự mở thêm một luồng ở đó sẽ cho bạn hai luồng song song, cả hai cùng nhận sự
+            kiện, và một mớ trùng lặp mà không ai hiểu từ đâu ra.
+          </p>
+
+          <p>Nhận sự kiện: parse, kiểm tra contract, khử trùng lặp:</p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.ts</div>
+            <pre><code>private receive(message: MessageEvent&lt;string&gt;): void {
+  let event: RealtimeEvent;
+  try {
+    const parsed = realtimeEventSchema.safeParse(JSON.parse(message.data));
+    if (!parsed.success) {
+      this.logger.warn('Realtime event did not match the contract', { type: message.type });
+      return;
+    }
+    event = parsed.data;
+  } catch {
+    this.logger.warn('Realtime event was not JSON', { type: message.type });
+    return;
+  }
+
+  this.lastEventId = event.id;
+  if (this.seenIds.has(event.id)) {
+    // A replay overlapping what already arrived. Normal with SSE.
+    this.logger.debug('Duplicate realtime event dropped', { id: event.id, type: event.type });
+    return;
+  }
+  this.remember(event.id);
+  this.eventStream.next(event);
+}</code></pre>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dòng</th>
+                  <th>Vì sao viết thế</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>realtimeEventSchema.safeParse(JSON.parse(...))</code>
+                  </td>
+                  <td>
+                    Hai lớp kiểm, hai loại hỏng khác nhau: <code>JSON.parse</code> ném khi
+                    không phải JSON; Zod trả <code>success: false</code> khi là JSON nhưng
+                    sai hình dạng. Bài 08 — dữ liệu từ mạng chưa phải dữ liệu cho tới khi
+                    được kiểm.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Cả hai nhánh hỏng đều <code>return</code>, không ném</td>
+                  <td>
+                    Một sự kiện hỏng <strong>không được</strong> giết cả luồng. Ghi log, bỏ
+                    qua, đi tiếp — đây là lựa chọn đúng cho một kênh thông báo, khác hẳn với
+                    một lệnh ghi.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>this.lastEventId = event.id</code> đặt
+                    <strong>trước</strong> phép kiểm trùng
+                  </td>
+                  <td>
+                    Tinh tế: kể cả một sự kiện bị bỏ vì trùng, nó vẫn
+                    <em>đẩy con trỏ đọc tiến lên</em>. Nếu chỉ cập nhật ở nhánh không trùng,
+                    lần nối lại sau sẽ xin phát lại từ một điểm cũ hơn cần thiết, và sinh
+                    thêm trùng lặp.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Khử trùng ở đây, không ở consumer</td>
+                  <td>
+                    Chú thích lớp nói rõ ý:
+                    <em>"an id seen before is dropped here, so no consumer has to think about
+                    it."</em>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Và bộ nhớ id — một LRU viết bằng <code>Set</code>, giống bài 12:</p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.ts</div>
+            <pre><code>/** Insertion-ordered, so the oldest id is the first to forget. */
+private readonly seenIds = new Set&lt;string&gt;();
+
+private remember(id: string): void {
+  this.seenIds.add(id);
+  if (this.seenIds.size &gt; SEEN_ID_LIMIT) {
+    const oldest = this.seenIds.values().next();
+    if (!oldest.done) {
+      this.seenIds.delete(oldest.value);
+    }
+  }
+}</code></pre>
+          </div>
+
+          <p>
+            <code>Set</code> của JavaScript giữ <strong>thứ tự chèn</strong>, nên phần tử đầu
+            tiên khi duyệt luôn là cái cũ nhất. Không cần cấu trúc dữ liệu nào khác để có một
+            hàng đợi quên dần. Con số 500 so với replay buffer 200 của server là có chủ ý:
+            bộ nhớ của client phải lớn hơn thứ server có thể phát lại, nếu không vẫn lọt
+            trùng.
+          </p>
+
+          <p>Và nối lại sau khi trình duyệt bỏ cuộc:</p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.ts</div>
+            <pre><code>const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** this.attempt);
+this.attempt += 1;
+
+this.retryTimer = setTimeout(() =&gt; {
+  this.retryTimer = null;
+  // Through HttpClient, so the refresh interceptor can renew an expired
+  // access token before the stream is asked for again.
+  this.sessionCheck = this.sessionApi.current().subscribe({
+    next: () =&gt; {
+      this.sessionCheck = null;
+      this.open();
+    },
+    error: (error: unknown) =&gt; {
+      this.sessionCheck = null;
+      if (isAppError(error) &amp;&amp; error.kind === 'authentication') {
+        // The session is over; the application is already on its way to
+        // the sign-in page. Nothing to reconnect to.
+        this.disconnect();
+        return;
+      }
+      // The server is unreachable. Keep trying, more slowly.
+      this.scheduleReconnect();
+    },
+  });
+}, delay);</code></pre>
+          </div>
+
+          <p>
+            Để ý nhánh <code>error</code> phân biệt <strong>hai loại thất bại khác nhau</strong>
+            một lần nữa: <code>kind === 'authentication'</code> nghĩa là phiên đã hết — dừng
+            hẳn, vì không còn gì để nối tới. Mọi lỗi khác nghĩa là server không với tới được —
+            cứ thử lại, chậm dần. Bài 10 trả nợ ở đây: nhờ có taxonomy lỗi, câu
+            <code>if</code> này đọc được thành một câu tiếng Việt.
+          </p>
+
+          <h3>4.3 <code>EVENT_SOURCE_FACTORY</code>: vì sao không gọi thẳng <code>new EventSource</code></h3>
+
+          <div class="code">
+            <div class="code__file">core/platform/platform.tokens.ts</div>
+            <pre><code>export const EVENT_SOURCE_FACTORY = new InjectionToken&lt;EventSourceFactory&gt;(
+  'ecm.eventSourceFactory',
+  {
+    providedIn: 'root',
+    factory: () =&gt; {
+      // The DOM typings declare the constructor globally but not on Window;
+      // reading it from the injected window keeps the global out of this code.
+      const win = inject(WINDOW) as (Window &amp; { EventSource?: typeof EventSource }) | null;
+      const EventSourceCtor = win?.EventSource;
+      return (url) =&gt; (EventSourceCtor ? new EventSourceCtor(url) : null);
+    },
+  },
+);</code></pre>
+          </div>
+
+          <p>
+            Quy tắc 2 của <code>CLAUDE.md</code> (bài 05): không chạm global của trình duyệt.
+            Nhưng ở đây nó trả về <strong>hai</strong> thứ cùng lúc. Thứ nhất: trên server
+            (SSR) không có <code>EventSource</code>, factory trả <code>null</code>, và
+            <code>open()</code> lặng lẽ thoát — chú thích ngay chỗ đó nói vì sao đúng:
+            <em>"The server renders pages; it never holds a stream open for one."</em>
+          </p>
+
+          <p>
+            Thứ hai: trong test, bạn thay factory bằng một
+            <code>FakeEventSource</code> điều khiển bằng tay. Không có nó thì
+            <em>không cách nào</em> test được phần quan trọng nhất của lớp này — bạn không
+            dựng được một cú rớt mạng, một mã 401, hay một lần phát lại trùng. Mục 8 nói kỹ.
+          </p>
+
+          <h3>4.4 <code>CustomerRealtimeSync</code>: chỗ duy nhất biết sự kiện <em>nghĩa là gì</em></h3>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-realtime-sync.ts — chú thích</div>
+            <pre><code>The realtime client knows about streams; the store knows about caches; this
+is the one place that knows what "customer C-000001 was updated by someone
+else" should *do*:
+
+ 1. tell the store, which drops what the event makes stale and refetches
+    the list if it is on screen (`CustomerStore.applyRemoteChange`);
+ 2. if it is the customer on screen, say so with a snackbar whose action
+    refreshes it - the record is flagged, never replaced under the user;
+ 3. record it in the notification centre, with a link.</code></pre>
+          </div>
+
+          <p>
+            Ba lớp, ba trách nhiệm, và câu đầu tiên là cả bài học về phân tách:
+            <em>client biết về luồng, store biết về cache, lớp này biết về ý nghĩa.</em> Nếu
+            gộp lại, <code>RealtimeClient</code> sẽ phải biết tới khách hàng — và khi có
+            feature thứ hai cần realtime, bạn sẽ phải tách nó ra trong lúc nó đang chạy.
+          </p>
+
+          <p>Hai chi tiết đáng chú ý trong lớp này.</p>
+
+          <p><strong>Một — bỏ qua chính mình:</strong></p>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-realtime-sync.ts</div>
+            <pre><code>if (event.actorId === this.session.user()?.id) {
+  return;
+}</code></pre>
+          </div>
+
+          <p>
+            Thay đổi của chính người dùng này đã được áp dụng khi request trả về rồi; nói
+            "khách hàng C-000001 vừa được <em>người khác</em> sửa" sẽ là một câu sai. Nhưng
+            chú thích chỉ ra ngay giới hạn của phép kiểm đó:
+            <em>"The stream names the user, not the tab, so it cannot say more."</em> Cùng một
+            người ở <em>tab khác</em> thì đi bằng kênh khác — đó là brief 26.
+          </p>
+
+          <p><strong>Hai — vòng đời gắn với route, không gắn với root:</strong></p>
+
+          <div class="code">
+            <div class="code__file">customers/state/customer-realtime-sync.ts</div>
+            <pre><code>/** Provides the sync and starts it with the route's injector. */
+export function provideCustomerRealtimeSync(): (Provider | EnvironmentProviders)[] {
+  return [
+    CustomerRealtimeSync,
+    provideEnvironmentInitializer(() =&gt; {
+      inject(CustomerRealtimeSync);
+    }),
+  ];
+}</code></pre>
+          </div>
+
+          <p>
+            <code>RealtimeClient</code> ở root (một luồng mỗi tab), nhưng lớp
+            <em>diễn giải</em> này được cung cấp bởi route <code>customers</code>, nên nó sống
+            đúng bằng thời gian store sống. Ra khỏi khu vực khách hàng thì không còn ai nghe —
+            và đúng là không nên nghe, vì chẳng còn state khách hàng nào để giữ tươi. Bài 05
+            và bài 15 gặp nhau ở đây: injector của route là một vòng đời thật, dùng được.
+          </p>
+
+          <p>
+            <code>provideEnvironmentInitializer</code> cần thiết vì không component nào
+            inject lớp này — không có nó, Angular sẽ không bao giờ tạo ra nó, và việc lắng
+            nghe không bao giờ bắt đầu.
+          </p>
+
+          <h3>4.5 Hiện trạng thái kết nối — một yêu cầu, không phải trang trí</h3>
+
+          <div class="code">
+            <div class="code__file">layout/connection-status.ts — chú thích</div>
+            <pre><code>Whether live updates are arriving.
+
+Shown because its absence misleads: a user who believes the list updates
+itself trusts a list that stopped updating an hour ago. Quiet when all is
+well - a small dot and a word - and announced politely when it changes.</code></pre>
+          </div>
+
+          <p>
+            Lập luận này đáng nhớ: một tính năng realtime <em>hỏng trong im lặng</em> còn tệ
+            hơn không có tính năng đó. Không có realtime thì người dùng tự bấm làm mới. Có
+            realtime mà nó chết lúc nào không ai biết thì người dùng
+            <strong>tin</strong> một danh sách đã đứng yên một tiếng.
+          </p>
+
+          <p>
+            Và <code>role="status"</code> (bài 22): đổi trạng thái được đọc lên một cách lịch
+            sự, chứ không chỉ đổi màu một chấm tròn.
+          </p>
+
+          <!-- =========================================================== 5 -->
+          <h2 id="so-do"><span class="num">Mục 5</span>Sơ đồ</h2>
+
+          <h3>5.1 Máy trạng thái của kết nối ◆</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+
+    idle --> connecting : shell gọi connect()
+    connecting --> open : onopen — attempt = 0
+    connecting --> reconnecting : onerror
+
+    open --> reconnecting : onerror, readyState = CONNECTING<br/>trình duyệt TỰ thử lại, có Last-Event-ID
+    open --> reconnecting : onerror, readyState = CLOSED<br/>trình duyệt BỎ CUỘC — tới lượt ta
+
+    reconnecting --> open : onopen
+    reconnecting --> reconnecting : backoff 1s · 2s · 4s ... trần 30s<br/>rồi GET /auth/session qua HttpClient
+
+    reconnecting --> idle : phiên hết hạn hẳn — kind = authentication<br/>disconnect(), ứng dụng đang đưa ra trang login
+
+    open --> idle : shell bị huỷ — đăng xuất, hoặc phiên hết hạn
+    connecting --> idle : shell bị huỷ
+            </pre>
+            <figcaption>
+              Mũi tên dễ bỏ sót nhất là <strong>hai</strong> mũi tên
+              <code>open → reconnecting</code>: cùng một sự kiện <code>onerror</code>, cùng
+              một trạng thái hiển thị, nhưng <em>hai cách hồi phục hoàn toàn khác nhau</em>.
+              Và <code>reconnecting → idle</code> là chỗ realtime biết dừng: không phải lỗi
+              nào cũng đáng thử lại.
+            </figcaption>
+          </figure>
+
+          <h3>5.2 Hai người dùng, một bản ghi</h3>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor A as Người dùng A
+    participant S as mock API
+    participant RC as RealtimeClient (tab B)
+    participant SY as CustomerRealtimeSync
+    participant ST as CustomerStore
+    actor B as Người dùng B — đang MỞ C-000001
+
+    A-&gt;&gt;S: PATCH /api/customers/C-000001
+    S--&gt;&gt;A: 200 — tab A đã tự cập nhật
+    S-&gt;&gt;RC: id · event customer.updated · data
+
+    RC-&gt;&gt;RC: JSON.parse rồi safeParse theo contract
+    RC-&gt;&gt;RC: id đã thấy chưa? — chưa, nhớ lại
+    RC-&gt;&gt;SY: events$
+
+    SY-&gt;&gt;SY: actorId có phải mình không? — không
+    SY-&gt;&gt;ST: applyRemoteChange(C-000001, updated)
+    Note over ST: bỏ MỌI trang danh sách trong cache<br/>bỏ entity trong cache<br/>danh sách đang hiện thì nạp lại ngay
+
+    SY-&gt;&gt;B: ghi vào trung tâm thông báo, kèm link
+    SY-&gt;&gt;B: snackbar + nút Làm mới
+    Note over B: bản ghi trên màn hình KHÔNG bị thay<br/>B đang đọc nó
+
+    B-&gt;&gt;ST: bấm Làm mới
+    ST-&gt;&gt;S: GET /api/customers/C-000001
+    S--&gt;&gt;B: bản mới, do B chủ động lấy
+            </pre>
+            <figcaption>
+              Bước 11 là nguyên tắc vàng ở mục 3.6. Mọi thứ máy sinh ra (cache, danh sách) bị
+              thay ngay ở bước 9; thứ người dùng đang nhìn chỉ được
+              <em>gắn cờ</em>, và việc lấy bản mới do chính họ quyết định ở bước 12.
+            </figcaption>
+          </figure>
+
+          <!-- =========================================================== 6 -->
+          <h2 id="danh-doi"><span class="num">Mục 6</span>Đánh đổi &amp; phương án bị loại</h2>
+
+          <h4>SSE thay vì WebSocket (ADR-0006)</h4>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>SSE (đã chọn)</th>
+                  <th>WebSocket</th>
+                  <th>Polling</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Hướng</td>
+                  <td>Một chiều — đúng bài toán</td>
+                  <td>Hai chiều — thừa một chiều</td>
+                  <td>Client hỏi, một chiều ngược</td>
+                </tr>
+                <tr>
+                  <td>Xác thực</td>
+                  <td>Cookie phiên, như mọi request khác</td>
+                  <td>Một câu chuyện xác thực <strong>thứ hai</strong></td>
+                  <td>Như mọi request khác</td>
+                </tr>
+                <tr>
+                  <td>Hạ tầng</td>
+                  <td>Proxy, CORS, log đã phủ sẵn</td>
+                  <td>Proxy phải cấu hình riêng cho upgrade</td>
+                  <td>Đã phủ sẵn</td>
+                </tr>
+                <tr>
+                  <td>Reconnect &amp; replay</td>
+                  <td><strong>Trình duyệt tặng kèm</strong></td>
+                  <td>Tự viết hết</td>
+                  <td>Không cần</td>
+                </tr>
+                <tr>
+                  <td>Độ trễ</td>
+                  <td>Tức thì</td>
+                  <td>Tức thì</td>
+                  <td>Bằng chu kỳ hỏi</td>
+                </tr>
+                <tr>
+                  <td>Tải lên server</td>
+                  <td>Một kết nối mở</td>
+                  <td>Một kết nối mở</td>
+                  <td>n request/phút × số tab, phần lớn trả về "không có gì mới"</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Một luồng mỗi tab — và vì sao <em>không</em> bầu một tab làm đại diện</h4>
+          <p>
+            Giới hạn được ghi thẳng trong "Known limits":
+            <em
+              >"One stream per tab; six tabs exhaust HTTP/1.1's per-origin connection
+              limit."</em
+            >
+            Phương án hiển nhiên là cho một tab làm leader giữ luồng rồi phát lại cho các tab
+            khác qua kênh nội bộ — và nó <strong>bị loại có chủ ý</strong> (ADR-0027, câu hỏi
+            mở 5), vì hai lý do: HTTP/2 vốn đã ghép nhiều luồng trên một kết nối, và
+            <em>"a leader tab relaying events is worse than the problem"</em> — bạn sẽ phải
+            xử lý leader chết giữa chừng, bầu lại, phát lại cho tab mới mở… tức là toàn bộ
+            độ phức tạp của brief 26, để sửa một vấn đề mà HTTP/2 đã sửa.
+          </p>
+
+          <h4>Replay buffer 200, bộ nhớ id 500</h4>
+          <p>
+            Hai con số phải đi cùng nhau, và con số của client phải
+            <strong>lớn hơn</strong>: nếu client chỉ nhớ 100 id trong khi server có thể phát
+            lại 200 sự kiện, thì một lần phát lại dài sẽ lọt trùng. Chú thích ghi đúng ý đó —
+            <em>"Comfortably more than a replay can repeat."</em>
+          </p>
+
+          <h4>Sự kiện khách hàng chỉ được xử lý trong khu vực khách hàng</h4>
+          <p>
+            Đang ở trang <code>/technical-labs</code> thì một thay đổi khách hàng
+            <em>không</em> làm gì cả — vì ở đó không có state khách hàng nào để giữ tươi.
+            Đánh đổi: thông báo cũng không hiện. Chấp nhận được vì trung tâm thông báo vẫn ghi
+            lại khi quay về khu vực đó, và vì việc giữ một listener sống toàn ứng dụng chỉ để
+            cập nhật cache của một feature không ai xem là một chi phí không trả.
+          </p>
+
+          <!-- =========================================================== 7 -->
+          <h2 id="vo-the-nao">
+            <span class="num">Mục 7</span>Làm kiểu ngây thơ thì vỡ thế nào
+          </h2>
+
+          <div class="box box--pitfall">
+            <span class="box__label">1. Nhận sự kiện xong thay luôn dữ liệu trên màn hình</span>
+            <p>
+              Người dùng đang đọc dòng thứ ba của một hồ sơ thì nội dung đổi dưới mắt họ. Tệ
+              hơn: họ đang gõ dở form, và bản "mới hơn" từ server xoá sạch phần đã gõ. Đây là
+              lỗi UX nặng nhất trong danh sách, và cũng là lỗi hay gặp nhất, vì nó
+              <em>trông như</em> điều đúng phải làm.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">2. Không khử trùng lặp, vì "server đâu có gửi hai lần"</span>
+            <p>
+              Server <strong>có</strong> — mỗi lần phát lại sau reconnect. Hậu quả nhìn thấy
+              được: một thông báo hiện hai, ba lần; một bộ đếm tăng gấp đôi; một danh sách tự
+              nạp lại liên tục. Và nó chỉ xảy ra khi mạng chập chờn, nên không bao giờ tái
+              hiện được trên máy bạn.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">3. Tin vào một lần phát lại một phần</span>
+            <p>
+              Server phát lại "những gì còn trong buffer" thay vì nói "tôi không biết". Client
+              tưởng đã bắt kịp. Kết quả là một khoảng thủng vĩnh viễn trong dữ liệu trên màn
+              hình mà <em>không ai</em> phát hiện được — cho tới khi có người so bằng tay và
+              thấy số liệu sai.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label"
+              >4. Không phân biệt <code>CONNECTING</code> với <code>CLOSED</code></span
+            >
+            <p>
+              Hai cách hỏng đối xứng nhau, cả hai đều tệ.
+              <strong>Xử lý mọi <code>onerror</code> bằng cách mở luồng mới</strong>: trình
+              duyệt cũng đang thử lại, nên bạn có hai luồng song song, rồi bốn — mỗi sự kiện
+              tới n lần. <strong>Không xử lý <code>onerror</code> gì cả</strong>: khi cookie
+              hết hạn, trình duyệt đóng vĩnh viễn, và realtime chết trong im lặng cho tới khi
+              người dùng F5.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">5. Quên heartbeat</span>
+            <p>
+              Trên máy bạn thì tốt. Sau reverse proxy thì kết nối bị đóng sau 30–60 giây im
+              lặng, và ứng dụng rơi vào vòng nối lại vĩnh viễn. Cặp đôi của lỗi này là quên
+              <code>X-Accel-Buffering: no</code>: kết nối sống, nhưng sự kiện bị proxy giữ lại
+              cho tới khi đầy buffer.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">6. Không đóng luồng khi đăng xuất</span>
+            <p>
+              Người dùng đăng xuất, nhưng luồng vẫn mở và vẫn nhận sự kiện của phiên cũ. Nhẹ
+              thì rò rỉ; nặng thì hiện thông báo về dữ liệu mà người đang ngồi trước máy không
+              còn quyền xem. Repo neo vòng đời vào shell:
+              <em
+                >"opened with the shell, closed with it - which is also what happens on
+                sign-out and on an expired session, both of which leave the shell."</em
+              >
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">7. <code>JSON.parse</code> rồi dùng thẳng</span>
+            <p>
+              Một sự kiện sai hình dạng — server cũ hơn, một bản deploy dở dang — và bạn có
+              <code>undefined</code> đi sâu vào store. Tệ hơn: một ngoại lệ không bắt trong
+              handler sự kiện làm chết cả luồng, và realtime ngừng hoạt động cho tới khi tải
+              lại trang. Kiểm theo contract, log, bỏ qua, đi tiếp.
+            </p>
+          </div>
+
+          <div class="box box--pitfall">
+            <span class="box__label">8. Không hiện trạng thái kết nối</span>
+            <p>
+              Người dùng tin rằng màn hình tự cập nhật. Khi nó ngừng, không có dấu hiệu nào.
+              Họ ra quyết định dựa trên dữ liệu một tiếng trước và tin rằng đó là dữ liệu của
+              giây này. Một tính năng realtime hỏng trong im lặng còn tệ hơn không có
+              realtime.
+            </p>
+          </div>
+
+          <!-- =========================================================== 8 -->
+          <h2 id="test"><span class="num">Mục 8</span>Test ở đâu, khẳng định điều gì</h2>
+
+          <p>
+            Realtime là loại tính năng mà "chạy thử thấy được" gần như vô dụng: mọi phần khó
+            chỉ xuất hiện khi mạng hỏng, khi token hết hạn, khi server khởi động lại. Nên tất
+            cả đều phải <em>dựng được theo ý muốn</em> trong test — và đó chính là lý do
+            <code>EVENT_SOURCE_FACTORY</code> tồn tại.
+          </p>
+
+          <div class="code">
+            <div class="code__file">core/realtime/realtime-client.spec.ts</div>
+            <pre><code>class FakeEventSource {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+  readonly CONNECTING = 0;
+  readonly OPEN = 1;
+  readonly CLOSED = 2;
+
+  readyState = FakeEventSource.CONNECTING;
+  closed = false;
+  onopen: (() =&gt; void) | null = null;
+  onerror: (() =&gt; void) | null = null;
+  ...</code></pre>
+          </div>
+
+          <p>
+            Một bản giả viết tay, khoảng ba mươi dòng, điều khiển hoàn toàn bằng tay: test tự
+            gọi <code>onopen</code>, tự đặt <code>readyState = CLOSED</code> rồi gọi
+            <code>onerror</code>, tự <code>emit</code> một sự kiện hai lần. Mọi tình huống ở
+            mục 3 trở thành hai dòng code.
+          </p>
+
+          <p>Mười một test, và tên của chúng đọc như một bản đặc tả:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tên test</th>
+                  <th>Canh phần nào của brief</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><em>reports its connection state as it goes</em></td>
+                  <td>Máy trạng thái ở 5.1</td>
+                </tr>
+                <tr>
+                  <td><em>opens one stream, however many times it is asked to connect</em></td>
+                  <td>
+                    <code>connect()</code> gọi hai lần không mở hai luồng — bảo vệ bằng
+                    <code>if (status !== 'idle') return</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><em>delivers events, validated against the contract</em></td>
+                  <td>
+                    Và trong cùng test đó có một dòng <code>emit(..., 'not json')</code>: hỏng
+                    một sự kiện không được làm chết luồng
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <em
+                      >drops an event it has already delivered - duplicates are normal with
+                      SSE</em
+                    >
+                  </td>
+                  <td>Mục 3.4</td>
+                </tr>
+                <tr>
+                  <td>
+                    <em
+                      >lets the browser retry a dropped connection, and says it is
+                      reconnecting</em
+                    >
+                  </td>
+                  <td>
+                    Loại hỏng 1 — và chữ <em>"lets"</em> là lời khẳng định:
+                    <strong>không</strong> được tự mở luồng mới
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <em
+                      >takes over when the browser gives up: renews the session, then reopens
+                      where it left off</em
+                    >
+                  </td>
+                  <td>
+                    Loại hỏng 2, cả ba bước: backoff → làm mới phiên → mở lại kèm
+                    <code>?lastEventId=</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><em>backs off further each time the server stays unreachable</em></td>
+                  <td>Backoff thật sự tăng, không phải thử lại đều đặn</td>
+                </tr>
+                <tr>
+                  <td><em>stops reconnecting when the session cannot be renewed</em></td>
+                  <td>
+                    Mũi tên <code>reconnecting → idle</code>: biết khi nào
+                    <em>không</em> thử lại nữa
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <em
+                      >announces a resync, so consumers revalidate instead of trusting a
+                      gap</em
+                    >
+                  </td>
+                  <td>Mục 3.5</td>
+                </tr>
+                <tr>
+                  <td>
+                    <em>cleans up completely on disconnect: stream closed, retry cancelled</em>
+                  </td>
+                  <td>Cả ba tài nguyên: luồng, timer, subscription đang chờ</td>
+                </tr>
+                <tr>
+                  <td><em>disconnects when its injector is destroyed</em></td>
+                  <td>Vòng đời gắn với shell (bài 05)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Ba tầng còn lại:</p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ở đâu</th>
+                  <th>Khẳng định gì</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>apps/mock-api/test/events.spec.ts</code></td>
+                  <td>
+                    Phía server: phát lại, <code>resync</code>, ngắt kết nối theo phiên, giao
+                    hàng trùng lặp
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>customers/state/customer-realtime-sync.spec.ts</code>,
+                    <code>customer-store.phase4.spec.ts</code>
+                  </td>
+                  <td>Một sự kiện <em>làm gì</em> với store và với thông báo</td>
+                </tr>
+                <tr>
+                  <td><code>e2e/enterprise-ux.spec.ts</code></td>
+                  <td>
+                    Hai người dùng, trình duyệt thật: nhận tin, bấm làm mới, bản trùng chỉ
+                    hiện một lần, nối lại sau khi server ngắt
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box--note">
+            <span class="box__label"
+              >Chi tiết đáng chép: mock API có nút bấm cho tình huống khó</span
+            >
+            <p>
+              Mock API lộ ra <code>POST /api/_mock/events/duplicate</code> để
+              <em>ra lệnh</em> gửi lại một sự kiện. Nhờ nó, bộ E2E chứng minh được việc khử
+              trùng lặp trong một trình duyệt thật — thay vì phải chờ một lần rớt mạng ngẫu
+              nhiên xảy ra đúng lúc.
+            </p>
+            <p>
+              Mẫu chung: <strong>backend giả nên có cần gạt để dựng những tình huống mà
+              backend thật chỉ tạo ra một cách ngẫu nhiên.</strong> Brief 34 nói kỹ về cách
+              repo làm việc đó.
+            </p>
+          </div>
+
+          <!-- =========================================================== 9 -->
+          <h2 id="tong-hop"><span class="num">Mục 9</span>Sơ đồ tổng hợp</h2>
+
+          <figure class="diagram">
+            <pre class="mermaid">
+flowchart TD
+    S{"Tôi cần dữ liệu tự cập nhật"}
+
+    S --> D1{"Dữ liệu đi theo chiều nào?"}
+    D1 -->|"chỉ server nói"| SSE["SSE — dùng lại cookie, proxy, CORS<br/>trình duyệt tặng reconnect và Last-Event-ID"]
+    D1 -->|"hai chiều thật sự"| WS["WebSocket — và chấp nhận<br/>một câu chuyện xác thực thứ hai"]
+    D1 -->|"cập nhật chậm cũng được"| POLL["polling — đừng xấu hổ<br/>đơn giản nhất mà đủ thì là đúng"]
+
+    SSE --> P1["Server: id · event · data<br/>heartbeat · X-Accel-Buffering no<br/>dọn dẹp khi req close"]
+    P1 --> P2["Replay buffer hữu hạn<br/>id rơi khỏi buffer thì gửi resync, KHÔNG phát lại một phần"]
+
+    SSE --> C1["Client: một lớp, bốn việc"]
+    C1 --> C2["1. parse + kiểm theo contract<br/>sự kiện hỏng không giết luồng"]
+    C1 --> C3["2. khử trùng theo id, ở MỘT chỗ<br/>nhớ nhiều hơn server phát lại được"]
+    C1 --> C4["3. hai loại onerror:<br/>CONNECTING thì để yên · CLOSED thì tới lượt ta"]
+    C1 --> C5["4. CLOSED: backoff → làm mới phiên qua HttpClient<br/>→ mở lại kèm lastEventId"]
+
+    C1 --> L["Vòng đời: mở theo shell, đóng theo shell<br/>timer và subscription cũng phải huỷ"]
+    C1 --> V["HIỆN trạng thái kết nối<br/>realtime chết im lặng tệ hơn không có realtime"]
+
+    C2 --> U{"Sự kiện tới. Dữ liệu đó đang ở đâu?"}
+    U -->|"cache, danh sách — máy sinh ra"| R1["thay ngay, không hỏi"]
+    U -->|"bản ghi đang đọc, form đang gõ"| R2["GẮN CỜ, KHÔNG THAY<br/>+ một nút để người dùng tự lấy bản mới"]
+    U -->|"do chính mình gây ra"| R3["bỏ qua — tab này áp dụng rồi"]
+            </pre>
+            <figcaption>
+              Nhánh đầu quyết định mọi thứ còn lại: <em>dữ liệu đi theo chiều nào</em>. Hai ô
+              dưới cùng bên phải là hai nguyên tắc dễ quên nhất — gắn cờ thay vì thay, và bỏ
+              qua sự kiện do chính mình gây ra.
+            </figcaption>
+          </figure>
+
+          <!-- ========================================================== 10 -->
+          <h2 id="bai-tap"><span class="num">Mục 10</span>Bài tập</h2>
+
+          <div class="task">
+            <h3>Bài 1 — Hai cửa sổ, một bản ghi</h3>
+            <p class="task__meta">~30 phút · không sửa code</p>
+            <ol>
+              <li>
+                Chạy <code>npm start</code> và <code>npm run start:api</code>. Mở hai cửa sổ
+                trình duyệt, đăng nhập bằng <strong>hai người dùng khác nhau</strong> (xem
+                fixture user trong <code>@ecm/contracts</code>).
+              </li>
+              <li>
+                Cửa sổ B mở một khách hàng. Cửa sổ A sửa đúng khách hàng đó. Ghi lại
+                <em>chính xác</em> những gì B thấy, theo thứ tự.
+              </li>
+              <li>
+                Bản ghi trên màn hình B <strong>có</strong> đổi không? Phải bấm gì thì nó mới
+                đổi?
+              </li>
+              <li>
+                Mở DevTools → Network ở cửa sổ B, lọc theo <code>events</code>. Mở tab
+                <em>EventStream</em> (Chrome có sẵn). Bạn thấy gì mỗi 15 giây?
+              </li>
+              <li>
+                Giờ để B đứng ở <em>danh sách</em> chứ không phải trang chi tiết, rồi lặp lại.
+                Hành vi khác thế nào? Vì sao khác?
+              </li>
+              <li>
+                Cuối cùng: ở cửa sổ A, đăng nhập <strong>cùng</strong> người dùng với B (hai
+                tab, một người). Sửa một khách hàng. Câu thông báo ở B có khác không? Vì sao?
+              </li>
+            </ol>
+            <details>
+              <summary>Bạn phải thấy gì</summary>
+              <p>
+                (3) Không đổi — chỉ có banner/snackbar. Đó là mục 3.6. (5) Danh sách bị nạp
+                lại <em>ngay</em>, vì nó không giữ thứ gì người dùng gõ. (6) Câu khác, vì nó đi
+                qua kênh tab chứ không qua SSE — và đó là brief 26.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 2 — Phá kết nối, bằng ba cách khác nhau</h3>
+            <p class="task__meta">~40 phút · không sửa code sản phẩm</p>
+            <p>
+              Mục đích: tận mắt thấy hai loại hỏng ở mục 3.3 <em>khác nhau</em> thế nào.
+            </p>
+            <ol>
+              <li>
+                <strong>Rớt mạng.</strong> DevTools → Network → Offline. Theo dõi chấm trạng
+                thái kết nối. Bật mạng lại. Mất bao lâu để về <code>open</code>? Có sự kiện nào
+                bị mất không? (Sửa một khách hàng ở cửa sổ kia trong lúc B offline.)
+              </li>
+              <li>
+                <strong>Server chết.</strong> Dừng mock API bằng Ctrl+C. Quan sát. Khởi động
+                lại. Lần này client mất bao lâu để quay lại, và vì sao
+                <em>lâu hơn</em> trường hợp 1?
+              </li>
+              <li>
+                <strong>Phiên hết hạn.</strong> Xoá cookie phiên trong DevTools → Application →
+                Cookies, rồi chờ. Chuyện gì xảy ra? Có bao nhiêu request
+                <code>/auth/session</code> được gửi?
+              </li>
+              <li>
+                Với mỗi trường hợp, ghi lại: <code>readyState</code> là gì, ai là người thử lại
+                (trình duyệt hay <code>RealtimeClient</code>), và trạng thái hiển thị là gì.
+              </li>
+            </ol>
+            <details>
+              <summary>Vì sao trường hợp 2 lâu hơn</summary>
+              <p>
+                Trường hợp 1 là <code>CONNECTING</code>: trình duyệt tự thử lại, theo nhịp
+                riêng của nó, khá nhanh. Trường hợp 2 và 3 kết thúc ở
+                <code>CLOSED</code>, và lúc đó <em>client</em> thử lại theo backoff — 1 s, 2 s,
+                4 s… Nếu server chết lâu, lần thử tiếp theo có thể cách tới 30 giây. Đó là chủ
+                ý: một server đang khởi động lại không cần bị hàng trăm tab nện vào.
+              </p>
+            </details>
+          </div>
+
+          <div class="task">
+            <h3>Bài 3 — Gỡ phần khử trùng lặp ra</h3>
+            <p class="task__meta">~30 phút · sửa code rồi hoàn nguyên</p>
+            <ol>
+              <li>
+                Trong <code>realtime-client.ts</code>, vô hiệu hoá phép kiểm
+                <code>if (this.seenIds.has(event.id))</code>.
+              </li>
+              <li>
+                Chạy <code>npx vitest run realtime-client</code>. Test nào đổ? Thông báo có nói
+                rõ vấn đề không?
+              </li>
+              <li>
+                Hoàn nguyên, rồi thử một thứ tinh vi hơn: chuyển dòng
+                <code>this.lastEventId = event.id</code> xuống <em>sau</em> phép kiểm trùng. Có
+                test nào đổ không?
+              </li>
+              <li>
+                Nếu <strong>không</strong> có test nào đổ: hãy nghĩ xem lỗi đó sẽ biểu hiện thế
+                nào trong thực tế (gợi ý: sau nhiều lần nối lại liên tiếp), và viết một test
+                khiến nó đổ.
+              </li>
+              <li>Hoàn nguyên.</li>
+            </ol>
+            <details>
+              <summary>Vì sao bước 3 đáng làm</summary>
+              <p>
+                Vì nó là loại lỗi mà bạn sẽ tự tay viết ra: đọc code thấy "chỉ cập nhật id khi
+                thật sự xử lý sự kiện" nghe <em>hợp lý hơn</em>. Hậu quả chỉ lộ ra sau nhiều
+                lần reconnect — con trỏ đọc tụt lại, mỗi lần phát lại dài hơn, và số sự kiện
+                trùng tăng dần. Nếu bộ test hiện tại không bắt được, bạn vừa tìm ra một dòng
+                test đáng thêm.
+              </p>
+            </details>
+          </div>
+
+          <!-- ========================================================== 11 -->
+          <h2 id="tu-kiem-tra"><span class="num">Mục 11</span>Tự kiểm tra</h2>
+
+          <details>
+            <summary>1. Vì sao SSE chứ không WebSocket cho bài toán này?</summary>
+            <p>
+              Vì sự kiện chỉ đi một chiều. SSE là HTTP thuần nên dùng lại được cookie phiên,
+              proxy, CORS và log đã có; trình duyệt tặng kèm reconnect và
+              <code>Last-Event-ID</code>. WebSocket sẽ thêm một giao thức thứ hai và một câu
+              chuyện xác thực thứ hai cho một chiều không ai đi.
+            </p>
+          </details>
+
+          <details>
+            <summary>2. Hai loại hỏng của một luồng SSE, và phân biệt bằng gì?</summary>
+            <p>
+              Bằng <code>readyState</code> bên trong <code>onerror</code>.
+              <code>CONNECTING</code>: trình duyệt đang tự thử lại kèm
+              <code>Last-Event-ID</code> — chỉ báo trạng thái rồi để yên.
+              <code>CLOSED</code>: trình duyệt đã bỏ cuộc (thường vì một mã lỗi, phổ biến nhất
+              là 401) — lúc đó mới tới lượt mình: backoff, làm mới phiên, mở lại.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              3. Vì sao phải làm mới phiên qua <code>HttpClient</code> chứ không mở thẳng luồng
+              mới?
+            </summary>
+            <p>
+              Vì <code>EventSource</code> không đi qua chuỗi interceptor, nên nó không thể tự
+              làm mới access token. Gọi <code>GET /auth/session</code> bằng
+              <code>HttpClient</code> thì interceptor refresh (bài 19) làm việc đó trên đường
+              đi, và luồng mới mở ra với cookie còn hiệu lực.
+            </p>
+          </details>
+
+          <details>
+            <summary>4. Vì sao sự kiện trùng là bình thường, và khử ở đâu?</summary>
+            <p>
+              Vì đoạn phát lại sau khi nối lại chồng lên những gì đã tới trước lúc rớt. Khử ở
+              <strong>một chỗ duy nhất</strong>, ngay sau khi parse và trước khi consumer nào
+              nhìn thấy — nhớ 500 id gần nhất, nhiều hơn số sự kiện server có thể phát lại.
+            </p>
+          </details>
+
+          <details>
+            <summary>5. Server nên làm gì khi id client khai đã rơi khỏi buffer?</summary>
+            <p>
+              Gửi <code>resync</code>: "tôi không nói được bạn đã lỡ gì". Phát lại một phần là
+              lựa chọn tệ nhất — client tưởng đã bắt kịp trong khi có một khoảng thủng mà không
+              ai biết.
+            </p>
+          </details>
+
+          <details>
+            <summary>6. Khi nào được thay dữ liệu, khi nào chỉ được gắn cờ?</summary>
+            <p>
+              Máy sinh ra thì được thay (cache, danh sách đang hiện). Người dùng chạm vào thì
+              chỉ được gắn cờ (bản ghi đang đọc, form đang gõ) — kèm một nút để chính họ lấy
+              bản mới.
+            </p>
+          </details>
+
+          <details>
+            <summary>7. Vì sao phải hiện trạng thái kết nối?</summary>
+            <p>
+              Vì người dùng tin rằng màn hình tự cập nhật. Nếu luồng chết mà không có dấu hiệu
+              nào, họ ra quyết định trên dữ liệu một tiếng trước mà tin là của giây này. Một
+              tính năng realtime hỏng trong im lặng tệ hơn không có realtime.
+            </p>
+          </details>
+
+          <details>
+            <summary>
+              8. Vì sao <code>RealtimeClient</code> ở root còn
+              <code>CustomerRealtimeSync</code> ở route?
+            </summary>
+            <p>
+              Một luồng mỗi tab, nên client phải là root — nhưng nó chỉ được
+              <em>kết nối</em> khi shell tồn tại. Còn lớp diễn giải sự kiện thành hành động cho
+              khách hàng thì chỉ có nghĩa khi store khách hàng còn sống, nên nó được cung cấp
+              bởi route và chết cùng route.
+            </p>
+          </details>
+
+          <div class="box box--note">
+            <span class="box__label">Brief liên quan</span>
+            <p>
+              <strong>Brief 26</strong> trả lời câu hỏi mà brief này cố tình để lại: thay đổi
+              do <em>chính người dùng đó</em> ở một <em>tab khác</em> thì đi bằng đường nào —
+              <code>BroadcastChannel</code>, bầu leader, và Web Lock.
+              <strong>Brief 35</strong> nói về tầng thông báo mà mục 4.4 vừa gọi tới.
+            </p>
+          </div>
+
+          <nav class="next">
+            <span><a href="index.html">← Lộ trình</a></span>
+            <span><a href="26-da-tab-va-leader-election.html">Brief 26 →</a></span>
+          </nav>
+        </main>
+
+        <aside class="toc">
+          <h2>Trong brief này</h2>
+          <ol start="0">
+            <li><a href="#tu-vung">Từ vựng</a></li>
+            <li><a href="#muc-tieu">Làm được gì</a></li>
+            <li><a href="#dich-tu-backend">Dịch từ backend</a></li>
+            <li><a href="#co-che">Cơ chế</a></li>
+            <li><a href="#trong-repo">Trong repo này</a></li>
+            <li><a href="#so-do">Sơ đồ</a></li>
+            <li><a href="#danh-doi">Đánh đổi</a></li>
+            <li><a href="#vo-the-nao">Vỡ thế nào</a></li>
+            <li><a href="#test">Test ở đâu</a></li>
+            <li><a href="#tong-hop">Sơ đồ tổng hợp</a></li>
+            <li><a href="#bai-tap">Bài tập</a></li>
+            <li><a href="#tu-kiem-tra">Tự kiểm tra</a></li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="assets/lesson.js"></script>
+  </body>
+</html>
