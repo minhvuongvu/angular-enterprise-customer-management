@@ -64,6 +64,27 @@ describe('customer list', () => {
     expect(descending.body.items[0].fullName).not.toBe(ascending.body.items[0].fullName);
   });
 
+  it('sorts by creation instant, in both directions', async () => {
+    // A separate branch from the collator-based fields: instants compare as
+    // ISO-8601 strings, which order chronologically only because every
+    // stored instant is UTC with the same fixed width.
+    const ascending = await admin.json<PageResponse<Customer>>(
+      '/api/customers?sort=createdAt,asc&size=50',
+    );
+    const descending = await admin.json<PageResponse<Customer>>(
+      '/api/customers?sort=createdAt,desc&size=50',
+    );
+
+    const ascendingMs = ascending.body.items.map((item) => Date.parse(item.createdAt));
+    const descendingMs = descending.body.items.map((item) => Date.parse(item.createdAt));
+    expect(ascendingMs).toEqual([...ascendingMs].sort((a, b) => a - b));
+    expect(descendingMs).toEqual([...descendingMs].sort((a, b) => b - a));
+    // Each first page starts at its own end of the whole collection, not
+    // just of a page that happens to be in order.
+    expect(ascendingMs[0]).toBeLessThan(descendingMs[0]);
+    expect(Math.max(...ascendingMs)).toBeLessThanOrEqual(Math.min(...descendingMs));
+  });
+
   it('rejects a sort field it does not recognise instead of ignoring it', async () => {
     // Silently ignoring an unknown sort is how a UI ends up showing unsorted
     // data while insisting it is sorted.
