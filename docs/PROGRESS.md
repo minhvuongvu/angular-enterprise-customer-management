@@ -63,6 +63,25 @@ Two things were fixed on 2026-09-20 and will look confusing if rediscovered late
 
 Newest entry first. One entry per phase, appended at the end of that phase.
 
+### After Phase 8 - The mock API's log line (found by the React twin)
+
+**Completed:** 2026-10-21 - **Branch:** `fix/mock-api-log-redaction` (from `phase-8`)
+
+**Fixed**
+
+`MockApiLogger.write` wrote the message unredacted and spread the caller's fields after its
+own, so a caller passing `{ level: 'debug' }` filed an `error` under `debug` - out of every
+alert. `docs/observability.md` already promised value redaction "including the message".
+Now the message goes through `redactText`, and `timestamp`, `level`, `message` and `service`
+are written after the caller's fields, the browser logger's order. Two tests in
+`observability.spec.ts`, red before the fix.
+
+Found while writing the React twin's learning course. The React twin's `apps/mock-api` is
+this server, ported unchanged, so the fix is made here first and ported back.
+
+**Checks:** mock API 135 tests passing (was 133), `tsc` and ESLint clean on the package,
+Prettier clean. Log lines only: no response, status or envelope changes.
+
 ### Phase 8 - Enterprise Codebase Review
 
 **Completed:** 2026-10-02 - **Tag:** `phase-8-complete`

@@ -1,4 +1,4 @@
-import { redactLogFields } from '@ecm/contracts';
+import { redactLogFields, redactText } from '@ecm/contracts';
 
 /**
  * The mock API's structured log.
@@ -70,11 +70,14 @@ export class MockApiLogger {
 
   private write(level: LogLevel, message: string, fields: Record<string, unknown>): void {
     const entry: LogEntry = {
+      ...redactLogFields(fields),
+      // After the fields, so a caller cannot overwrite them - an `error`
+      // filed under `level: 'debug'` would vanish from every alert. The
+      // message is redacted too: it is free text like any other.
       timestamp: new Date().toISOString(),
       level,
-      message,
+      message: redactText(message),
       service: 'mock-api',
-      ...redactLogFields(fields),
     };
 
     this.buffer.push(entry);

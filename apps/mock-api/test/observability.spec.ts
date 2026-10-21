@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ACCESS_COOKIE_NAME, CORRELATION_ID_HEADER, REDACTED } from '@ecm/contracts';
+import { MockApiLogger } from '../src/logging/logger.ts';
 import { startTestServer, type TestServer } from './helpers.ts';
 
 /**
@@ -125,5 +126,40 @@ describe('request log', () => {
 
     expect(status).toBe(200);
     expect(body.entries.map((entry) => entry.correlationId)).toEqual(['query-1']);
+  });
+});
+
+/**
+ * The logger on its own, without a server: the guarantees a caller relies on
+ * without reading the class - the same two the browser's logger gives.
+ */
+describe('MockApiLogger', () => {
+  const quietLogger = () => new MockApiLogger({ level: 'info', stdout: false, bufferSize: 10 });
+
+  it('masks an email address and a bearer token in the message, not only in the fields', () => {
+    const logger = quietLogger();
+
+    logger.warn('Import rejected binh@example.test, sent with Bearer abc.def', {
+      correlationId: 'message-1',
+    });
+
+    const [entry] = logger.entries('message-1');
+    expect(entry?.message).toBe(`Import rejected [email], sent with Bearer ${REDACTED}`);
+  });
+
+  it('keeps the level, time and service it set itself, whatever the fields say', () => {
+    const logger = quietLogger();
+
+    logger.error('Disk full', {
+      correlationId: 'common-1',
+      level: 'debug',
+      service: 'web',
+      timestamp: 'yesterday',
+    });
+
+    const [entry] = logger.entries('common-1');
+    expect(entry?.level).toBe('error');
+    expect(entry?.service).toBe('mock-api');
+    expect(entry?.timestamp).not.toBe('yesterday');
   });
 });
