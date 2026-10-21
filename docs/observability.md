@@ -67,7 +67,7 @@ request, without a mapping table.
 | `correlationId`        | One per request - see §3                                                         |
 | `pageViewId`           | One per page load: groups a tab's lines **without identifying the person**       |
 | `url` / `route`        | Path only, or the route template (`/api/customers/:id`) - never the query string |
-| `durationMs`, `status` | As the side that logs it saw them                                                |
+| `durationMs`, `status` | As the side that logs it saw them; no `status` when none was sent                |
 
 ## 3. Correlation ids, end to end
 

@@ -15,6 +15,14 @@ declare global {
       /** Set by `requireAuth`. Undefined on public routes. */
       authUser?: FixtureUser;
     }
+
+    interface Locals {
+      /**
+       * Set by fault injection just before it destroys the socket on purpose,
+       * so the request log can tell that close apart from a client hanging up.
+       */
+      droppedByScenario?: string;
+    }
   }
 }
 

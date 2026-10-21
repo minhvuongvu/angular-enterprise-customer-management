@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ACCESS_COOKIE_NAME, CORRELATION_ID_HEADER, REDACTED } from '@ecm/contracts';
 import { MockApiLogger } from '../src/logging/logger.ts';
 import { startTestServer, type TestServer } from './helpers.ts';
@@ -100,6 +100,54 @@ describe('request log', () => {
       'HTTP request failed',
     ]);
     expect(entries.every((entry) => entry.level === 'error')).toBe(true);
+  });
+
+  it('logs a deliberately dropped connection as the server dropping it, with no status', async () => {
+    // The socket closes before any response is written, which on its own looks
+    // exactly like a client hanging up - and `res.statusCode` is still the
+    // 200 Node starts every response with, though nothing was ever sent.
+    await expect(
+      server.client().call('/api/health', {
+        scenario: 'network-drop',
+        headers: { [CORRELATION_ID_HEADER]: 'drop-1' },
+      }),
+    ).rejects.toThrow();
+
+    // The client can see the reset before the server has run its close handlers.
+    await vi.waitFor(() => expect(server.logger.entries('drop-1')).toHaveLength(1));
+    const [entry] = server.logger.entries('drop-1');
+    expect(entry).toMatchObject({
+      level: 'warn',
+      message: 'HTTP connection dropped by the server',
+      scenario: 'network-drop',
+      route: '/api/health',
+    });
+    expect(entry).not.toHaveProperty('status');
+  });
+
+  it('still logs a client hanging up as the client, with the status it was sent', async () => {
+    const client = server.client();
+    await client.login('admin');
+    const abort = new AbortController();
+    const response = await fetch(`${server.baseUrl}/api/events`, {
+      headers: {
+        cookie: `${ACCESS_COOKIE_NAME}=${client.cookie(ACCESS_COOKIE_NAME)}`,
+        [CORRELATION_ID_HEADER]: 'hang-up-1',
+      },
+      signal: abort.signal,
+    });
+    expect(response.status).toBe(200);
+
+    // An event stream only ever ends this way: the browser closes it.
+    abort.abort();
+
+    await vi.waitFor(() => expect(server.logger.entries('hang-up-1')).toHaveLength(1));
+    expect(server.logger.entries('hang-up-1')[0]).toMatchObject({
+      level: 'debug',
+      message: 'HTTP request aborted by the client',
+      route: '/api/events',
+      status: 200,
+    });
   });
 
   it('applies the shared redaction policy to anything a handler logs', () => {

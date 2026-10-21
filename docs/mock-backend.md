@@ -103,17 +103,28 @@ teaches people to rerun rather than to read.
 
 ### Applied before routing
 
-| Scenario            | Effect                                                                       |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `slow`              | Adds 3 seconds, then succeeds                                                |
-| `server-error`      | `500 INTERNAL_ERROR`                                                         |
-| `network-drop`      | Destroys the connection — no status at all, which is what offline looks like |
-| `unauthorized`      | `401`                                                                        |
-| `forbidden`         | `403`                                                                        |
-| `not-found`         | `404`                                                                        |
-| `validation-error`  | `422` with a sample field error                                              |
-| `rate-limit`        | `429` with `Retry-After: 30`                                                 |
-| `payload-too-large` | `413`                                                                        |
+| Scenario            | Effect                                                 |
+| ------------------- | ------------------------------------------------------ |
+| `slow`              | Adds 3 seconds, then succeeds                          |
+| `server-error`      | `500 INTERNAL_ERROR`                                   |
+| `network-drop`      | Destroys the connection without a response — see below |
+| `unauthorized`      | `401`                                                  |
+| `forbidden`         | `403`                                                  |
+| `not-found`         | `404`                                                  |
+| `validation-error`  | `422` with a sample field error                        |
+| `rate-limit`        | `429` with `Retry-After: 30`                           |
+| `payload-too-large` | `413`                                                  |
+
+What `network-drop` looks like depends on what sits between the client and this server.
+Called directly, the client gets no status at all - a network failure, which is what
+offline looks like. Through a reverse proxy, the dev server's proxy included, the proxy
+is the one that sees the dead upstream and it decides the answer: usually a `502`, which
+the client classifies as a server error, not a network one. A test that needs the
+network-failure path has to reach the server without a proxy in between.
+
+The request log records the drop as `warn` `HTTP connection dropped by the server`, with
+`scenario` and no `status` - nothing was sent. Without that mark the destroyed socket
+would read as a client hanging up.
 
 ### Applied by the handler
 

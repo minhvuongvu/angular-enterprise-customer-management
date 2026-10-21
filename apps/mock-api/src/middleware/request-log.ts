@@ -16,6 +16,11 @@ import type { MockApiLogger } from '../logging/logger.ts';
  *
  * Levels: a 5xx is `error` - the server failed. A 4xx is `info`: a 404 or a
  * 409 is this API working as designed, and an alert on it would be noise.
+ *
+ * A connection that closes before any headers were sent has no status, so
+ * none is logged. Who closed it matters: a client hanging up is normal traffic (`debug`); this
+ * server dropping it on purpose, for the `network-drop` scenario, is a failure
+ * someone asked for and is logged as one (`warn`).
  */
 export function requestLog(logger: MockApiLogger): RequestHandler {
   return (req, res, next) => {
@@ -33,15 +38,22 @@ export function requestLog(logger: MockApiLogger): RequestHandler {
         method: req.method,
         // The template, from the shared helper the browser's log uses too.
         route: endpointTemplate(req.originalUrl),
-        status: res.statusCode,
+        // Only a status that was sent. Before the headers go out,
+        // `res.statusCode` is the 200 Node starts every response with.
+        ...(res.headersSent ? { status: res.statusCode } : {}),
         durationMs,
         userId: req.authUser?.id,
         role: req.authUser?.role,
       };
       if (outcome === 'aborted') {
-        // The client went away first: a cancelled search, a closed tab, an
-        // event stream ending. Normal traffic.
-        logger.debug('HTTP request aborted by the client', fields);
+        const scenario = res.locals.droppedByScenario;
+        if (scenario) {
+          logger.warn('HTTP connection dropped by the server', { ...fields, scenario });
+        } else {
+          // The client went away first: a cancelled search, a closed tab, an
+          // event stream ending. Normal traffic.
+          logger.debug('HTTP request aborted by the client', fields);
+        }
       } else if (res.statusCode >= 500) {
         logger.error('HTTP request failed', fields);
       } else {

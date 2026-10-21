@@ -34,7 +34,7 @@ export const MOCK_SCENARIOS: readonly ScenarioDefinition[] = [
     name: 'network-drop',
     appliedBy: 'transport',
     description:
-      'Destroys the connection with no response - the client sees a network failure, not an HTTP status.',
+      'Destroys the connection with no response. Called directly, the client sees a network failure, not an HTTP status; through a reverse proxy (a dev-server proxy included) the proxy answers instead, usually 502.',
   },
   { name: 'unauthorized', appliedBy: 'transport', description: 'Responds 401 UNAUTHENTICATED.' },
   { name: 'forbidden', appliedBy: 'transport', description: 'Responds 403 FORBIDDEN.' },
@@ -121,8 +121,15 @@ export const faultInjection: RequestHandler = (req, res, next) => {
       setTimeout(next, SLOW_DELAY_MS);
       return;
     case 'network-drop':
-      // No status, no body: this is what being offline looks like to a client,
-      // and it is the case a try/catch around fetch has to cover.
+      // No status, no body. A client talking to this server directly sees what
+      // being offline looks like - the case a try/catch around fetch has to
+      // cover. A client behind a reverse proxy (a dev server's proxy included)
+      // sees whatever that proxy makes of a dead upstream, usually a 502: the
+      // proxy, not this server, decides.
+      //
+      // Marked first, because from the request log's side a destroyed socket
+      // is indistinguishable from a client that hung up.
+      res.locals.droppedByScenario = scenario.name;
       req.socket.destroy();
       return;
     case 'server-error':
