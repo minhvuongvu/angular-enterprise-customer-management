@@ -1,0 +1,10 @@
+/* The suite and its config, type-checked with the server's compiler options.
+ * Vitest strips types without checking them, so before this file a type
+ * error in test/ only ever surfaced in an editor. Kept separate from
+ * tsconfig.json - which describes the server that ships - the same way
+ * apps/web splits tsconfig.app.json from tsconfig.spec.json; `npm run
+ * typecheck` runs both. */
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

@@ -132,7 +132,12 @@ export class TestClient {
     content: Buffer | string,
   ): Promise<Response> {
     const form = new FormData();
-    form.append('file', new Blob([content], { type: contentType }), fileName);
+    // A Buffer is typed over `ArrayBufferLike` (it may sit on a
+    // SharedArrayBuffer), and the DOM lib's `BlobPart` - picked up by any
+    // tsconfig that includes that lib - refuses it. Copying into a plain
+    // Uint8Array sends the same bytes and type-checks under either lib.
+    const part = typeof content === 'string' ? content : new Uint8Array(content);
+    form.append('file', new Blob([part], { type: contentType }), fileName);
 
     const headers: Record<string, string> = {};
     if (this.cookies.size > 0) {

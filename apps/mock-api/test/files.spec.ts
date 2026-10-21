@@ -1,6 +1,7 @@
 import {
   AVATAR_MAX_BYTES,
   type Customer,
+  type ImportPreview,
   type ImportResult,
   type PageResponse,
 } from '@ecm/contracts';
