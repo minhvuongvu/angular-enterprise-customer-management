@@ -82,6 +82,32 @@ this server, ported unchanged, so the fix is made here first and ported back.
 **Checks:** mock API 135 tests passing (was 133), `tsc` and ESLint clean on the package,
 Prettier clean. Log lines only: no response, status or envelope changes.
 
+**Also fixed** - branch `fix/mock-api-after-course` (from `fix/mock-api-log-redaction`),
+found the same way:
+
+- **The mock API's tests were never type-checked.** `tsconfig.json` included `src/` only
+  and Vitest strips types without checking them: `files.spec.ts` used `ImportPreview`
+  without importing it, and `helpers.ts` handed a `Buffer` to `Blob`, which the DOM lib's
+  `BlobPart` refuses. New `tsconfig.spec.json` (`src/`, `test/`, `vitest.config.ts`); the
+  package's `typecheck` runs both, and the root `typecheck` reaches it via `--workspaces`.
+- **Sorting by `createdAt` had no test** although the store compares instants in their own
+  branch. `customers.spec.ts` now checks both directions; it fails if that branch falls
+  through to the default comparator.
+- **`network-drop` was logged as the client's doing**, `debug` "aborted by the client" with
+  `status: 200` - the status Node starts with, never sent. Fault injection now marks the
+  response (`res.locals.droppedByScenario`) before destroying the socket, and the request
+  log writes `warn` "HTTP connection dropped by the server" with the scenario and no
+  status. A line whose headers never went out has no `status` at all; a client hanging up
+  an event stream keeps `debug` and the `200` it was sent. Two tests in
+  `observability.spec.ts`. The scenario's description and `docs/mock-backend.md` no
+  longer claim the client always sees a network failure: that holds for a direct call;
+  through a reverse proxy, the dev-server proxy included, the proxy answers - usually 502.
+- **`npm audit --omit=dev --audit-level=high` failed in CI** on `source-map-js` 1.2.1
+  (GHSA-68fv-2mgg-jv7q, via postcss, sass and css-tree). Lock file only, to 1.2.2.
+
+**Checks:** mock API 138 tests passing, `npm run typecheck` (both configs) and ESLint
+clean on the package, Prettier clean, `npm audit --omit=dev --audit-level=high` clean.
+
 ### Phase 8 - Enterprise Codebase Review
 
 **Completed:** 2026-10-02 - **Tag:** `phase-8-complete`
